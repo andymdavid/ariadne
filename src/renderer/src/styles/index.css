@@ -1,0 +1,872 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary;
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden; /* No scrolling ever */
+  }
+
+  #root {
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-secondary;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border-default rounded;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-hover-bg;
+  }
+}
+
+@layer components {
+  /* Button variants */
+  .btn-primary {
+    @apply bg-accent-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md font-medium transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-bg-tertiary hover:bg-hover-bg text-text-primary px-4 py-2 rounded-md font-medium transition-colors border border-border-default;
+  }
+
+  .btn-ghost {
+    @apply hover:bg-hover-bg text-text-secondary hover:text-text-primary px-3 py-2 rounded-md font-medium transition-colors;
+  }
+
+  /* Card component */
+  .card {
+    @apply bg-bg-secondary border border-border-default rounded-lg;
+  }
+
+  /* Input styles */
+  .input {
+    @apply bg-bg-tertiary border border-border-default rounded-md px-3 py-2 text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-primary transition-colors;
+  }
+
+  /* Status indicators */
+  .status-pending {
+    @apply text-accent-warning;
+  }
+
+  .status-processing {
+    @apply text-accent-primary;
+  }
+
+  .status-completed {
+    @apply text-accent-success;
+  }
+
+  .status-error {
+    @apply text-accent-danger;
+  }
+
+  /* Video player slider styles */
+  .slider {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .slider::-webkit-slider-track {
+    background: #374151;
+    height: 8px;
+    border-radius: 4px;
+  }
+
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: #3b82f6;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    cursor: pointer;
+  }
+
+  .slider::-moz-range-track {
+    background: #374151;
+    height: 8px;
+    border-radius: 4px;
+    border: none;
+  }
+
+  .slider::-moz-range-thumb {
+    background: #3b82f6;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    cursor: pointer;
+    border: none;
+  }
+
+  /* Command Bar Glassmorphism Styles */
+  .command-bar {
+    /* Positioning */
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    
+    /* Dimensions */
+    width: 680px;
+    height: 56px;
+    
+    /* Glass Morphism Effect */
+    background: rgba(22, 27, 34, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    
+    /* Border & Shadow */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 28px; /* Perfect pill shape */
+    box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      0 2px 8px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      
+    /* Layout */
+    display: flex;
+    align-items: center;
+    padding: 8px 8px 8px 20px;
+    gap: 12px;
+    
+    /* Transitions */
+    transition: all 0.2s ease;
+  }
+
+  /* Focus State */
+  .command-bar.focused {
+    box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.4),
+      0 2px 8px rgba(0, 0, 0, 0.3),
+      0 0 0 2px rgba(88, 166, 255, 0.3);
+  }
+
+  /* Processing State */
+  .command-bar.processing {
+    background: rgba(22, 27, 34, 0.9);
+    border-color: rgba(88, 166, 255, 0.3);
+  }
+
+  /* Command Form */
+  .command-form {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    gap: 12px;
+  }
+
+  /* Input Field */
+  .command-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    
+    /* Typography */
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    font-size: 16px;
+    font-weight: 400;
+    color: #f0f6fc;
+    
+    /* Remove autofill styles */
+    -webkit-appearance: none;
+    -webkit-autofill,
+    -webkit-autofill:hover,
+    -webkit-autofill:focus {
+      -webkit-box-shadow: 0 0 0 1000px transparent inset;
+      -webkit-text-fill-color: #f0f6fc;
+    }
+  }
+
+  /* Placeholder */
+  .command-input::placeholder {
+    color: rgba(240, 246, 252, 0.5);
+  }
+
+  .command-input:disabled::placeholder {
+    color: rgba(240, 246, 252, 0.3);
+  }
+
+  /* Typing Animation */
+  .command-input.typing {
+    position: relative;
+  }
+
+  .command-input.typing::after {
+    content: "|";
+    animation: blink 1s infinite;
+    color: #58a6ff;
+    margin-left: 2px;
+  }
+
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+
+  /* Navigation Button */
+  .nav-button {
+    /* Dimensions */
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    
+    /* Styling */
+    background: rgba(88, 166, 255, 0.15);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    border-radius: 20px;
+    
+    /* Icon */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #58a6ff;
+    
+    /* Interaction */
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .nav-button:hover:not(:disabled) {
+    background: rgba(88, 166, 255, 0.25);
+    border-color: rgba(88, 166, 255, 0.5);
+    transform: translateX(2px);
+  }
+
+  .nav-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* Processing Spinner */
+  .processing-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(88, 166, 255, 0.3);
+    border-top: 2px solid #58a6ff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* Command Suggestions */
+  .command-suggestions {
+    position: fixed;
+    bottom: 128px; /* 56px bar + 8px gap + 64px margin for proper clearance */
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999;
+    
+    /* Dimensions */
+    width: 680px;
+    max-height: 200px;
+    
+    /* Glass Effect */
+    background: rgba(22, 27, 34, 0.9);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    
+    /* Border & Shadow */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      0 2px 8px rgba(0, 0, 0, 0.2);
+      
+    /* Layout */
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    
+    /* Animation */
+    animation: slideUp 0.2s ease-out;
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  /* Individual Suggestion */
+  .command-suggestion {
+    background: transparent;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 8px;
+    
+    /* Typography */
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    color: #f0f6fc;
+    text-align: left;
+    
+    /* Interaction */
+    cursor: pointer;
+    transition: all 0.1s ease;
+  }
+
+  .command-suggestion:hover {
+    background: rgba(88, 166, 255, 0.1);
+    color: #58a6ff;
+  }
+
+  /* Slash Command Palette */
+  .slash-command-palette {
+    position: fixed;
+    bottom: 128px; /* 56px bar + 8px gap + 64px margin for proper clearance */
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999;
+    
+    /* Dimensions */
+    width: 680px;
+    max-height: 400px;
+    
+    /* Glass Effect */
+    background: rgba(22, 27, 34, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    
+    /* Border & Shadow */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      0 2px 8px rgba(0, 0, 0, 0.2);
+      
+    /* Layout */
+    overflow: hidden;
+    
+    /* Animation */
+    animation: slideUp 0.2s ease-out;
+  }
+
+  /* Command Palette Header */
+  .command-palette-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .command-palette-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f0f6fc;
+  }
+
+  .command-palette-hint {
+    font-size: 12px;
+    color: rgba(240, 246, 252, 0.5);
+  }
+
+  /* Command Category */
+  .command-category {
+    padding: 0 8px;
+  }
+
+  .command-category-header {
+    padding: 12px 12px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(240, 246, 252, 0.6);
+  }
+
+  /* Individual Slash Command - Streamlined */
+  .slash-command {
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 8px 12px; /* Reduced vertical padding */
+    border-radius: 6px;
+    margin: 1px 0;
+    
+    /* Layout */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-align: left;
+    
+    /* Interaction */
+    cursor: pointer;
+    transition: all 0.1s ease;
+  }
+
+  .slash-command:hover,
+  .slash-command.selected {
+    background: rgba(88, 166, 255, 0.1);
+  }
+
+  .slash-command.selected {
+    border: 1px solid rgba(88, 166, 255, 0.3);
+  }
+
+  /* Streamlined Command Layout */
+  .command-label {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    color: #f0f6fc;
+    flex-shrink: 0;
+  }
+
+  .command-description {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    font-size: 12px;
+    color: rgba(240, 246, 252, 0.6);
+    text-align: right;
+  }
+
+  .slash-command:hover .command-label,
+  .slash-command.selected .command-label {
+    color: #58a6ff;
+  }
+
+  /* Fallback for browsers without backdrop-filter */
+  @supports not (backdrop-filter: blur(20px)) {
+    .command-bar {
+      background: rgba(22, 27, 34, 0.95);
+    }
+    
+    .command-suggestions {
+      background: rgba(22, 27, 34, 0.98);
+    }
+    
+    .slash-command-palette {
+      background: rgba(22, 27, 34, 0.98);
+    }
+  }
+
+  /* Command Result Feedback */
+  .command-result {
+    position: fixed;
+    bottom: 128px; /* Above command bar with proper clearance */
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 998;
+    
+    /* Styling */
+    background: rgba(34, 197, 94, 0.9);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 500;
+    
+    /* Glass effect */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    
+    /* Shadow */
+    box-shadow: 
+      0 4px 16px rgba(0, 0, 0, 0.2),
+      0 1px 4px rgba(0, 0, 0, 0.1);
+    
+    /* Animation */
+    animation: slideUpFade 0.3s ease-out;
+  }
+
+  @keyframes slideUpFade {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  /* Error state for command result */
+  .command-result.error {
+    background: rgba(239, 68, 68, 0.9);
+  }
+
+  /* Responsive adjustments */
+  @media (max-width: 720px) {
+    .command-bar {
+      width: calc(100vw - 48px);
+      margin: 0 24px;
+    }
+    
+    .command-suggestions {
+      width: calc(100vw - 48px);
+      margin: 0 24px;
+    }
+    
+    .slash-command-palette {
+      width: calc(100vw - 48px);
+      margin: 0 24px;
+    }
+    
+    .command-result {
+      width: calc(100vw - 48px);
+      margin: 0 24px;
+    }
+  }
+
+  /* Optimized Navigation Dock Styles */
+  .navigation-dock {
+    position: fixed !important;
+    bottom: 60px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    z-index: 9999 !important;
+    top: auto !important;
+    margin: 0 !important;
+    
+    /* Dimensions */
+    width: 428px;
+    height: 56px;
+    
+    /* Glass Morphism Effect - matching reference */
+    background: rgba(22, 27, 34, 0.9);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    
+    /* Border & Shadow - Clean single outline */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 28px;
+    box-shadow: 
+      0 16px 48px rgba(0, 0, 0, 0.4),
+      0 8px 24px rgba(0, 0, 0, 0.3),
+      0 4px 12px rgba(0, 0, 0, 0.2);
+    
+    /* Layout - Even distribution like reference */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px; /* Reduced side padding for edge positioning */
+    position: relative;
+    
+    /* Smooth transitions */
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Command mode expansion - 3-phase transition */
+  .navigation-dock.command-mode {
+    width: 680px;
+    padding: 8px 20px;
+  }
+  
+  /* Exit command mode - dock contracts */
+  .navigation-dock:not(.command-mode) {
+    width: 428px;
+    padding: 8px 12px; /* Match the reduced side padding */
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) 0.15s;
+  }
+  
+  /* Phase 1: Icons fade out (150ms) */
+  .navigation-dock.command-mode .nav-icon {
+    opacity: 0;
+    transform: translateX(-20px) scale(0.8);
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Exit command mode - icons reappear */
+  .navigation-dock:not(.command-mode) .nav-icon {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) 0.35s;
+  }
+  
+  /* Phase 2: Dock expansion (200ms with delay) */
+  .navigation-dock.expanding {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) 0.15s;
+  }
+  
+  /* Phase 3: Input appears (150ms with delay) */
+  .navigation-dock .command-input {
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) 0.35s;
+  }
+  
+  /* Input visible in command mode */
+  .navigation-dock.command-mode .command-input.active {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Navigation Icons */
+  .nav-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 20px; /* More circular like reference */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    position: relative;
+    flex: none; /* Prevent flex grow/shrink */
+    
+    /* Smooth transitions */
+    transition: all 0.2s ease;
+    
+    /* Default State - 70% white opacity for solid icons */
+    color: rgba(240, 246, 252, 0.7);
+  }
+
+  /* Solid React Icon styling for Fey aesthetic */
+  .nav-icon-solid {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    stroke: none;
+    transition: all 0.2s ease;
+    display: block;
+  }
+
+  .search-icon-solid {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    stroke: none;
+    transition: all 0.2s ease;
+    display: block;
+  }
+
+  /* Active State - Blue accent color for solid icons */
+  .nav-icon.active {
+    background: rgba(88, 166, 255, 0.25);
+    color: #58a6ff; /* Blue accent color */
+    border-radius: 20px; /* Perfectly circular */
+    box-shadow: 
+      0 2px 8px rgba(88, 166, 255, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transform: scale(1.02);
+  }
+
+  .nav-icon.active .nav-icon-solid {
+    filter: drop-shadow(0 0 6px rgba(88, 166, 255, 0.4));
+  }
+
+  /* Hover State - 90% white opacity for solid icons */
+  .nav-icon:hover:not(.active):not(.disabled) {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(240, 246, 252, 0.9); /* 90% white opacity */
+    transform: translateY(-1px);
+  }
+
+  /* Disabled State - 30% opacity for solid icons */
+  .nav-icon.disabled {
+    color: rgba(240, 246, 252, 0.3); /* 30% white opacity */
+    cursor: not-allowed;
+  }
+
+
+  /* Search Trigger Button */
+  .search-trigger {
+    position: fixed;
+    bottom: 60px;
+    left: calc(50% + 214px + 24px); /* 428px/2 + 24px gap */
+    z-index: 9999;
+    
+    /* Dimensions */
+    width: 56px;
+    height: 56px;
+    
+    /* Glass Morphism Effect */
+    background: rgba(22, 27, 34, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 28px;
+    box-shadow: 
+      0 16px 48px rgba(0, 0, 0, 0.4),
+      0 8px 24px rgba(0, 0, 0, 0.3),
+      0 4px 12px rgba(0, 0, 0, 0.2);
+    
+    /* Icon styling */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(240, 246, 252, 0.7); /* 70% white opacity for solid icons */
+    cursor: pointer;
+    
+    /* Smooth transitions */
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Search trigger hover - 90% white opacity */
+  .search-trigger:hover:not(.command-mode) {
+    background: rgba(88, 166, 255, 0.15);
+    color: rgba(240, 246, 252, 0.9); /* 90% white opacity on hover */
+    transform: scale(1.05);
+    box-shadow: 
+      0 12px 40px rgba(0, 0, 0, 0.4),
+      0 4px 12px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(88, 166, 255, 0.2);
+  }
+
+  /* Command mode hiding - Phase 1 transition */
+  .search-trigger.command-mode {
+    opacity: 0;
+    transform: translateX(-30px) scale(0.8);
+    pointer-events: none;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Exit command mode - search trigger reappears */
+  .search-trigger:not(.command-mode) {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) 0.35s;
+  }
+
+  /* Progress Indicator - Hidden for clean design */
+  .progress-indicator {
+    display: none;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #58a6ff 0%, #7c3aed 50%, #f59e0b 100%);
+    border-radius: 2px;
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    box-shadow: 0 0 8px rgba(88, 166, 255, 0.3);
+  }
+
+  .progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.2) 50%, transparent 100%);
+    border-radius: 2px;
+  }
+
+  /* Command Input Container (for command mode) */
+  .command-input-container {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    top: 8px;
+    bottom: 8px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Command Input (enhanced) */
+  .navigation-dock .command-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    
+    /* Typography */
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    font-size: 16px;
+    font-weight: 400;
+    color: #f0f6fc;
+    
+    /* Initial state - hidden */
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.1s;
+  }
+
+  /* Command input active state */
+  .navigation-dock .command-input.active {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Command input placeholder */
+  .navigation-dock .command-input::placeholder {
+    color: rgba(240, 246, 252, 0.5);
+  }
+
+  /* Responsive adjustments */
+  @media (max-width: 800px) {
+    .navigation-dock {
+      width: calc(100vw - 120px);
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    
+    .navigation-dock.command-mode {
+      width: calc(100vw - 48px);
+    }
+    
+    .search-trigger {
+      right: 24px;
+      left: auto;
+    }
+    
+    .nav-icon {
+      width: 36px;
+      height: 36px;
+    }
+    
+    .nav-icon-emoji {
+      font-size: 16px;
+    }
+  }
+
+  /* Fallback for browsers without backdrop-filter */
+  @supports not (backdrop-filter: blur(20px)) {
+    .navigation-dock {
+      background: rgba(22, 27, 34, 0.95);
+    }
+    
+    .search-trigger {
+      background: rgba(22, 27, 34, 0.95);
+    }
+  }
+}
