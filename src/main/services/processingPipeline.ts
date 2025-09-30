@@ -192,46 +192,79 @@ class ProcessingPipeline {
       // Step 4: Store transcript in database
       await this.storeTranscript(episodeId, transcription)
       
-      // Step 5: AI content analysis
+      // Step 5: AI content analysis with graceful degradation
       this.sendProgress(window, {
         stage: 'analyzing',
         progress: 65,
         message: 'Analyzing content for clip suggestions...'
       })
       
-      const analysis = await this.aiService.analyzeTranscript(
-        transcription, // Pass full transcription object with segments
-        mediaInfo.duration,
-        (progress) => {
-          this.sendProgress(window, {
-            stage: 'analyzing',
-            progress: 65 + (progress * 0.25), // 65-90%
-            message: 'AI analyzing content...'
-          })
+      let analysis: any = null
+      let aiAnalysisSucceeded = false
+      
+      try {
+        analysis = await this.aiService.analyzeTranscript(
+          transcription, // Pass full transcription object with segments
+          mediaInfo.duration,
+          (progress) => {
+            this.sendProgress(window, {
+              stage: 'analyzing',
+              progress: 65 + (progress * 0.25), // 65-90%
+              message: 'AI analyzing content...'
+            })
+          }
+        )
+        aiAnalysisSucceeded = true
+        console.log('AI analysis completed successfully')
+      } catch (aiError) {
+        console.error('AI analysis failed, proceeding with transcript-only mode:', aiError)
+        
+        // Graceful degradation: Create empty clips array but preserve transcription
+        analysis = { potentialClips: [] }
+        aiAnalysisSucceeded = false
+        
+        this.sendProgress(window, {
+          stage: 'analyzing',
+          progress: 90,
+          message: 'AI analysis failed - transcript saved successfully'
+        })
+      }
+      
+      // Step 6: Store clips in database (even if empty)
+      const storedClips = await this.storeClips(episodeId, analysis.potentialClips)
+
+      // Step 7: Generate content packages (only if we have clips)
+      if (aiAnalysisSucceeded && storedClips.length > 0) {
+        this.sendProgress(window, {
+          stage: 'generating',
+          progress: 90,
+          message: 'Generating titles and descriptions...'
+        })
+
+        try {
+          await this.generateContentPackages(
+            storedClips.slice(0, 10), // Top 10 clips with IDs
+            transcription.text,
+            (progress) => {
+              this.sendProgress(window, {
+                stage: 'generating',
+                progress: 90 + (progress * 0.1), // 90-100%
+                message: 'Generating content packages...'
+              })
+            }
+          )
+        } catch (contentError) {
+          console.error('Content generation failed, but clips are preserved:', contentError)
+          // Continue processing - clips exist even without enhanced content packages
         }
-      )
-      
-      // Step 6: Store clips in database
-      await this.storeClips(episodeId, analysis.potentialClips)
-      
-      // Step 7: Generate content packages for top clips
-      this.sendProgress(window, {
-        stage: 'generating',
-        progress: 90,
-        message: 'Generating titles and descriptions...'
-      })
-      
-      await this.generateContentPackages(
-        analysis.potentialClips.slice(0, 10), // Top 10 clips
-        transcription.text,
-        (progress) => {
-          this.sendProgress(window, {
-            stage: 'generating',
-            progress: 90 + (progress * 0.1), // 90-100%
-            message: 'Generating content packages...'
-          })
-        }
-      )
+      } else {
+        console.log('Skipping content generation - no clips available')
+        this.sendProgress(window, {
+          stage: 'generating',
+          progress: 95,
+          message: 'Transcript processing completed'
+        })
+      }
       
       // Step 8: Update episode status
       database.updateEpisodeStatus(episodeId, 'completed')
@@ -255,12 +288,25 @@ class ProcessingPipeline {
         projectId,
         episodeId,
         clipsFound: analysis.potentialClips.length,
-        processingTime
+        processingTime,
+        aiAnalysisSucceeded,
+        hasTranscript: true
       }
       
-      // Send completion event
+      // Send completion event with context about what succeeded/failed
       console.log('Sending processing complete event:', result)
       window?.webContents.send('processing-complete', result)
+      
+      // Update final progress message based on what was accomplished
+      const finalMessage = aiAnalysisSucceeded 
+        ? `Found ${analysis.potentialClips.length} potential clips!`
+        : `Transcription completed! AI analysis failed but transcript is saved.`
+        
+      this.sendProgress(window, {
+        stage: 'completed',
+        progress: 100,
+        message: finalMessage
+      })
       
       return result
       
@@ -312,6 +358,13 @@ class ProcessingPipeline {
       duration
     })
     
+    // Validate that episode was created successfully
+    const createdEpisode = database.getEpisode(episodeId)
+    if (!createdEpisode) {
+      throw new Error('Failed to create episode record in database')
+    }
+    
+    console.log('Episode created and validated:', { episodeId, fileName })
     return episodeId
   }
   
@@ -329,9 +382,9 @@ class ProcessingPipeline {
     database.insertTranscriptSegments(segments)
   }
   
-  private async storeClips(episodeId: string, clips: any[]) {
+  private async storeClips(episodeId: string, clips: any[]): Promise<any[]> {
     console.log(`Storing ${clips.length} clips for episode ${episodeId}`)
-    
+
     const clipsWithIds = clips.map(clip => ({
       id: randomUUID(),
       episodeId,
@@ -344,9 +397,11 @@ class ProcessingPipeline {
       reason: clip.reason,
       contextNeeded: clip.contextNeeded
     }))
-    
+
     database.insertClips(clipsWithIds)
     console.log(`Successfully stored ${clipsWithIds.length} clips in database`)
+
+    return clipsWithIds
   }
   
   private async generateContentPackages(
@@ -355,27 +410,38 @@ class ProcessingPipeline {
     onProgress?: (progress: number) => void
   ) {
     if (!this.aiService) return
-    
+
     const brandVoice = configService.getBrandVoice()
-    
+
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i]
-      
+
       try {
         // Extract clip transcript (approximate)
         const clipText = this.extractClipText(fullTranscript, clip)
-        
+
         const contentPackage = await this.aiService.generateContentPackage(
           clipText,
           clip.contentType,
           brandVoice.examples.length > 0 ? brandVoice.examples : undefined
         )
-        
-        // TODO: Add content package storage method to database
+
         console.log('Generated content package for clip:', clip.id, contentPackage)
-        
+
+        // Store titles in database
+        if (contentPackage.titles && contentPackage.titles.length > 0) {
+          database.insertClipTitles(clip.id, contentPackage.titles)
+          console.log(`Stored ${contentPackage.titles.length} titles for clip ${clip.id}`)
+        }
+
+        // Store description in database
+        if (contentPackage.description) {
+          database.insertClipDescription(clip.id, contentPackage.description, 'general')
+          console.log(`Stored description for clip ${clip.id}`)
+        }
+
         onProgress?.(((i + 1) / clips.length) * 100)
-        
+
       } catch (error) {
         console.error(`Failed to generate content package for clip ${clip.id}:`, error)
         // Continue with other clips

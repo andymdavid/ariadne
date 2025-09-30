@@ -247,6 +247,123 @@ class FFmpegService {
   }
   
   /**
+   * Add captions to video
+   */
+  async addCaptions(
+    inputPath: string,
+    outputPath: string,
+    captions: string,
+    options: {
+      fontSize?: number
+      fontColor?: string
+      backgroundColor?: string
+      position?: 'bottom' | 'center' | 'top'
+      onProgress?: (progress: number) => void
+    } = {}
+  ): Promise<string> {
+    const fontSize = options.fontSize || 48
+    const fontColor = options.fontColor || 'white'
+    const backgroundColor = options.backgroundColor || 'black@0.7'
+
+    // Calculate Y position based on position option
+    let yPosition: string
+    switch (options.position) {
+      case 'top':
+        yPosition = 'h/8'
+        break
+      case 'center':
+        yPosition = '(h-text_h)/2'
+        break
+      case 'bottom':
+      default:
+        yPosition = 'h-h/8'
+        break
+    }
+
+    return new Promise((resolve, reject) => {
+      const drawTextFilter = `drawtext=text='${captions.replace(/'/g, "\\'")}':fontsize=${fontSize}:fontcolor=${fontColor}:x=(w-text_w)/2:y=${yPosition}:box=1:boxcolor=${backgroundColor}:boxborderw=10`
+
+      ffmpeg(inputPath)
+        .videoFilters(drawTextFilter)
+        .videoCodec('libx264')
+        .audioCodec('copy')
+        .output(outputPath)
+        .on('progress', (progress) => {
+          options.onProgress?.(progress.percent || 0)
+        })
+        .on('end', () => resolve(outputPath))
+        .on('error', (error) => reject(new Error(`Caption overlay failed: ${error.message}`)))
+        .run()
+    })
+  }
+
+  /**
+   * Export clip with 9:16 aspect ratio and captions
+   */
+  async exportReelClip(
+    inputPath: string,
+    startTime: number,
+    duration: number,
+    outputPath: string,
+    options: {
+      captions?: string
+      title?: string
+      aspectRatio?: '9:16' | '1:1' | '16:9'
+      onProgress?: (progress: number) => void
+    } = {}
+  ): Promise<string> {
+    const aspectRatio = options.aspectRatio || '9:16'
+
+    // Define resolutions for different aspect ratios
+    const resolutions = {
+      '9:16': { width: 1080, height: 1920 },
+      '1:1': { width: 1080, height: 1080 },
+      '16:9': { width: 1920, height: 1080 }
+    }
+
+    const resolution = resolutions[aspectRatio]
+
+    return new Promise((resolve, reject) => {
+      let command = ffmpeg(inputPath)
+        .seekInput(startTime)
+        .duration(duration)
+
+      // Build filter complex for aspect ratio conversion and captions
+      const filters: string[] = []
+
+      // Scale and pad to target aspect ratio
+      filters.push(`scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease`)
+      filters.push(`pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2:color=black`)
+
+      // Add captions if provided
+      if (options.captions) {
+        const escapedCaptions = options.captions.replace(/'/g, "\\'").replace(/:/g, "\\:")
+        filters.push(`drawtext=text='${escapedCaptions}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=h-h/8:box=1:boxcolor=black@0.7:boxborderw=10`)
+      }
+
+      command = command
+        .videoFilters(filters)
+        .videoCodec('libx264')
+        .videoBitrate('5000k')
+        .audioCodec('aac')
+        .audioBitrate('192k')
+        .format('mp4')
+        .output(outputPath)
+
+      if (options.onProgress) {
+        command.on('progress', (progress) => {
+          options.onProgress!(progress.percent || 0)
+        })
+      }
+
+      command
+        .on('end', () => resolve(outputPath))
+        .on('error', (error) => reject(new Error(`Reel export failed: ${error.message}`)))
+        .run()
+    })
+  }
+
+  /**
    * Generate temporary file path
    */
   private generateTempPath(originalPath: string, extension: string): string {

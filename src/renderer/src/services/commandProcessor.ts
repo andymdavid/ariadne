@@ -1,4 +1,5 @@
 import { NavigateFunction } from 'react-router-dom'
+import { runSystemValidation } from '../utils/systemValidation'
 
 export interface CommandResult {
   success: boolean
@@ -332,6 +333,29 @@ export class CommandProcessor {
       return { success: true, message: helpText, action: 'execute' }
     }
 
+    // System validation command
+    if (command.includes('validate') || command.includes('validation') || command.includes('system check') || command.includes('health check')) {
+      try {
+        const result = runSystemValidation()
+        const summary = result.isValid 
+          ? `✅ System validation PASSED - All systems operational`
+          : `❌ System validation FAILED - ${result.errors.length} errors, ${result.warnings.length} warnings`
+        
+        return { 
+          success: result.isValid, 
+          message: summary, 
+          action: 'execute',
+          data: { action: 'systemValidation', result }
+        }
+      } catch (error) {
+        return { 
+          success: false, 
+          message: `System validation failed: ${error}`, 
+          action: 'error' 
+        }
+      }
+    }
+
     // Clear command
     if (command === 'clear' || command === 'reset') {
       return { success: true, message: 'Cleared', action: 'execute' }
@@ -343,13 +367,13 @@ export class CommandProcessor {
   private getContextualHelp(): string {
     switch (this.context.currentScreen) {
       case 'upload':
-        return 'Available commands: "select file", "drag and drop", "browse"'
+        return 'Available commands: "select file", "drag and drop", "browse", "validate system"'
       case 'review':
-        return 'Available commands: "find clips about [topic]", "approve all high scores", "clips under [duration]", "next"'
+        return 'Available commands: "find clips about [topic]", "approve all high scores", "clips under [duration]", "next", "validate system"'
       case 'export':
-        return 'Available commands: "export as instagram", "export all", "save project"'
+        return 'Available commands: "export as instagram", "export all", "save project", "validate system"'
       default:
-        return 'Available commands: "help", "next", "back", "go to [screen]"'
+        return 'Available commands: "help", "next", "back", "go to [screen]", "validate system"'
     }
   }
 }

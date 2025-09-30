@@ -37,47 +37,82 @@ class AIService {
   ): Promise<TranscriptAnalysis> {
     onProgress?.(10)
     
-    const prompt = this.buildAnalysisPrompt(transcriptData, duration)
+    const maxRetries = 3
+    const strategies = [
+      { 
+        name: 'standard', 
+        prompt: this.buildAnalysisPrompt(transcriptData, duration),
+        systemMessage: 'You are an expert content analyst specializing in identifying self-contained, shareable segments from long-form conversations for social media.'
+      },
+      { 
+        name: 'simplified', 
+        prompt: this.buildSimplifiedAnalysisPrompt(transcriptData, duration),
+        systemMessage: 'You are a content analyst. Find interesting clips in this transcript. Always respond with valid JSON.'
+      },
+      { 
+        name: 'structured', 
+        prompt: this.buildStructuredAnalysisPrompt(transcriptData, duration),
+        systemMessage: 'Extract clips from transcript. Respond only with JSON object containing potential_clips array.'
+      }
+    ]
     
-    try {
-      onProgress?.(30)
-      
-      const response = await this.callOpenRouter({
-        model: this.config.model === 'deepseek-r1' ? 'deepseek/deepseek-r1' : 'anthropic/claude-3-5-sonnet-20241022',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert content analyst specializing in identifying self-contained, shareable segments from long-form conversations for social media.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 4000,
-        temperature: 0.3
-      })
-      
-      onProgress?.(70)
-      
-      const analysis = this.parseAnalysisResponse(response.content)
-      
-      console.log(`AI Analysis completed: Found ${analysis.potentialClips.length} clips`)
-      console.log('Clips summary:', analysis.potentialClips.map(c => ({ 
-        id: c.id, 
-        contentType: c.contentType, 
-        score: c.shareabilityScore,
-        duration: c.duration 
-      })))
-      
-      onProgress?.(100)
-      
-      return analysis
-      
-    } catch (error) {
-      console.error('AI Analysis failed:', error)
-      throw new Error(`AI Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        onProgress?.(30 + (attempt * 15))
+        
+        const strategy = strategies[attempt] || strategies[0]
+        console.log(`AI Analysis attempt ${attempt + 1}/${maxRetries} using ${strategy.name} strategy`)
+        
+        const response = await this.callOpenRouter({
+          model: this.config.model === 'deepseek-r1' ? 'deepseek/deepseek-r1' : 'anthropic/claude-3-5-sonnet-20241022',
+          messages: [
+            {
+              role: 'system',
+              content: strategy.systemMessage
+            },
+            {
+              role: 'user',
+              content: strategy.prompt
+            }
+          ],
+          max_tokens: 4000,
+          temperature: attempt === 0 ? 0.3 : 0.1 // Lower temperature on retries
+        })
+        
+        onProgress?.(70 + (attempt * 5))
+        
+        const analysis = this.parseAnalysisResponse(response.content)
+        
+        console.log(`AI Analysis completed on attempt ${attempt + 1}: Found ${analysis.potentialClips.length} clips`)
+        console.log('Clips summary:', analysis.potentialClips.map(c => ({ 
+          id: c.id, 
+          contentType: c.contentType, 
+          score: c.shareabilityScore,
+          duration: c.duration 
+        })))
+        
+        onProgress?.(100)
+        
+        return analysis
+        
+      } catch (error) {
+        console.error(`AI Analysis attempt ${attempt + 1} failed:`, error)
+        
+        // If this was the last attempt, throw the error
+        if (attempt === maxRetries - 1) {
+          console.error('All AI analysis attempts failed')
+          throw new Error(`AI Analysis failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+        
+        // Wait before retry (exponential backoff)
+        const waitTime = Math.pow(2, attempt) * 1000
+        console.log(`Waiting ${waitTime}ms before retry...`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+      }
     }
+    
+    // This should never be reached, but TypeScript needs it
+    throw new Error('Unexpected error in AI analysis retry loop')
   }
   
   /**
@@ -223,6 +258,8 @@ OUTPUT FORMAT (JSON):
       throw new Error('OpenRouter API key not configured')
     }
     
+    console.log('Calling OpenRouter API with model:', payload.model)
+    
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -236,29 +273,45 @@ OUTPUT FORMAT (JSON):
     
     if (!response.ok) {
       const errorText = await response.text()
+      console.error('OpenRouter API error response:', response.status, errorText)
       throw new Error(`OpenRouter API error: ${response.status} ${errorText}`)
     }
     
     const data = await response.json() as any
     
     if (data.error) {
+      console.error('OpenRouter API error:', data.error)
       throw new Error(`OpenRouter API error: ${data.error.message}`)
     }
     
-    return data.choices[0].message
+    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+      console.error('Invalid OpenRouter response structure:', data)
+      throw new Error('Invalid API response structure')
+    }
+    
+    return { content: data.choices[0].message.content }
   }
   
   private parseAnalysisResponse(content: string): TranscriptAnalysis {
     try {
-      // Try to extract JSON from the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
+      if (!content || content.trim().length === 0) {
+        console.error('Empty response content from AI API')
+        throw new Error('Empty response content from AI API')
+      }
+      
+      console.log('Attempting to parse AI response. Content length:', content.length)
+      console.log('Content preview:', content.substring(0, 200))
+      
+      // Strategy 1: Try multiple JSON extraction patterns
+      let jsonString = this.extractJSON(content)
+      if (!jsonString) {
+        console.error('All JSON extraction strategies failed. Full content:', content)
         throw new Error('No JSON found in response')
       }
       
-      console.log('Raw AI response:', content)
-      const parsed = JSON.parse(jsonMatch[0])
-      console.log('Parsed AI clips:', parsed.potential_clips)
+      console.log('Extracted JSON:', jsonString.substring(0, 200) + '...')
+      const parsed = JSON.parse(jsonString)
+      console.log('Parsed AI clips:', parsed.potential_clips?.length, 'clips found')
       
       if (!parsed.potential_clips || !Array.isArray(parsed.potential_clips)) {
         throw new Error('Invalid response format: missing potential_clips array')
@@ -289,6 +342,134 @@ OUTPUT FORMAT (JSON):
     }
   }
   
+  private extractJSON(content: string): string | null {
+    console.log('Attempting JSON extraction with multiple strategies...')
+    
+    // Strategy 1: Look for ```json code blocks
+    let match = content.match(/```json\s*([\s\S]*?)\s*```/i)
+    if (match) {
+      console.log('Strategy 1 SUCCESS: Found JSON in code block')
+      return match[1].trim()
+    }
+    
+    // Strategy 2: Look for ``` code blocks (without json specifier)
+    match = content.match(/```\s*([\s\S]*?)\s*```/)
+    if (match && match[1].trim().startsWith('{')) {
+      console.log('Strategy 2 SUCCESS: Found JSON-like content in code block')
+      return match[1].trim()
+    }
+    
+    // Strategy 3: Look for standalone JSON object (balanced braces)
+    const jsonPattern = /(\{(?:[^{}]|{(?:[^{}]|{[^{}]*})*})*\})/g
+    const matches = [...content.matchAll(jsonPattern)]
+    for (const jsonMatch of matches) {
+      try {
+        const candidate = jsonMatch[1]
+        // Quick validation - try to parse
+        JSON.parse(candidate)
+        console.log('Strategy 3 SUCCESS: Found valid JSON object')
+        return candidate
+      } catch {
+        // Continue to next match
+      }
+    }
+    
+    // Strategy 4: Look for potential_clips array specifically
+    match = content.match(/"potential_clips"\s*:\s*\[([\s\S]*?)\]/i)
+    if (match) {
+      const clipsArray = match[0]
+      // Try to build a minimal valid object around it
+      const minimalJSON = `{"potential_clips": [${match[1]}]}`
+      try {
+        JSON.parse(minimalJSON)
+        console.log('Strategy 4 SUCCESS: Extracted clips array')
+        return minimalJSON
+      } catch {
+        // Fall through
+      }
+    }
+    
+    // Strategy 5: Clean and retry original greedy pattern
+    const cleaned = content
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control chars
+      .replace(/\\n/g, '\n') // Normalize newlines
+      .trim()
+    
+    match = cleaned.match(/\{[\s\S]*\}/)
+    if (match) {
+      try {
+        JSON.parse(match[0])
+        console.log('Strategy 5 SUCCESS: Cleaned content parsing')
+        return match[0]
+      } catch {
+        // Fall through
+      }
+    }
+    
+    // Strategy 6: Look for any JSON-like structure
+    const lines = content.split('\n')
+    let jsonStart = -1
+    let jsonEnd = -1
+    
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim().startsWith('{') && jsonStart === -1) {
+        jsonStart = i
+      }
+      if (lines[i].trim().endsWith('}') && jsonStart !== -1) {
+        jsonEnd = i
+        break
+      }
+    }
+    
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      const jsonCandidate = lines.slice(jsonStart, jsonEnd + 1).join('\n')
+      try {
+        JSON.parse(jsonCandidate)
+        console.log('Strategy 6 SUCCESS: Line-based extraction')
+        return jsonCandidate
+      } catch {
+        // Final fallback failed
+      }
+    }
+    
+    console.log('All JSON extraction strategies failed')
+    return null
+  }
+  
+  private buildSimplifiedAnalysisPrompt(transcriptData: { text: string; segments?: any[] }, duration: number): string {
+    return `Find interesting clips in this ${Math.round(duration/60)} minute transcript.
+
+TRANSCRIPT:
+${transcriptData.text}
+
+Return JSON with this exact format:
+{
+  "potential_clips": [
+    {
+      "id": "clip_1",
+      "start_time": 120.5,
+      "end_time": 180.0,
+      "duration": 59.5,
+      "content_type": "insight",
+      "shareability_score": 8.5,
+      "reason": "Why this is interesting",
+      "key_quote": "Main quote from the clip"
+    }
+  ]
+}`
+  }
+  
+  private buildStructuredAnalysisPrompt(transcriptData: { text: string; segments?: any[] }, duration: number): string {
+    return `TASK: Extract clips from transcript
+DURATION: ${Math.round(duration/60)} minutes
+
+TRANSCRIPT:
+${transcriptData.text.substring(0, 8000)} // Truncate for structured approach
+
+RESPOND WITH JSON ONLY:
+{"potential_clips":[{"id":"clip_1","start_time":0,"end_time":30,"duration":30,"content_type":"insight","shareability_score":8.0,"reason":"explanation","key_quote":"quote"}]}`
+  }
+  
   private parseContentResponse(content: string): ContentPackage {
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/)
@@ -313,6 +494,7 @@ OUTPUT FORMAT (JSON):
   updateConfig(config: APIConfig) {
     this.config = config
   }
+
 }
 
 export default AIService

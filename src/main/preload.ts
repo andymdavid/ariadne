@@ -23,18 +23,38 @@ const electronAPI = {
   // Database operations
   getRecentProjects: () => ipcRenderer.invoke('get-recent-projects'),
   getProject: (projectId: string) => ipcRenderer.invoke('get-project', projectId),
+  getEpisode: (episodeId: string) => ipcRenderer.invoke('get-episode', episodeId),
+  getEpisodeByProject: (projectId: string) => ipcRenderer.invoke('get-episode-by-project', projectId),
   getEpisodeClips: (episodeId: string) => ipcRenderer.invoke('get-episode-clips', episodeId),
-  updateClipStatus: (clipId: string, status: string) => 
+  updateClipStatus: (clipId: string, status: string) =>
     ipcRenderer.invoke('update-clip-status', clipId, status),
   getApprovedClips: (episodeId: string) => ipcRenderer.invoke('get-approved-clips', episodeId),
+  cleanupDatabase: () => ipcRenderer.invoke('cleanup-database'),
+  nukeAllProjects: () => ipcRenderer.invoke('nuke-all-projects'),
+  deleteProject: (projectId: string) => ipcRenderer.invoke('delete-project', projectId),
   
   // Settings operations
   getConfig: () => ipcRenderer.invoke('get-config'),
   updateApiConfig: (config: any) => ipcRenderer.invoke('update-api-config', config),
-  updateUserPreferences: (preferences: any) => 
+  updateUserPreferences: (preferences: any) =>
     ipcRenderer.invoke('update-user-preferences', preferences),
   validateConfig: () => ipcRenderer.invoke('validate-config'),
-  
+
+  // Export operations
+  exportApprovedClips: (episodeId: string, options: any) =>
+    ipcRenderer.invoke('export-approved-clips', episodeId, options),
+  getExportJob: (jobId: string) => ipcRenderer.invoke('get-export-job', jobId),
+  cancelExportJob: (jobId: string) => ipcRenderer.invoke('cancel-export-job', jobId),
+  clearCompletedExports: () => ipcRenderer.invoke('clear-completed-exports'),
+
+  // Content package operations
+  getClipTitles: (clipId: string) => ipcRenderer.invoke('get-clip-titles', clipId),
+  getClipDescriptions: (clipId: string) => ipcRenderer.invoke('get-clip-descriptions', clipId),
+  selectClipTitle: (titleId: string, clipId: string) =>
+    ipcRenderer.invoke('select-clip-title', titleId, clipId),
+  selectClipDescription: (descriptionId: string, clipId: string) =>
+    ipcRenderer.invoke('select-clip-description', descriptionId, clipId),
+
   // Event listeners for IPC
   onProcessingUpdate: (callback: (data: any) => void) => {
     ipcRenderer.on('processing-update', (_, data) => callback(data));
@@ -55,6 +75,16 @@ const electronAPI = {
   onClipExtractionProgress: (callback: (data: any) => void) => {
     ipcRenderer.on('clip-extraction-progress', (_, data) => callback(data));
     return () => ipcRenderer.removeAllListeners('clip-extraction-progress');
+  },
+
+  onExportProgress: (callback: (job: any) => void) => {
+    ipcRenderer.on('export-progress', (_, job) => callback(job));
+    return () => ipcRenderer.removeAllListeners('export-progress');
+  },
+
+  onDatabaseCleaned: (callback: (result: any) => void) => {
+    ipcRenderer.on('database-cleaned', (_, result) => callback(result));
+    return () => ipcRenderer.removeAllListeners('database-cleaned');
   },
 };
 
@@ -79,9 +109,14 @@ declare global {
       // Database operations
       getRecentProjects: () => Promise<any[]>;
       getProject: (projectId: string) => Promise<any>;
+      getEpisode: (episodeId: string) => Promise<any>;
+      getEpisodeByProject: (projectId: string) => Promise<any>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;
       getApprovedClips: (episodeId: string) => Promise<any[]>;
+      cleanupDatabase: () => Promise<any>;
+      nukeAllProjects: () => Promise<any>;
+      deleteProject: (projectId: string) => Promise<any>;
       
       // Settings operations
       getConfig: () => Promise<any>;
@@ -94,6 +129,7 @@ declare global {
       onProcessingComplete: (callback: (data: any) => void) => () => void;
       onProcessingError: (callback: (error: string) => void) => () => void;
       onClipExtractionProgress: (callback: (data: any) => void) => () => void;
+      onDatabaseCleaned: (callback: (result: any) => void) => () => void;
     };
   }
 }

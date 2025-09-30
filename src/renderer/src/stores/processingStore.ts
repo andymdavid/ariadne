@@ -12,6 +12,8 @@ const initialState: ProcessingProgress = {
   stage: 'uploading',
   progress: 0,
   message: 'Ready',
+  recentTranscriptLines: [],
+  partialTranscript: ''
 }
 
 export const useProcessingStore = create<ProcessingStore>((set) => ({

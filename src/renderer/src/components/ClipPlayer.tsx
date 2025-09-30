@@ -106,92 +106,113 @@ export function ClipPlayer({ clipPath, clipData, onClose, isVisible }: ClipPlaye
   if (!isVisible) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
-      <div className="bg-bg-primary border border-border-default rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border-default">
+    <div className="absolute inset-0 bg-bg-primary z-50 flex items-center justify-center p-8">
+      {/* Close Button - Top Right */}
+      <button
+        onClick={onClose}
+        className="absolute top-6 right-6 w-10 h-10 rounded-full bg-bg-tertiary hover:bg-hover-bg border border-border-default flex items-center justify-center text-text-muted hover:text-text-primary transition-colors z-10"
+      >
+        ✕
+      </button>
+
+      {/* Split Screen Layout */}
+      <div className="flex items-center justify-center gap-8 h-full max-w-7xl w-full">
+        {/* Left Side - 9:16 Phone Preview */}
+        <div className="flex flex-col items-center gap-4">
+          <div className="text-sm font-medium text-text-secondary">Reel Preview</div>
+
+          {/* Phone Frame - 9:16 aspect ratio */}
+          <div className="phone-frame">
+            <div className="phone-screen">
+              {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black">
+                  <div className="text-white text-sm">Loading...</div>
+                </div>
+              )}
+
+              {error && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black">
+                  <div className="text-red-400 text-center px-4">
+                    <div className="text-2xl mb-2">⚠️</div>
+                    <div className="text-xs">{error}</div>
+                  </div>
+                </div>
+              )}
+
+              <video
+                ref={videoRef}
+                className="w-full h-full object-cover"
+                controls={false}
+                preload="auto"
+              />
+            </div>
+          </div>
+
+          <div className="text-xs text-text-muted">9:16 Format (1080×1920)</div>
+        </div>
+
+        {/* Right Side - Controls & Info */}
+        <div className="flex-1 max-w-md space-y-6">
+          {/* Header */}
           <div>
-            <h3 className="text-lg font-semibold text-text-primary">Clip Preview</h3>
+            <h3 className="text-2xl font-semibold text-text-primary mb-2">Clip Preview</h3>
             {clipData && (
-              <p className="text-sm text-text-muted mt-1">
-                "{clipData.keyQuote.substring(0, 60)}..."
+              <p className="text-sm text-text-secondary leading-relaxed">
+                "{clipData.keyQuote}"
               </p>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="text-text-muted hover:text-text-primary text-xl"
-          >
-            ✕
-          </button>
-        </div>
 
-        {/* Video Player */}
-        <div className="p-6">
-          <div className="relative bg-black rounded-lg overflow-hidden mb-4">
-            {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black">
-                <div className="text-white">Loading clip...</div>
+          {/* Clip Info */}
+          {clipData && (
+            <div className="space-y-3 p-4 bg-bg-secondary rounded-lg border border-border-default">
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">Duration</span>
+                <span className="text-text-primary font-medium">{formatTime(clipData.duration)}</span>
               </div>
-            )}
-            
-            {error && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black">
-                <div className="text-red-400 text-center">
-                  <div className="text-lg mb-2">⚠️</div>
-                  <div>{error}</div>
-                  <div className="text-sm mt-2">Path: {clipPath}</div>
-                </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">Original Timestamp</span>
+                <span className="text-text-primary font-medium">
+                  {formatTime(clipData.startTime)} - {formatTime(clipData.endTime)}
+                </span>
               </div>
-            )}
+            </div>
+          )}
 
-            <video
-              ref={videoRef}
-              className="w-full h-[400px] object-contain"
-              controls={false}
-              preload="auto"
-            />
-          </div>
-
-          {/* Controls */}
+          {/* Playback Controls */}
           <div className="space-y-4">
-            {/* Play/Pause and Time */}
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center gap-4">
               <button
                 onClick={togglePlayPause}
                 disabled={isLoading || !!error}
-                className="w-12 h-12 bg-accent-primary hover:bg-accent-primary/80 rounded-full flex items-center justify-center text-white disabled:opacity-50"
+                className="w-14 h-14 bg-accent-primary hover:bg-blue-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
               >
-                {isPlaying ? '⏸️' : '▶️'}
+                {isPlaying ? (
+                  <span className="text-xl">⏸</span>
+                ) : (
+                  <span className="text-xl ml-1">▶</span>
+                )}
               </button>
-              
-              <div className="text-sm text-text-muted">
-                {formatTime(currentTime)} / {formatTime(duration)}
-              </div>
-              
-              {clipData && (
-                <div className="text-sm text-text-muted">
-                  Original: {formatTime(clipData.startTime)} - {formatTime(clipData.endTime)}
+
+              <div className="flex-1">
+                <div className="text-sm text-text-primary font-medium mb-1">
+                  {formatTime(currentTime)} / {formatTime(duration)}
                 </div>
-              )}
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || 0}
+                  value={currentTime}
+                  onChange={handleSeek}
+                  disabled={isLoading || !!error}
+                  className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer slider"
+                />
+              </div>
             </div>
 
-            {/* Seek Bar */}
-            <div className="space-y-2">
-              <input
-                type="range"
-                min={0}
-                max={duration || 0}
-                value={currentTime}
-                onChange={handleSeek}
-                disabled={isLoading || !!error}
-                className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer slider"
-              />
-            </div>
-
-            {/* Volume */}
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-text-muted">🔊</span>
+            {/* Volume Control */}
+            <div className="flex items-center gap-3 p-3 bg-bg-secondary rounded-lg border border-border-default">
+              <span className="text-text-secondary">🔊</span>
               <input
                 type="range"
                 min={0}
@@ -199,10 +220,28 @@ export function ClipPlayer({ clipPath, clipData, onClose, isVisible }: ClipPlaye
                 step={0.1}
                 value={volume}
                 onChange={handleVolumeChange}
-                className="w-24 h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer slider"
+                className="flex-1 h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer slider"
               />
-              <span className="text-sm text-text-muted w-8">{Math.round(volume * 100)}%</span>
+              <span className="text-sm text-text-primary font-medium w-12 text-right">
+                {Math.round(volume * 100)}%
+              </span>
             </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={onClose}
+              className="flex-1 btn-secondary"
+            >
+              Close
+            </button>
+            <button
+              className="flex-1 btn-primary"
+              disabled={isLoading || !!error}
+            >
+              Export Reel
+            </button>
           </div>
         </div>
       </div>

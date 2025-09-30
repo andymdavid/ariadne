@@ -1,14 +1,23 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { 
   IoFolderOpen, 
-  IoFlash, 
   IoCheckmarkCircle, 
   IoCreate, 
   IoCloudUpload, 
+  IoLibrary,
   IoSettings,
   IoSearch 
 } from 'react-icons/io5'
+import { useScreenFlow, useProjectData } from '../stores/projectStore'
+
+export interface StatusMessage {
+  id: string
+  type: 'status' | 'success' | 'error' | 'info'
+  message: string
+  timestamp: Date
+  icon?: React.ComponentType<any>
+}
 
 interface NavigationDockProps {
   onSearchTrigger: () => void
@@ -17,6 +26,9 @@ interface NavigationDockProps {
   isCommandMode?: boolean
   episodeId?: string
   isProcessing?: boolean
+  sessionMessages?: StatusMessage[]
+  onAddMessage?: (message: StatusMessage) => void
+  showStatusMode?: boolean
 }
 
 interface NavIcon {
@@ -27,7 +39,7 @@ interface NavIcon {
   requiresEpisode?: boolean
 }
 
-export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, isCommandMode = false, episodeId, isProcessing = false }: NavigationDockProps) {
+export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, isCommandMode = false, episodeId, isProcessing = false, sessionMessages = [], onAddMessage, showStatusMode = false }: NavigationDockProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const [activeScreen, setActiveScreen] = useState<string>('upload')
@@ -37,7 +49,24 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [filteredSlashCommands, setFilteredSlashCommands] = useState<any[]>([])
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
+  const [localMessages, setLocalMessages] = useState<StatusMessage[]>([])
   const commandInputRef = useRef<HTMLInputElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  
+  // Use project store for screen flow management
+  const { 
+    currentScreen,
+    completedScreens,
+    canAccessScreen, 
+    isScreenCompleted, 
+    setCurrentScreen
+  } = useScreenFlow()
+  
+  // Get project data including episode ID
+  const { currentEpisode } = useProjectData()
+  
+  // Use episode ID from store if not provided as prop
+  const activeEpisodeId = episodeId || currentEpisode?.id
 
   // Navigation icons using solid React Icons for Fey aesthetic
   const navIcons: NavIcon[] = [
@@ -46,13 +75,6 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
       icon: IoFolderOpen,
       label: 'Upload',
       route: '/'
-    },
-    {
-      id: 'processing',
-      icon: IoFlash,
-      label: 'Processing',
-      route: (episodeId) => episodeId ? `/project/${episodeId}` : '/',
-      requiresEpisode: true
     },
     {
       id: 'review',
@@ -76,30 +98,66 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
       requiresEpisode: true
     },
     {
-      id: 'settings',
-      icon: IoSettings,
-      label: 'Settings',
-      route: '/settings'
+      id: 'library',
+      icon: IoLibrary,
+      label: 'Library',
+      route: '/library'
     }
   ]
 
-  // Determine active screen from current location
+  // Determine active screen from current location and sync with project store
   useEffect(() => {
     const path = location.pathname
+    let screen = 'upload'
+    
     if (path === '/') {
-      setActiveScreen('upload')
-    } else if (path.startsWith('/project/')) {
-      setActiveScreen('processing')
+      screen = 'upload'
     } else if (path.startsWith('/review/')) {
-      setActiveScreen('review')
+      screen = 'review'
     } else if (path.startsWith('/content/')) {
-      setActiveScreen('content')
+      screen = 'content'
     } else if (path.startsWith('/export/')) {
-      setActiveScreen('export')
-    } else if (path === '/settings') {
-      setActiveScreen('settings')
+      screen = 'export'
+    } else if (path === '/library') {
+      screen = 'library'
     }
-  }, [location.pathname])
+    
+    setActiveScreen(screen)
+    setCurrentScreen(screen)
+  }, [location.pathname, setCurrentScreen])
+
+  // Use session messages from parent or local state
+  const displayMessages = sessionMessages.length > 0 ? sessionMessages : localMessages
+  
+  // Debug: Log when messages change
+  useEffect(() => {
+    console.log('NavigationDock displayMessages updated:', displayMessages)
+  }, [displayMessages])
+
+  // Add a status message
+  const addStatusMessage = useCallback((message: string, type: StatusMessage['type'] = 'status', icon?: React.ComponentType<any>) => {
+    const newMessage: StatusMessage = {
+      id: Date.now().toString(),
+      type,
+      message,
+      timestamp: new Date(),
+      icon
+    }
+    
+    // If parent handles session messages, use that; otherwise use local state
+    if (onAddMessage) {
+      onAddMessage(newMessage)
+    } else {
+      setLocalMessages(prev => [...prev, newMessage])
+    }
+  }, [onAddMessage])
+
+  // Scroll to bottom when new messages are added
+  useEffect(() => {
+    if (messagesEndRef.current && isCommandMode && !showSlashCommands) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [displayMessages, isCommandMode, showSlashCommands])
 
   // Handle 3-phase command mode transition
   useEffect(() => {
@@ -115,48 +173,59 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
       // Reset states when exiting command mode
       setIsExpanding(false)
       setCommandInput('')
+      setShowSlashCommands(false)
+      setFilteredSlashCommands([])
     }
   }, [isCommandMode])
 
   // Handle navigation icon click
   const handleNavClick = (navIcon: NavIcon) => {
-    if (navIcon.requiresEpisode && !episodeId) {
+    console.log('Navigation click:', {
+      screen: navIcon.id,
+      label: navIcon.label,
+      canAccess: canAccessScreen(navIcon.id),
+      isCompleted: isScreenCompleted(navIcon.id),
+      completedScreens: Array.from(completedScreens),
+      episodeId,
+      activeEpisodeId
+    })
+    
+    // Check if screen can be accessed based on workflow completion
+    if (!canAccessScreen(navIcon.id)) {
+      console.log('Screen not accessible yet:', navIcon.label, {
+        canAccess: canAccessScreen(navIcon.id),
+        isCompleted: isScreenCompleted(navIcon.id),
+        completedScreens: Array.from(completedScreens)
+      })
+      return
+    }
+    
+    if (navIcon.requiresEpisode && !activeEpisodeId) {
       // Show tooltip or feedback that episode is required
-      console.log('Episode required for', navIcon.label)
+      console.log('Episode required for', navIcon.label, { episodeId, activeEpisodeId })
       return
     }
 
     const route = typeof navIcon.route === 'function' 
-      ? navIcon.route(episodeId) 
+      ? navIcon.route(activeEpisodeId) 
       : navIcon.route
     
+    console.log('Navigating to:', route)
     navigate(route)
   }
 
   // Check if nav icon is disabled
   const isIconDisabled = (navIcon: NavIcon): boolean => {
-    return navIcon.requiresEpisode && !episodeId
+    // Disable if workflow requirements aren't met or episode is required but missing
+    return !canAccessScreen(navIcon.id) || (navIcon.requiresEpisode && !activeEpisodeId)
   }
 
   // Get context-aware placeholder text
   const getCommandPlaceholder = (): string => {
-    if (isProcessing) return 'Processing...'
+    if (isProcessing) return 'Type "/cancel" to stop processing...'
     if (commandInput.length > 0) return ''
     
-    switch (activeScreen) {
-      case 'upload':
-        return 'Try: select file, browse, or type "/" for commands...'
-      case 'processing':
-        return 'Try: view progress, cancel, or type "/" for commands...'
-      case 'review':
-        return 'Try: find clips about AI, approve all, or type "/" for commands...'
-      case 'content':
-        return 'Try: create titles, write descriptions, or type "/" for commands...'
-      case 'export':
-        return 'Try: export all, export as instagram, or type "/" for commands...'
-      default:
-        return 'Search commands or type naturally, or "/" for command list...'
-    }
+    return 'Press / or ⌘K for commands, Space to type...'
   }
 
   // Handle command input changes with autocomplete
@@ -281,9 +350,16 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
     }
     
     // Regular command handling
-    if (e.key === 'Enter' && commandInput.trim() && onCommand) {
+    if (e.key === 'Enter' && commandInput.trim()) {
       const commandText = commandInput.startsWith('/') ? commandInput.slice(1) : commandInput
-      onCommand(commandText)
+      
+      // Add command to status messages
+      addStatusMessage(`> ${commandInput}`, 'info')
+      
+      if (onCommand) {
+        onCommand(commandText)
+      }
+      
       setCommandInput('')
       setShowSlashCommands(false)
       setSuggestions([])
@@ -364,23 +440,43 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
 
   return (
     <>
-      {/* Command Suggestions */}
-      {suggestions.length > 0 && isCommandMode && (
-        <div className="command-suggestions">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={index}
-              className="command-suggestion"
-              onMouseDown={() => {
-                setCommandInput(suggestion)
-                commandInputRef.current?.focus()
-              }}
-            >
-              {suggestion}
-            </button>
-          ))}
+      {/* Status Mode Display (replaces command suggestions) */}
+      {isCommandMode && !showSlashCommands && displayMessages.length > 0 && (
+        <div className="status-display-dropdown">
+          <div className="status-dropdown-header">
+            <span className="status-dropdown-title">Session Status</span>
+            <span className="status-dropdown-hint">Type <kbd>/</kbd> for commands • <kbd>Esc</kbd> to exit</span>
+          </div>
+          
+          <div className="status-messages-dropdown">
+            {displayMessages.map((msg) => {
+              const isAICompanion = msg.message.includes('🤖') || msg.message.includes('Activating Ariadne') ||
+                                   msg.message.includes('Analyzing your podcast') || msg.message.includes('Extracting audio') || 
+                                   msg.message.includes('Transcribing audio') || msg.message.includes('Analyzing content') ||
+                                   msg.message.includes('Identifying engaging') || msg.message.includes('🔄')
+              const showThinking = isProcessing && msg.type === 'status' && isAICompanion
+              
+              return (
+                <div key={msg.id} className={`status-message-dropdown ${msg.type} ${isAICompanion ? 'ai-companion' : ''}`}>
+                  {msg.icon && (
+                    <msg.icon className="status-message-icon-dropdown" size={16} />
+                  )}
+                  <span className="status-message-text-dropdown">
+                    {msg.message}
+                    {showThinking && <span className="ai-thinking-dots"></span>}
+                  </span>
+                  <span className="status-message-time-dropdown">
+                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              )
+            })}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
       )}
+
+      {/* Command Suggestions - removed since replaced by status mode */}
 
       {/* Slash Command Palette with Autocomplete */}
       {showSlashCommands && isCommandMode && filteredSlashCommands.length > 0 && (
@@ -414,18 +510,27 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
 
       {/* Navigation Dock */}
       <div className={`navigation-dock ${isCommandMode ? 'command-mode' : ''} ${isExpanding ? 'expanding' : ''}`}>
-        {/* Navigation Icons */}
-        {navIcons.map((navIcon) => {
+        {/* Navigation Icons - Only render in default state */}
+        {!isCommandMode && navIcons.map((navIcon) => {
           const IconComponent = navIcon.icon
+          const completed = isScreenCompleted(navIcon.id)
+          const accessible = canAccessScreen(navIcon.id)
+          const disabled = isIconDisabled(navIcon)
+          
           return (
             <button
               key={navIcon.id}
-              className={`nav-icon ${activeScreen === navIcon.id ? 'active' : ''} ${isIconDisabled(navIcon) ? 'disabled' : ''} ${isCommandMode ? 'command-mode' : ''}`}
+              className={`nav-icon ${activeScreen === navIcon.id ? 'active' : ''} ${disabled ? 'disabled' : ''} ${completed ? 'completed' : ''} ${!accessible ? 'inaccessible' : ''}`}
               onClick={() => handleNavClick(navIcon)}
-              disabled={isIconDisabled(navIcon)}
-              title={navIcon.label}
+              disabled={disabled}
+              title={`${navIcon.label}${completed ? ' (Completed)' : ''}${!accessible ? ' (Locked)' : ''}`}
             >
               <IconComponent className="nav-icon-solid" size={20} />
+              {completed && (
+                <div className="completion-indicator">
+                  <IoCheckmarkCircle size={12} />
+                </div>
+              )}
             </button>
           )
         })}
@@ -443,16 +548,25 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
         {/* Command Input (hidden initially, shown in command mode) */}
         {isCommandMode && (
           <div className="command-input-container">
+            {/* Custom placeholder with styled kbd elements */}
+            {!commandInput && (
+              <div className="custom-placeholder">
+                {isProcessing ? (
+                  <>Type <kbd>/cancel</kbd> to stop processing...</>
+                ) : (
+                  <>Press <kbd>/</kbd> or <kbd>⌘K</kbd> for commands, <kbd>Space</kbd> to type...</>
+                )}
+              </div>
+            )}
             <input
               ref={commandInputRef}
               className="command-input active"
-              placeholder={getCommandPlaceholder()}
+              placeholder=""
               value={commandInput}
               onChange={handleCommandInputChange}
               onKeyDown={handleCommandKeyDown}
               onFocus={handleCommandFocus}
               onBlur={handleCommandBlur}
-              disabled={isProcessing}
               autoFocus
             />
             {isProcessing && (
@@ -491,10 +605,10 @@ function getProgressPercentage(activeScreen: string): number {
   // Smooth progress calculation with meaningful steps
   const progressSteps = {
     upload: 0,      // Starting point
-    processing: 25, // File uploaded and processing
-    review: 50,     // Processing complete, reviewing clips
-    content: 75,    // Clips reviewed, creating content
-    export: 100     // Content ready, exporting
+    review: 33,     // Processing complete, reviewing clips
+    content: 66,    // Clips reviewed, creating content
+    export: 100,    // Content ready, exporting
+    library: 0      // Independent screen
   }
   
   return progressSteps[activeScreen as keyof typeof progressSteps] || 0

@@ -33,27 +33,18 @@ function App() {
   const { isProcessing, stage, message: processingMessage } = useProcessingStore()
   
   // Get project state
-  const {
-    clips: projectClips,
+  const { 
+    clips: projectClips, 
     currentEpisode,
     fileInfo,
     markScreenCompleted,
     setFileInfo,
     validateState,
-    recoverSession,
-    cleanupInvalidProjects
+    recoverSession
   } = useProjectStore()
-
+  
   // Set up processing update listeners
   useProcessingUpdates()
-
-  // One-time cleanup of invalid projects on app initialization
-  useEffect(() => {
-    const removedCount = cleanupInvalidProjects()
-    if (removedCount > 0) {
-      console.log(`🧹 App startup: Cleaned up ${removedCount} invalid projects from storage`)
-    }
-  }, []) // Empty dependency array = run once on mount
   
   // Initialize managers
   const screenFlowManager = useRef<ScreenFlowManager>()
@@ -142,7 +133,6 @@ function App() {
   useEffect(() => {
     if (sessionMessages.length === 0) {
       // Run session validation and recovery first
-      console.log('🚀 APP STARTUP: Initializing Ariadne...')
       console.log('App startup: Running session validation...')
       const isValidState = validateState()
       
