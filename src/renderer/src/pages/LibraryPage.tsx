@@ -273,9 +273,9 @@ export function LibraryPage() {
             const isSelected = selectedProject?.id === project.id
             
             return (
-              <div 
-                key={project.id} 
-                className={`card p-4 space-y-3 cursor-pointer transition-all hover:bg-bg-secondary ${
+              <div
+                key={project.id}
+                className={`settings-card p-4 space-y-3 cursor-pointer transition-all ${
                   isSelected ? 'ring-2 ring-accent-primary' : ''
                 }`}
                 onClick={() => setSelectedProject(project)}
@@ -356,25 +356,25 @@ export function LibraryPage() {
 
                 {/* Project Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-4 bg-bg-secondary rounded-lg">
+                  <div className="text-center p-4 settings-card">
                     <div className="text-2xl font-semibold text-text-primary">
                       {selectedProject.clipCount}
                     </div>
                     <div className="text-sm text-text-muted">Total Clips</div>
                   </div>
-                  <div className="text-center p-4 bg-bg-secondary rounded-lg">
+                  <div className="text-center p-4 settings-card">
                     <div className="text-2xl font-semibold text-accent-success">
                       {getProjectStatus(selectedProject).approvedCount}
                     </div>
                     <div className="text-sm text-text-muted">Approved</div>
                   </div>
-                  <div className="text-center p-4 bg-bg-secondary rounded-lg">
+                  <div className="text-center p-4 settings-card">
                     <div className="text-2xl font-semibold text-text-primary">
                       {formatDuration(selectedProject.duration)}
                     </div>
                     <div className="text-sm text-text-muted">Duration</div>
                   </div>
-                  <div className="text-center p-4 bg-bg-secondary rounded-lg">
+                  <div className="text-center p-4 settings-card">
                     <div className="text-2xl font-semibold text-text-primary">
                       {Math.round(selectedProject.transcriptLength / 1000)}K
                     </div>

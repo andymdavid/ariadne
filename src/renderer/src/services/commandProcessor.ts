@@ -32,8 +32,13 @@ export class CommandProcessor {
 
   async processCommand(input: string): Promise<CommandResult> {
     const command = input.toLowerCase().trim()
-    
+
     console.log('Processing command:', command, 'on screen:', this.context.currentScreen)
+
+    // Slash commands (shorthand navigation)
+    if (command.startsWith('/')) {
+      return this.handleSlashCommand(command)
+    }
 
     // Navigation commands (work from any screen)
     if (this.isNavigationCommand(command)) {
@@ -54,6 +59,46 @@ export class CommandProcessor {
         return this.handleExportCommands(command)
       default:
         return this.handleGeneralCommands(command)
+    }
+  }
+
+  private handleSlashCommand(command: string): CommandResult {
+    const cmd = command.slice(1) // Remove the leading slash
+
+    switch (cmd) {
+      case 'settings':
+        this.context.navigate('/settings')
+        return { success: true, message: 'Opening settings', action: 'navigate' }
+      case 'home':
+      case 'upload':
+        this.context.navigate('/')
+        return { success: true, message: 'Navigating to upload screen', action: 'navigate' }
+      case 'library':
+        this.context.navigate('/library')
+        return { success: true, message: 'Opening library', action: 'navigate' }
+      case 'review':
+        if (this.context.episodeId) {
+          this.context.navigate(`/review/${this.context.episodeId}`)
+          return { success: true, message: 'Navigating to review screen', action: 'navigate' }
+        }
+        return { success: false, message: 'No episode available to review', action: 'error' }
+      case 'content':
+        if (this.context.episodeId) {
+          this.context.navigate(`/content/${this.context.episodeId}`)
+          return { success: true, message: 'Navigating to content screen', action: 'navigate' }
+        }
+        return { success: false, message: 'No episode available', action: 'error' }
+      case 'export':
+        if (this.context.episodeId) {
+          this.context.navigate(`/export/${this.context.episodeId}`)
+          return { success: true, message: 'Navigating to export screen', action: 'navigate' }
+        }
+        return { success: false, message: 'No episode available to export', action: 'error' }
+      case 'help':
+        const helpText = this.getContextualHelp()
+        return { success: true, message: helpText, action: 'execute' }
+      default:
+        return { success: false, message: `Command "/${cmd}" not recognized. Try /settings, /home, /library, or /help`, action: 'error' }
     }
   }
 

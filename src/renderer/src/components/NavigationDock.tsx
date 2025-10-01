@@ -340,7 +340,7 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
         e.preventDefault()
         const selectedCommand = filteredSlashCommands[selectedCommandIndex]
         if (selectedCommand && onCommand) {
-          onCommand(selectedCommand.command.slice(1)) // Remove leading slash
+          onCommand(selectedCommand.command) // Keep the leading slash
           setCommandInput('')
           setShowSlashCommands(false)
           setFilteredSlashCommands([])

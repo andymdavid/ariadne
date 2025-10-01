@@ -7,6 +7,7 @@ import { ReviewPage } from './pages/ReviewPage'
 import { ContentPage } from './pages/ContentPage'
 import { ExportPage } from './pages/ExportPage'
 import { LibraryPage } from './pages/LibraryPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { useViewport, setupNoScrollViewport } from './hooks/useViewport'
 import { useProcessingUpdates } from './hooks/useProcessingUpdates'
 import { CommandProcessor, createCommandProcessor, CommandContext } from './services/commandProcessor'
@@ -590,6 +591,7 @@ function App() {
                   <LibraryPage />
                 </LibraryErrorBoundary>
               } />
+              <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </ErrorBoundary>
         </div>
