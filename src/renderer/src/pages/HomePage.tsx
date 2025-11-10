@@ -66,13 +66,13 @@ export function HomePage() {
           reject(new Error(error))
         })
         
-        // Timeout after 10 minutes (processing should never take that long)
+        // Timeout after 20 minutes (AI analysis can take longer for long episodes)
         timeoutId = setTimeout(() => {
-          console.error('Processing timed out after 10 minutes')
+          console.error('Processing timed out after 20 minutes')
           cleanup?.()
           errorCleanup?.()
-          reject(new Error('Processing timed out'))
-        }, 10 * 60 * 1000)
+          reject(new Error('Processing timed out after 20 minutes'))
+        }, 20 * 60 * 1000)
       })
       
       // Start processing (fire-and-forget, result comes via IPC)
@@ -119,19 +119,23 @@ export function HomePage() {
     }
   }
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
-    
+
     const files = Array.from(e.dataTransfer.files)
-    const mediaFile = files.find(file => 
+    const mediaFile = files.find(file =>
       file.type.startsWith('video/') || file.type.startsWith('audio/')
     )
-    
+
     if (mediaFile) {
-      // In browser context, we don't have access to file paths
-      // This would need to be handled differently in production
-      startProcessing(mediaFile.name)
+      // In Electron, we can get the file path from the File object
+      const filePath = (mediaFile as any).path
+      if (filePath) {
+        startProcessing(filePath)
+      } else {
+        console.error('Could not get file path from dropped file')
+      }
     }
   }
 

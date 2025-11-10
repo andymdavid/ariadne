@@ -376,9 +376,10 @@ class ProcessingPipeline {
       endTime: segment.end,
       text: segment.text,
       confidence: 1.0, // Whisper doesn't provide confidence scores
-      speaker: undefined // TODO: Add speaker detection
+      speaker: undefined, // TODO: Add speaker detection
+      words: segment.words // Store word-level timestamps if available
     }))
-    
+
     database.insertTranscriptSegments(segments)
   }
   

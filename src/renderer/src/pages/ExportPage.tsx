@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { IoCheckmarkCircle, IoClose, IoDownload, IoSettings, IoTime, IoVideocam, IoWarning } from 'react-icons/io5'
+import { MainContentPanel } from '../components/MainContentPanel'
 
 interface Clip {
   id: string
@@ -12,6 +13,14 @@ interface Clip {
   keyQuote: string
   reason: string
   status: 'pending' | 'approved' | 'rejected'
+}
+
+interface ClipTitle {
+  id: string
+  clip_id: string
+  title: string
+  is_selected: number
+  created_at: string
 }
 
 interface ExportJob {
@@ -30,6 +39,7 @@ export function ExportPage() {
   const { id: episodeId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [approvedClips, setApprovedClips] = useState<Clip[]>([])
+  const [clipTitles, setClipTitles] = useState<{ [clipId: string]: string }>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [exportJob, setExportJob] = useState<ExportJob | null>(null)
@@ -75,10 +85,40 @@ export function ExportPage() {
         throw new Error('Export API not available')
       }
 
-      const clips = await window.electronAPI.getApprovedClips(episodeId!)
-      console.log('Loaded approved clips:', clips)
+      const rawClips = await window.electronAPI.getApprovedClips(episodeId!)
+      console.log('Loaded approved clips:', rawClips)
+
+      // Map database snake_case to camelCase
+      const clips: Clip[] = rawClips.map((clip: any) => ({
+        id: clip.id,
+        startTime: Number(clip.start_time) || 0,
+        endTime: Number(clip.end_time) || 0,
+        duration: Number(clip.duration) || 0,
+        contentType: clip.content_type || 'unknown',
+        shareabilityScore: Number(clip.shareability_score) || 0,
+        keyQuote: clip.key_quote || '',
+        reason: clip.reason || '',
+        status: clip.status || 'approved'
+      }))
 
       setApprovedClips(clips)
+
+      // Fetch titles for each clip
+      const titlesMap: { [clipId: string]: string } = {}
+      for (const clip of clips) {
+        try {
+          const titles = await window.electronAPI?.getClipTitles?.(clip.id)
+          if (titles && titles.length > 0) {
+            // Get the selected title or the first one
+            const selectedTitle = titles.find((t: ClipTitle) => t.is_selected === 1) || titles[0]
+            titlesMap[clip.id] = selectedTitle.title
+          }
+        } catch (err) {
+          console.log(`No titles found for clip ${clip.id}`)
+        }
+      }
+      setClipTitles(titlesMap)
+
       setLoading(false)
     } catch (err) {
       console.error('Failed to load approved clips:', err)
@@ -139,246 +179,196 @@ export function ExportPage() {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin text-4xl mb-4">⏳</div>
-          <div className="text-text-secondary">Loading approved clips...</div>
+      <MainContentPanel>
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center">
+            <div className="animate-spin text-4xl mb-4">⏳</div>
+            <div className="text-text-secondary">Loading approved clips...</div>
+          </div>
         </div>
-      </div>
+      </MainContentPanel>
     )
   }
 
   if (error && !exportJob) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <IoWarning className="text-5xl text-accent-danger mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
-          <p className="text-text-secondary mb-6">{error}</p>
-          <button
-            className="btn-primary"
-            onClick={() => navigate(`/review/${episodeId}`)}
-          >
-            Back to Review
-          </button>
+      <MainContentPanel>
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center max-w-md">
+            <IoWarning className="text-5xl text-accent-danger mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
+            <p className="text-text-secondary mb-6">{error}</p>
+            <button
+              className="btn-primary"
+              onClick={() => navigate(`/review/${episodeId}`)}
+            >
+              Back to Review
+            </button>
+          </div>
         </div>
-      </div>
+      </MainContentPanel>
+    )
+  }
+
+  if (approvedClips.length === 0) {
+    return (
+      <MainContentPanel>
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="max-w-2xl w-full space-y-8 text-center">
+            <div className="space-y-4">
+              <IoVideocam className="text-6xl text-text-muted mx-auto" />
+              <div className="space-y-2">
+                <h1 className="text-2xl font-semibold text-text-primary">
+                  No Approved Clips
+                </h1>
+                <p className="text-text-muted">
+                  You need to approve clips in the Review page before you can export them.
+                </p>
+              </div>
+              <button
+                className="btn-primary"
+                onClick={() => navigate(`/review/${episodeId}`)}
+              >
+                Go to Review
+              </button>
+            </div>
+          </div>
+        </div>
+      </MainContentPanel>
     )
   }
 
   return (
-    <div className="flex-1 flex h-full overflow-hidden">
-      {/* Left Panel - Export Settings */}
-      <div className="w-96 border-r border-border-default p-6 space-y-6 overflow-y-auto flex-shrink-0">
-        <div>
-          <h2 className="text-2xl font-semibold text-text-primary mb-2">
-            Export Settings
-          </h2>
-          <p className="text-sm text-text-muted">
-            Configure your export options
-          </p>
-        </div>
+    <MainContentPanel>
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Header with settings */}
+        <div className="border-b border-border-default p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold text-text-primary">
+                {exportJob ? 'Export Progress' : 'Export Clips'}
+              </h2>
+              <p className="text-sm text-text-muted mt-1">
+                {exportJob
+                  ? `Exporting ${exportJob.currentClipIndex + 1} of ${exportJob.totalClips} clips`
+                  : `${approvedClips.length} approved clips ready to export`}
+              </p>
+            </div>
 
-        {/* Aspect Ratio Selection */}
-        <div>
-          <label className="block text-sm font-medium text-text-secondary mb-3">
-            Aspect Ratio
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            {(['9:16', '1:1', '16:9'] as const).map((ratio) => (
-              <button
-                key={ratio}
-                onClick={() => setAspectRatio(ratio)}
-                disabled={isExporting}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  aspectRatio === ratio
-                    ? 'border-accent-primary bg-accent-primary/10'
-                    : 'border-border-default hover:border-border-hover'
-                }`}
-              >
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-text-primary mb-1">
-                    {ratio}
-                  </div>
-                  <div className="text-xs text-text-muted">
-                    {ratio === '9:16' && 'Stories'}
-                    {ratio === '1:1' && 'Square'}
-                    {ratio === '16:9' && 'Landscape'}
+            {/* Compact Export Settings */}
+            {!isExporting && !exportJob && (
+              <div className="flex items-center space-x-4">
+                {/* Aspect Ratio */}
+                <div className="flex items-center space-x-2">
+                  <label className="text-sm text-text-muted">Format:</label>
+                  <div className="flex space-x-1">
+                    {(['9:16', '1:1', '16:9'] as const).map((ratio) => (
+                      <button
+                        key={ratio}
+                        onClick={() => setAspectRatio(ratio)}
+                        className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                          aspectRatio === ratio
+                            ? 'bg-accent-primary text-white'
+                            : 'bg-bg-secondary text-text-muted hover:bg-bg-tertiary'
+                        }`}
+                      >
+                        {ratio}
+                      </button>
+                    ))}
                   </div>
                 </div>
+
+                {/* Captions Toggle */}
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeCaptions}
+                    onChange={(e) => setIncludeCaptions(e.target.checked)}
+                    className="w-4 h-4 rounded border-border-default text-accent-primary"
+                  />
+                  <span className="text-sm text-text-muted">Captions</span>
+                </label>
+
+                {/* Export Button */}
+                <button
+                  onClick={handleStartExport}
+                  disabled={approvedClips.length === 0}
+                  className="btn-primary flex items-center space-x-2"
+                >
+                  <IoDownload />
+                  <span>Export {approvedClips.length}</span>
+                </button>
+              </div>
+            )}
+
+            {isExporting && exportJob && exportJob.status === 'processing' && (
+              <button
+                onClick={handleCancelExport}
+                className="btn-secondary flex items-center space-x-2"
+              >
+                <IoClose />
+                <span>Cancel Export</span>
               </button>
-            ))}
-          </div>
-        </div>
+            )}
 
-        {/* Options */}
-        <div className="space-y-3">
-          <label className="flex items-center space-x-3 p-3 rounded-lg hover:bg-bg-secondary cursor-pointer transition-colors">
-            <input
-              type="checkbox"
-              checked={includeCaptions}
-              onChange={(e) => setIncludeCaptions(e.target.checked)}
-              disabled={isExporting}
-              className="w-5 h-5 rounded border-border-default text-accent-primary focus:ring-2 focus:ring-accent-primary"
-            />
-            <div className="flex-1">
-              <div className="text-sm font-medium text-text-primary">
-                Include Captions
+            {exportJob && exportJob.status === 'completed' && (
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => {
+                    setExportJob(null)
+                    setIsExporting(false)
+                  }}
+                  className="btn-primary flex items-center space-x-2"
+                >
+                  <IoDownload />
+                  <span>Export Again</span>
+                </button>
+                <button
+                  onClick={() => navigate(`/review/${episodeId}`)}
+                  className="btn-secondary"
+                >
+                  Back to Review
+                </button>
               </div>
-              <div className="text-xs text-text-muted">
-                Overlay key quote on video
-              </div>
-            </div>
-          </label>
-        </div>
-
-        {/* Export Summary */}
-        <div className="card p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-text-primary">
-            Export Summary
-          </h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-text-muted">Approved Clips:</span>
-              <span className="text-text-primary font-medium">
-                {approvedClips.length}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-text-muted">Total Duration:</span>
-              <span className="text-text-primary font-medium">
-                {formatTime(approvedClips.reduce((sum, clip) => sum + clip.duration, 0))}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-text-muted">Estimated Time:</span>
-              <span className="text-text-primary font-medium">
-                {getEstimatedDuration()}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-text-muted">Format:</span>
-              <span className="text-text-primary font-medium">
-                MP4 ({aspectRatio})
-              </span>
-            </div>
+            )}
           </div>
-        </div>
 
-        {/* Export Button */}
-        {!isExporting && !exportJob && (
-          <button
-            onClick={handleStartExport}
-            disabled={approvedClips.length === 0}
-            className="w-full btn-primary py-4 text-lg font-semibold flex items-center justify-center space-x-2"
-          >
-            <IoDownload className="text-xl" />
-            <span>Export {approvedClips.length} Clips</span>
-          </button>
-        )}
-
-        {isExporting && exportJob && exportJob.status === 'processing' && (
-          <button
-            onClick={handleCancelExport}
-            className="w-full btn-secondary py-4 text-lg font-semibold flex items-center justify-center space-x-2"
-          >
-            <IoClose className="text-xl" />
-            <span>Cancel Export</span>
-          </button>
-        )}
-
-        {exportJob && exportJob.status === 'completed' && (
-          <div className="space-y-3">
-            <button
-              onClick={() => {
-                setExportJob(null)
-                setIsExporting(false)
-              }}
-              className="w-full btn-primary py-4 text-lg font-semibold flex items-center justify-center space-x-2"
-            >
-              <IoDownload className="text-xl" />
-              <span>Export Again</span>
-            </button>
-            <button
-              onClick={() => navigate(`/review/${episodeId}`)}
-              className="w-full btn-secondary py-3 flex items-center justify-center space-x-2"
-            >
-              <span>Back to Review</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Right Panel - Clips List and Progress */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="border-b border-border-default p-6">
-          <h2 className="text-2xl font-semibold text-text-primary mb-1">
-            {exportJob ? 'Export Progress' : 'Approved Clips'}
-          </h2>
-          <p className="text-sm text-text-muted">
-            {exportJob
-              ? `Exporting ${exportJob.currentClipIndex + 1} of ${exportJob.totalClips} clips`
-              : `${approvedClips.length} clips ready for export`}
-          </p>
-        </div>
-
-        {/* Export Progress */}
-        {exportJob && (
-          <div className="p-6 border-b border-border-default bg-bg-secondary">
-            <div className="space-y-4">
-              {/* Status */}
+          {/* Export Progress Bar */}
+          {exportJob && (
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   {exportJob.status === 'processing' && (
                     <>
-                      <div className="animate-spin text-2xl">⏳</div>
-                      <div>
-                        <div className="text-lg font-semibold text-text-primary">
-                          Exporting...
-                        </div>
-                        <div className="text-sm text-text-muted">
-                          Clip {exportJob.currentClipIndex + 1} of {exportJob.totalClips}
-                        </div>
-                      </div>
+                      <div className="animate-spin text-xl">⏳</div>
+                      <span className="text-sm text-text-primary">
+                        Exporting clip {exportJob.currentClipIndex + 1} of {exportJob.totalClips}
+                      </span>
                     </>
                   )}
                   {exportJob.status === 'completed' && (
                     <>
-                      <IoCheckmarkCircle className="text-3xl text-accent-success" />
-                      <div>
-                        <div className="text-lg font-semibold text-accent-success">
-                          Export Complete!
-                        </div>
-                        <div className="text-sm text-text-muted">
-                          {exportJob.totalClips} clips exported successfully
-                        </div>
-                      </div>
+                      <IoCheckmarkCircle className="text-xl text-accent-success" />
+                      <span className="text-sm text-accent-success font-medium">
+                        Export Complete! {exportJob.totalClips} clips exported
+                      </span>
                     </>
                   )}
                   {exportJob.status === 'failed' && (
                     <>
-                      <IoWarning className="text-3xl text-accent-danger" />
-                      <div>
-                        <div className="text-lg font-semibold text-accent-danger">
-                          Export Failed
-                        </div>
-                        <div className="text-sm text-text-muted">
-                          {exportJob.error || 'Unknown error occurred'}
-                        </div>
-                      </div>
+                      <IoWarning className="text-xl text-accent-danger" />
+                      <span className="text-sm text-accent-danger">
+                        {exportJob.error || 'Export failed'}
+                      </span>
                     </>
                   )}
                 </div>
-                <div className="text-right">
-                  <div className="text-3xl font-bold text-accent-primary">
-                    {Math.round(exportJob.progress)}%
-                  </div>
+                <div className="text-lg font-bold text-accent-primary">
+                  {Math.round(exportJob.progress)}%
                 </div>
               </div>
 
-              {/* Progress Bar */}
-              <div className="w-full bg-bg-tertiary rounded-full h-3 overflow-hidden">
+              <div className="w-full bg-bg-tertiary rounded-full h-2 overflow-hidden">
                 <div
                   className="h-full bg-accent-primary transition-all duration-300"
                   style={{ width: `${exportJob.progress}%` }}
@@ -387,99 +377,97 @@ export function ExportPage() {
 
               {/* Output Paths */}
               {exportJob.status === 'completed' && exportJob.outputPaths.length > 0 && (
-                <div className="mt-4">
-                  <div className="text-sm font-medium text-text-secondary mb-2">
-                    Exported Files:
-                  </div>
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
-                    {exportJob.outputPaths.map((path, index) => (
-                      <div
-                        key={index}
-                        className="text-xs text-text-muted bg-bg-tertiary p-2 rounded font-mono truncate"
-                        title={path}
-                      >
-                        {path.split('/').pop()}
-                      </div>
-                    ))}
-                  </div>
+                <div className="text-xs text-text-muted">
+                  Exported to: {exportJob.outputPaths[0].split('/').slice(0, -1).join('/')}
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* Clips List */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {approvedClips.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <IoVideocam className="text-6xl text-text-muted mb-4" />
-              <h3 className="text-xl font-semibold text-text-primary mb-2">
-                No Approved Clips
-              </h3>
-              <p className="text-text-muted mb-6 max-w-md">
-                You need to approve clips in the Review page before you can export them.
-              </p>
-              <button
-                className="btn-primary"
-                onClick={() => navigate(`/review/${episodeId}`)}
-              >
-                Go to Review
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {approvedClips.map((clip, index) => (
-                <div
-                  key={clip.id}
-                  className={`card p-5 space-y-3 transition-all ${
-                    exportJob && index < exportJob.currentClipIndex
-                      ? 'opacity-50'
-                      : exportJob && index === exportJob.currentClipIndex
-                      ? 'ring-2 ring-accent-primary'
-                      : ''
-                  }`}
-                >
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-lg font-bold text-text-muted">
-                        #{index + 1}
-                      </span>
-                      <span className="text-xs font-medium uppercase tracking-wide text-accent-success">
-                        {clip.contentType}
-                      </span>
-                      <span className="text-text-muted">•</span>
-                      <span className="text-sm text-text-muted">
-                        {formatTime(clip.duration)}
-                      </span>
-                      <span className="text-text-muted">•</span>
-                      <span className="text-sm text-accent-primary font-medium">
-                        {clip.shareabilityScore}★
-                      </span>
-                    </div>
-                    {exportJob && index < exportJob.currentClipIndex && (
-                      <IoCheckmarkCircle className="text-xl text-accent-success" />
-                    )}
-                    {exportJob && index === exportJob.currentClipIndex && (
-                      <div className="animate-spin text-xl">⏳</div>
-                    )}
-                  </div>
-
-                  {/* Quote */}
-                  <blockquote className="text-text-primary leading-relaxed">
-                    "{clip.keyQuote}"
-                  </blockquote>
-
-                  {/* Metadata */}
-                  <div className="text-sm text-text-muted">
-                    {clip.reason}
-                  </div>
-                </div>
-              ))}
-            </div>
           )}
         </div>
+
+        {/* Clips Grid */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-4">
+            {approvedClips.map((clip, index) => {
+              const clipTitle = clipTitles[clip.id]
+
+              return (
+                <div
+                  key={clip.id}
+                  className={`clip-card ${
+                    exportJob && index === exportJob.currentClipIndex ? 'selected' : ''
+                  }`}
+                  style={{
+                    opacity: exportJob && index < exportJob.currentClipIndex ? '0.5' : undefined,
+                    minWidth: '0',
+                    maxWidth: '100%',
+                    width: '100%',
+                    height: 'auto',
+                    minHeight: '340px',
+                    transform: 'scale(1)',
+                    cursor: 'default'
+                  }}
+                >
+                  {/* Status Badge */}
+                  {clip.status === 'approved' && (
+                    <div className="status-badge approved">✓</div>
+                  )}
+
+                  {/* Export Progress Indicator */}
+                  {exportJob && index === exportJob.currentClipIndex && (
+                    <div className="absolute top-12 right-12 animate-spin text-lg">
+                      ⏳
+                    </div>
+                  )}
+                  {exportJob && index < exportJob.currentClipIndex && (
+                    <div className="absolute top-12 right-12">
+                      <IoCheckmarkCircle className="text-xl text-accent-success" />
+                    </div>
+                  )}
+
+                  {/* Card Header */}
+                  <div className="clip-card-header">
+                    <span className={`content-type ${clip.contentType}`}>
+                      {clip.contentType}
+                    </span>
+                    <span className="shareability-score">
+                      {clip.shareabilityScore}★
+                    </span>
+                  </div>
+
+                  {/* Title or Quote */}
+                  {clipTitle ? (
+                    <div className="flex-1">
+                      <h3 className="text-base font-semibold text-text-primary leading-tight mb-2">
+                        {clipTitle}
+                      </h3>
+                      <p className="text-sm text-text-muted line-clamp-3">
+                        {clip.keyQuote}
+                      </p>
+                    </div>
+                  ) : (
+                    <blockquote className="clip-quote">
+                      "{clip.keyQuote}"
+                    </blockquote>
+                  )}
+
+                  {/* Metadata */}
+                  <div className="clip-metadata">
+                    <span className="duration">{formatTime(clip.duration)}</span>
+                    <span className="divider">•</span>
+                    <span className="timestamp">
+                      {formatTime(clip.startTime)} - {formatTime(clip.endTime)}
+                    </span>
+                  </div>
+
+                  {/* Reason */}
+                  <p className="clip-reason">{clip.reason}</p>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       </div>
-    </div>
+    </MainContentPanel>
   )
 }

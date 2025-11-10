@@ -1,6 +1,6 @@
 import { useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { ClipPlayer } from '../components/ClipPlayer'
+import { ClipEditModal } from '../components/ClipEditModal'
 import { ClipCarousel } from '../components/ClipCarousel'
 import { MainContentPanel } from '../components/MainContentPanel'
 import { useClipsData, useProjectStore } from '../stores/projectStore'
@@ -31,7 +31,10 @@ export function ReviewPage() {
   const { updateClipStatus: updateProjectClipStatus, markScreenCompleted } = useProjectStore()
   const [extractingClips, setExtractingClips] = useState<Set<string>>(new Set())
   const [extractionProgress, setExtractionProgress] = useState<{[clipId: string]: number}>({})
-  const [playingClip, setPlayingClip] = useState<{clip: Clip, clipPath: string} | null>(null)
+
+  // State for edit modal
+  const [editingClip, setEditingClip] = useState<Clip | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
   // Fetch clips on component mount
   useEffect(() => {
@@ -211,90 +214,43 @@ export function ReviewPage() {
     }
   }
 
-  // Handle clip selection for preview
+  // Handle clip selection without opening modal (for arrow keys)
+  const handleNavigateToClip = (clip: Clip) => {
+    setSelectedClip(clip)
+  }
+
+  // Handle clip selection for preview - opens edit modal
   const handleSelectClip = (clip: Clip) => {
     try {
-      console.log('Selecting clip:', clip)
+      console.log('Selecting clip for editing:', clip)
       setSelectedClip(clip)
-      console.log('Selected clip successfully')
+      setEditingClip(clip)
+      setIsEditModalOpen(true)
+      console.log('Opened edit modal for clip')
     } catch (error) {
       console.error('Error selecting clip:', error)
     }
   }
 
-  // Handle play clip
-  const handlePlayClip = async (clip: Clip) => {
-    try {
-      console.log('Playing clip:', clip)
-      console.log('window object exists:', !!window)
-      console.log('electronAPI available:', !!window.electronAPI)
-      console.log('electronAPI is object:', typeof window.electronAPI)
-      
-      if (window.electronAPI) {
-        console.log('All electronAPI methods:', Object.keys(window.electronAPI))
-        console.log('playClip function type:', typeof window.electronAPI.playClip)
-        console.log('playClip function exists:', 'playClip' in window.electronAPI)
-      } else {
-        console.error('electronAPI is not available on window object')
-        console.log('window properties:', Object.keys(window))
-      }
-      
-      if (!clip || !clip.startTime || !clip.endTime || !episodeId) {
-        console.log('Clip validation failed:', {
-          clip,
-          hasClip: !!clip,
-          startTime: clip?.startTime,
-          endTime: clip?.endTime,
-          episodeId,
-          clipKeys: clip ? Object.keys(clip) : 'no clip'
-        })
-        alert('Clip data is incomplete - cannot play')
-        return
-      }
+  // Handle closing edit modal
+  const handleCloseEditModal = () => {
+    setIsEditModalOpen(false)
+    setEditingClip(null)
+    // Refresh clips to show any updates
+    loadClips()
+  }
 
-      if (!window.electronAPI || typeof window.electronAPI.playClip !== 'function') {
-        alert('playClip function not available. Please restart the application and check the console for errors.')
-        return
-      }
-      
-      // Mark clip as being extracted
-      setExtractingClips(prev => new Set(prev).add(clip.id))
-      setExtractionProgress(prev => ({ ...prev, [clip.id]: 0 }))
-      
-      try {
-        // Call the clip extraction and playback function
-        const result = await window.electronAPI.playClip(episodeId, clip.startTime, clip.endTime, clip.id)
-        console.log('Clip extraction result:', result)
-        
-        if (result?.success && result.clipPath) {
-          // Open the native in-app player
-          console.log('Opening native player with clip path:', result.clipPath)
-          setPlayingClip({ clip, clipPath: result.clipPath })
-        }
-      } finally {
-        // Clean up extraction state
-        setExtractingClips(prev => {
-          const newSet = new Set(prev)
-          newSet.delete(clip.id)
-          return newSet
-        })
-        setExtractionProgress(prev => {
-          const newProgress = { ...prev }
-          delete newProgress[clip.id]
-          return newProgress
-        })
-      }
-    } catch (error) {
-      console.error('Error extracting/playing clip:', error)
-      alert('Error extracting clip: ' + (error instanceof Error ? error.message : 'Unknown error'))
-      
-      // Clean up extraction state on error
-      setExtractingClips(prev => {
-        const newSet = new Set(prev)
-        newSet.delete(clip.id)
-        return newSet
-      })
-    }
+  // Handle saving clip edits
+  const handleSaveClipEdits = async () => {
+    console.log('Clip edits saved successfully')
+    // Refresh clips list to show updated status
+    await loadClips()
+  }
+
+  // Handle play clip - now opens edit modal
+  const handlePlayClip = async (clip: Clip) => {
+    // Close any open modals and open the edit modal
+    handleSelectClip(clip)
   }
 
 
@@ -332,20 +288,32 @@ export function ReviewPage() {
         clips={clips}
         selectedClip={selectedClip}
         onSelectClip={handleSelectClip}
+        onNavigateClip={handleNavigateToClip}
         onPlayClip={handlePlayClip}
         onApproveClip={handleApprove}
         onRejectClip={handleReject}
         extractingClips={extractingClips}
         extractionProgress={extractionProgress}
+        isModalOpen={isEditModalOpen}
       />
 
-      {/* Native Clip Player */}
-      <ClipPlayer
-        clipPath={playingClip?.clipPath}
-        clipData={playingClip?.clip}
-        onClose={() => setPlayingClip(null)}
-        isVisible={!!playingClip}
-      />
+      {/* Edit Modal (for both Play button and clicking on clip card) */}
+      {isEditModalOpen && editingClip && episodeId && (
+        <ClipEditModal
+          isOpen={isEditModalOpen}
+          clipId={editingClip.id}
+          episodeId={episodeId}
+          clipData={{
+            id: editingClip.id,
+            keyQuote: editingClip.keyQuote,
+            startTime: editingClip.startTime,
+            endTime: editingClip.endTime,
+            duration: editingClip.duration
+          }}
+          onClose={handleCloseEditModal}
+          onSave={handleSaveClipEdits}
+        />
+      )}
     </MainContentPanel>
   )
 }

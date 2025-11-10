@@ -5,6 +5,36 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @layer base {
+  :root {
+    /* Shadcn UI theme variables - mapped to our dark theme */
+    --background: 210 100% 6%;  /* #0d1117 - bg-primary */
+    --foreground: 210 40% 96%;  /* #f0f6fc - text-primary */
+
+    --card: 215 28% 12%;  /* #161b22 - bg-secondary */
+    --card-foreground: 210 40% 96%;  /* #f0f6fc */
+
+    --popover: 215 28% 12%;  /* #161b22 */
+    --popover-foreground: 210 40% 96%;  /* #f0f6fc */
+
+    --primary: 213 94% 68%;  /* #58a6ff - accent-primary */
+    --primary-foreground: 210 40% 96%;  /* #f0f6fc */
+
+    --secondary: 218 17% 17%;  /* #21262d - bg-tertiary */
+    --secondary-foreground: 210 40% 96%;  /* #f0f6fc */
+
+    --muted: 218 17% 17%;  /* #21262d */
+    --muted-foreground: 218 15% 52%;  /* #8b949e - text-secondary */
+
+    --destructive: 0 84% 64%;  /* #f85149 - accent-danger */
+    --destructive-foreground: 210 40% 96%;  /* #f0f6fc */
+
+    --border: 215 15% 22%;  /* #30363d - border-default */
+    --input: 215 15% 22%;  /* #30363d */
+    --ring: 213 94% 68%;  /* #58a6ff - accent-primary */
+
+    --radius: 0.5rem;
+  }
+
   * {
     box-sizing: border-box;
   }

@@ -130,6 +130,10 @@ ipcMain.handle('update-clip-status', (event, clipId: string, status: string) => 
   return database.updateClipStatus(clipId, status);
 });
 
+ipcMain.handle('update-clip-boundaries', (event, clipId: string, startTime: number, endTime: number) => {
+  return database.updateClipBoundaries(clipId, startTime, endTime);
+});
+
 ipcMain.handle('get-approved-clips', (event, episodeId: string) => {
   return database.getApprovedClips(episodeId);
 });
@@ -148,6 +152,14 @@ ipcMain.handle('get-episode', (event, episodeId: string) => {
 
 ipcMain.handle('get-episode-by-project', (event, projectId: string) => {
   return database.getEpisodeByProjectId(projectId);
+});
+
+ipcMain.handle('get-transcript-segments', (event, episodeId: string) => {
+  return database.getTranscriptSegments(episodeId);
+});
+
+ipcMain.handle('update-transcript-segment', (event, episodeId: string, segmentIndex: number, text: string) => {
+  return database.updateTranscriptSegment(episodeId, segmentIndex, text);
 });
 
 // Settings handlers
@@ -290,6 +302,177 @@ ipcMain.handle('select-clip-title', (event, titleId: string, clipId: string) => 
 
 ipcMain.handle('select-clip-description', (event, descriptionId: string, clipId: string) => {
   return database.selectClipDescription(descriptionId, clipId)
+});
+
+// Clip edits handlers (for Editor screen)
+ipcMain.handle('get-clip-edits', (event, clipId: string) => {
+  return database.getClipEdits(clipId)
+});
+
+ipcMain.handle('save-clip-edits', (event, clipId: string, edits: any) => {
+  return database.saveClipEdits(clipId, edits)
+});
+
+ipcMain.handle('delete-clip-edits', (event, clipId: string) => {
+  return database.deleteClipEdits(clipId)
+});
+
+ipcMain.handle('get-clip-transcript-segments', (event, clipId: string) => {
+  return database.getClipTranscriptSegments(clipId)
+});
+
+// Logo handlers
+ipcMain.handle('upload-logo', async (event, base64Data: string, fileName: string) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Get logos directory
+    const logosDir = path.join(app.getPath('userData'), 'logos');
+
+    // Create logos directory if it doesn't exist
+    if (!fs.existsSync(logosDir)) {
+      fs.mkdirSync(logosDir, { recursive: true });
+    }
+
+    // Extract base64 data (remove data:image/...;base64, prefix)
+    const matches = base64Data.match(/^data:(.+);base64,(.+)$/);
+    if (!matches) {
+      throw new Error('Invalid base64 data');
+    }
+
+    const base64Content = matches[2];
+    const buffer = Buffer.from(base64Content, 'base64');
+
+    // Generate unique filename
+    const timestamp = Date.now();
+    const ext = path.extname(fileName);
+    const baseName = path.basename(fileName, ext);
+    const uniqueFileName = `${baseName}_${timestamp}${ext}`;
+    const logoPath = path.join(logosDir, uniqueFileName);
+
+    // Write file
+    fs.writeFileSync(logoPath, buffer);
+
+    console.log('Logo uploaded successfully:', logoPath);
+
+    return {
+      success: true,
+      path: logoPath
+    };
+  } catch (error: any) {
+    console.error('Failed to upload logo:', error);
+    return {
+      success: false,
+      error: error?.message || 'Unknown error'
+    };
+  }
+});
+
+ipcMain.handle('list-logos', async () => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    const logosDir = path.join(app.getPath('userData'), 'logos');
+
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(logosDir)) {
+      fs.mkdirSync(logosDir, { recursive: true });
+      return [];
+    }
+
+    // Read directory
+    const files = fs.readdirSync(logosDir);
+
+    // Filter to only image files and return full paths
+    const imageExtensions = ['.png', '.jpg', '.jpeg', '.svg', '.webp'];
+    const logoPaths = files
+      .filter((file: string) => imageExtensions.includes(path.extname(file).toLowerCase()))
+      .map((file: string) => path.join(logosDir, file));
+
+    return logoPaths;
+  } catch (error) {
+    console.error('Failed to list logos:', error);
+    return [];
+  }
+});
+
+// Music upload handler
+ipcMain.handle('upload-music', async (event, base64Data: string, fileName: string) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Get music directory
+    const musicDir = path.join(app.getPath('userData'), 'music');
+
+    // Create music directory if it doesn't exist
+    if (!fs.existsSync(musicDir)) {
+      fs.mkdirSync(musicDir, { recursive: true });
+    }
+
+    // Extract base64 data (remove data:audio/...;base64, prefix)
+    const matches = base64Data.match(/^data:(.+);base64,(.+)$/);
+    if (!matches) {
+      throw new Error('Invalid base64 data');
+    }
+
+    const base64Content = matches[2];
+    const buffer = Buffer.from(base64Content, 'base64');
+
+    // Generate unique filename
+    const timestamp = Date.now();
+    const ext = path.extname(fileName);
+    const baseName = path.basename(fileName, ext);
+    const uniqueFileName = `${baseName}_${timestamp}${ext}`;
+    const musicPath = path.join(musicDir, uniqueFileName);
+
+    // Write file
+    fs.writeFileSync(musicPath, buffer);
+
+    console.log('Music uploaded successfully:', musicPath);
+
+    return {
+      success: true,
+      path: musicPath
+    };
+  } catch (error: any) {
+    console.error('Failed to upload music:', error);
+    return {
+      success: false,
+      error: error?.message || 'Unknown error'
+    };
+  }
+});
+
+ipcMain.handle('list-music', async () => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    const musicDir = path.join(app.getPath('userData'), 'music');
+
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(musicDir)) {
+      fs.mkdirSync(musicDir, { recursive: true });
+      return [];
+    }
+
+    // Read directory
+    const files = fs.readdirSync(musicDir);
+
+    // Filter to only audio files and return full paths
+    const audioExtensions = ['.mp3', '.wav', '.m4a'];
+    const musicPaths = files
+      .filter((file: string) => audioExtensions.includes(path.extname(file).toLowerCase()))
+      .map((file: string) => path.join(musicDir, file));
+
+    return musicPaths;
+  } catch (error) {
+    console.error('Failed to list music:', error);
+    return [];
+  }
 });
 
 // Error handling

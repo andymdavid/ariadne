@@ -26,8 +26,13 @@ const electronAPI = {
   getEpisode: (episodeId: string) => ipcRenderer.invoke('get-episode', episodeId),
   getEpisodeByProject: (projectId: string) => ipcRenderer.invoke('get-episode-by-project', projectId),
   getEpisodeClips: (episodeId: string) => ipcRenderer.invoke('get-episode-clips', episodeId),
+  getTranscriptSegments: (episodeId: string) => ipcRenderer.invoke('get-transcript-segments', episodeId),
+  updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) =>
+    ipcRenderer.invoke('update-transcript-segment', episodeId, segmentIndex, text),
   updateClipStatus: (clipId: string, status: string) =>
     ipcRenderer.invoke('update-clip-status', clipId, status),
+  updateClipBoundaries: (clipId: string, startTime: number, endTime: number) =>
+    ipcRenderer.invoke('update-clip-boundaries', clipId, startTime, endTime),
   getApprovedClips: (episodeId: string) => ipcRenderer.invoke('get-approved-clips', episodeId),
   cleanupDatabase: () => ipcRenderer.invoke('cleanup-database'),
   nukeAllProjects: () => ipcRenderer.invoke('nuke-all-projects'),
@@ -54,6 +59,20 @@ const electronAPI = {
     ipcRenderer.invoke('select-clip-title', titleId, clipId),
   selectClipDescription: (descriptionId: string, clipId: string) =>
     ipcRenderer.invoke('select-clip-description', descriptionId, clipId),
+
+  // Clip edits operations (for Editor screen)
+  getClipEdits: (clipId: string) => ipcRenderer.invoke('get-clip-edits', clipId),
+  saveClipEdits: (clipId: string, edits: any) => ipcRenderer.invoke('save-clip-edits', clipId, edits),
+  deleteClipEdits: (clipId: string) => ipcRenderer.invoke('delete-clip-edits', clipId),
+  getClipTranscriptSegments: (clipId: string) => ipcRenderer.invoke('get-clip-transcript-segments', clipId),
+
+  // Logo operations
+  uploadLogo: (base64Data: string, fileName: string) => ipcRenderer.invoke('upload-logo', base64Data, fileName),
+  listLogos: () => ipcRenderer.invoke('list-logos'),
+
+  // Music operations
+  uploadMusic: (base64Data: string, fileName: string) => ipcRenderer.invoke('upload-music', base64Data, fileName),
+  listMusic: () => ipcRenderer.invoke('list-music'),
 
   // Event listeners for IPC
   onProcessingUpdate: (callback: (data: any) => void) => {
@@ -112,7 +131,10 @@ declare global {
       getEpisode: (episodeId: string) => Promise<any>;
       getEpisodeByProject: (projectId: string) => Promise<any>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
+      getTranscriptSegments: (episodeId: string) => Promise<any[]>;
+      updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) => Promise<any>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;
+      updateClipBoundaries: (clipId: string, startTime: number, endTime: number) => Promise<any>;
       getApprovedClips: (episodeId: string) => Promise<any[]>;
       cleanupDatabase: () => Promise<any>;
       nukeAllProjects: () => Promise<any>;
@@ -123,7 +145,21 @@ declare global {
       updateApiConfig: (config: any) => Promise<boolean>;
       updateUserPreferences: (preferences: any) => Promise<boolean>;
       validateConfig: () => Promise<{ isValid: boolean; errors: string[] }>;
-      
+
+      // Clip edits operations (for Editor screen)
+      getClipEdits: (clipId: string) => Promise<any>;
+      saveClipEdits: (clipId: string, edits: any) => Promise<any>;
+      deleteClipEdits: (clipId: string) => Promise<any>;
+      getClipTranscriptSegments: (clipId: string) => Promise<any[]>;
+
+      // Logo operations
+      uploadLogo: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+      listLogos: () => Promise<string[]>;
+
+      // Music operations
+      uploadMusic: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+      listMusic: () => Promise<string[]>;
+
       // Event listeners
       onProcessingUpdate: (callback: (data: any) => void) => () => void;
       onProcessingComplete: (callback: (data: any) => void) => () => void;

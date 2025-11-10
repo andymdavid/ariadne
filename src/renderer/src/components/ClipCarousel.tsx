@@ -17,22 +17,26 @@ interface ClipCarouselProps {
   clips: Clip[]
   selectedClip: Clip | null
   onSelectClip: (clip: Clip) => void
+  onNavigateClip?: (clip: Clip) => void
   onPlayClip: (clip: Clip) => void
   onApproveClip: (clipId: string) => void
   onRejectClip: (clipId: string) => void
   extractingClips: Set<string>
   extractionProgress: { [clipId: string]: number }
+  isModalOpen?: boolean
 }
 
 export function ClipCarousel({
   clips,
   selectedClip,
   onSelectClip,
+  onNavigateClip,
   onPlayClip,
   onApproveClip,
   onRejectClip,
   extractingClips,
-  extractionProgress
+  extractionProgress,
+  isModalOpen = false
 }: ClipCarouselProps) {
   const carouselRef = useRef<HTMLDivElement>(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -85,18 +89,44 @@ export function ClipCarousel({
     onSelectClip(clip)
   }
 
-  // Navigate with arrow keys
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowLeft' && selectedIndex > 0) {
-      const newIndex = selectedIndex - 1
-      setSelectedIndex(newIndex)
-      onSelectClip(clips[newIndex])
-    } else if (e.key === 'ArrowRight' && selectedIndex < clips.length - 1) {
-      const newIndex = selectedIndex + 1
-      setSelectedIndex(newIndex)
-      onSelectClip(clips[newIndex])
+  // Navigate with arrow keys - global listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle if user is typing in an input, modal is open, or focused on a textarea
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        isModalOpen
+      ) {
+        return
+      }
+
+      if (e.key === 'ArrowLeft' && selectedIndex > 0) {
+        e.preventDefault()
+        const newIndex = selectedIndex - 1
+        setSelectedIndex(newIndex)
+        // Use onNavigateClip if provided, otherwise fall back to onSelectClip
+        if (onNavigateClip) {
+          onNavigateClip(clips[newIndex])
+        } else {
+          onSelectClip(clips[newIndex])
+        }
+      } else if (e.key === 'ArrowRight' && selectedIndex < clips.length - 1) {
+        e.preventDefault()
+        const newIndex = selectedIndex + 1
+        setSelectedIndex(newIndex)
+        // Use onNavigateClip if provided, otherwise fall back to onSelectClip
+        if (onNavigateClip) {
+          onNavigateClip(clips[newIndex])
+        } else {
+          onSelectClip(clips[newIndex])
+        }
+      }
     }
-  }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectedIndex, clips, onSelectClip, onNavigateClip, isModalOpen])
 
   if (clips.length === 0) {
     return (
@@ -115,11 +145,7 @@ export function ClipCarousel({
   }
 
   return (
-    <div
-      className="clip-carousel-container"
-      onKeyDown={handleKeyDown}
-      tabIndex={0}
-    >
+    <div className="clip-carousel-container">
       <div
         ref={carouselRef}
         className="clip-carousel"

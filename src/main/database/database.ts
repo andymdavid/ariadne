@@ -45,6 +45,46 @@ class DatabaseManager {
         created_at TEXT NOT NULL,
         FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
       );`,
+      `CREATE TABLE IF NOT EXISTS clip_edits (
+        clip_id TEXT PRIMARY KEY,
+
+        captions_enabled INTEGER DEFAULT 1,
+        caption_segments TEXT,
+        caption_font TEXT DEFAULT 'Inter',
+        caption_size INTEGER DEFAULT 48,
+        caption_color TEXT DEFAULT '#FFFFFF',
+        caption_position TEXT DEFAULT 'center',
+        caption_bold INTEGER DEFAULT 1,
+        caption_italic INTEGER DEFAULT 0,
+        caption_outline INTEGER DEFAULT 0,
+        caption_outline_color TEXT DEFAULT '#000000',
+        caption_outline_width INTEGER DEFAULT 2,
+        caption_shadow INTEGER DEFAULT 0,
+        caption_highlight_style TEXT DEFAULT 'word',
+        caption_background INTEGER DEFAULT 0,
+        caption_background_color TEXT DEFAULT '#000000',
+        caption_background_opacity REAL DEFAULT 0.5,
+
+        logo_enabled INTEGER DEFAULT 0,
+        logo_path TEXT,
+        logo_position TEXT DEFAULT 'bottom-right',
+        logo_scale REAL DEFAULT 0.15,
+        logo_opacity REAL DEFAULT 0.8,
+
+        music_enabled INTEGER DEFAULT 0,
+        music_path TEXT,
+        music_volume REAL DEFAULT 0.3,
+        music_duck_volume REAL DEFAULT 0.1,
+        music_fade_in REAL DEFAULT 1.0,
+        music_fade_out REAL DEFAULT 1.0,
+
+        aspect_ratio TEXT DEFAULT '9:16',
+        crop_mode TEXT DEFAULT 'center',
+
+        updated_at TEXT NOT NULL,
+
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );`,
       // Add more migrations as needed for future versions
     ];
 
@@ -56,8 +96,138 @@ class DatabaseManager {
       }
     });
 
-    // Update user_version if needed
-    this.db.pragma('user_version = 2'); // Bump version after migration
+    // Get version BEFORE setting it to 3
+    const preVersion = this.db.pragma('user_version', { simple: true }) as number
+    console.log('Current database version:', preVersion)
+
+    // Update user_version to 3 for base migrations
+    this.db.pragma('user_version = 3');
+
+    // Add custom position fields to clip_edits if we're upgrading from v3 or below (v4)
+    if (preVersion <= 3) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN caption_custom_x REAL;
+          ALTER TABLE clip_edits ADD COLUMN caption_custom_y REAL;
+        `);
+        console.log('✅ Added caption custom position columns (v4)');
+        this.db.pragma('user_version = 4');
+      } catch (error) {
+        // Columns might already exist
+        console.log('Caption custom position columns migration skipped (may already exist)');
+        this.db.pragma('user_version = 4');
+      }
+    }
+
+    // Add logo position fields to clip_edits if we're upgrading from v4 or below (v5)
+    if (preVersion <= 4) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN logo_position_x REAL DEFAULT 85;
+          ALTER TABLE clip_edits ADD COLUMN logo_position_y REAL DEFAULT 85;
+        `);
+        console.log('✅ Added logo position columns (v5)');
+        this.db.pragma('user_version = 5');
+      } catch (error) {
+        // Columns might already exist
+        console.log('Logo position columns migration skipped (may already exist)');
+        this.db.pragma('user_version = 5');
+      }
+    }
+
+    // Add music duck and loop fields to clip_edits if we're upgrading from v5 or below (v6)
+    if (preVersion <= 5) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN music_duck_enabled INTEGER DEFAULT 1;
+          ALTER TABLE clip_edits ADD COLUMN music_loop INTEGER DEFAULT 1;
+        `);
+        console.log('✅ Added music duck and loop columns (v6)');
+        this.db.pragma('user_version = 6');
+      } catch (error) {
+        // Columns might already exist
+        console.log('Music duck and loop columns migration skipped (may already exist)');
+        this.db.pragma('user_version = 6');
+      }
+    }
+
+    // Add crop position fields to clip_edits if we're upgrading from v6 or below (v7)
+    if (preVersion <= 6) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN crop_position_x REAL DEFAULT 50;
+          ALTER TABLE clip_edits ADD COLUMN crop_position_y REAL DEFAULT 50;
+        `);
+        console.log('✅ Added crop position columns (v7)');
+        this.db.pragma('user_version = 7');
+      } catch (error) {
+        // Columns might already exist
+        console.log('Crop position columns migration skipped (may already exist)');
+        this.db.pragma('user_version = 7');
+      }
+    }
+
+    // Add caption text case field to clip_edits if we're upgrading from v7 or below (v8)
+    if (preVersion <= 7) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN caption_text_case TEXT DEFAULT 'normal';
+        `);
+        console.log('✅ Added caption text case column (v8)');
+        this.db.pragma('user_version = 8');
+      } catch (error) {
+        // Column might already exist
+        console.log('Caption text case column migration skipped (may already exist)');
+        this.db.pragma('user_version = 8');
+      }
+    }
+
+    // Add caption words per caption field to clip_edits if we're upgrading from v8 or below (v9)
+    if (preVersion <= 8) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN caption_words_per_caption INTEGER DEFAULT 3;
+        `);
+        console.log('✅ Added caption words per caption column (v9)');
+        this.db.pragma('user_version = 9');
+      } catch (error) {
+        // Column might already exist
+        console.log('Caption words per caption column migration skipped (may already exist)');
+        this.db.pragma('user_version = 9');
+      }
+    }
+
+    // Add caption layout fields to clip_edits if we're upgrading from v9 or below (v10)
+    if (preVersion <= 9) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN caption_max_width INTEGER DEFAULT 90;
+          ALTER TABLE clip_edits ADD COLUMN caption_line_height REAL DEFAULT 1.2;
+          ALTER TABLE clip_edits ADD COLUMN caption_letter_spacing INTEGER DEFAULT 0;
+        `);
+        console.log('✅ Added caption layout columns (v10)');
+        this.db.pragma('user_version = 10');
+      } catch (error) {
+        // Columns might already exist
+        console.log('Caption layout columns migration skipped (may already exist)');
+        this.db.pragma('user_version = 10');
+      }
+    }
+
+    // Add words column to transcript_segments if we're upgrading from v10 or below (v11)
+    if (preVersion <= 10) {
+      try {
+        this.db.exec(`
+          ALTER TABLE transcript_segments ADD COLUMN words TEXT;
+        `);
+        console.log('✅ Added words column to transcript_segments for word-level timestamps (v11)');
+        this.db.pragma('user_version = 11');
+      } catch (error) {
+        // Column might already exist
+        console.log('Words column migration skipped (may already exist)');
+        this.db.pragma('user_version = 11');
+      }
+    }
   }
   
   private initializeSchema() {
@@ -271,14 +441,19 @@ class DatabaseManager {
     text: string
     confidence: number
     speaker?: string
+    words?: Array<{
+      word: string
+      start: number
+      end: number
+    }>
   }>) {
     const now = new Date().toISOString()
     const stmt = this.db.prepare(`
-      INSERT INTO transcript_segments 
-      (id, episode_id, start_time, end_time, text, confidence, speaker, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO transcript_segments
+      (id, episode_id, start_time, end_time, text, confidence, speaker, words, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
-    
+
     const insertMany = this.db.transaction((segmentsToInsert: typeof segments) => {
       for (const segment of segmentsToInsert) {
         stmt.run(
@@ -289,6 +464,7 @@ class DatabaseManager {
           segment.text,
           segment.confidence,
           segment.speaker || null,
+          segment.words ? JSON.stringify(segment.words) : null,
           now
         )
       }
@@ -299,13 +475,56 @@ class DatabaseManager {
   
   getTranscriptSegments(episodeId: string) {
     const stmt = this.db.prepare(`
-      SELECT * FROM transcript_segments 
-      WHERE episode_id = ? 
+      SELECT * FROM transcript_segments
+      WHERE episode_id = ?
       ORDER BY start_time ASC
     `)
-    return stmt.all(episodeId)
+    const segments = stmt.all(episodeId) as any[]
+
+    // Parse words JSON if present
+    return segments.map(segment => ({
+      ...segment,
+      words: segment.words ? JSON.parse(segment.words) : undefined
+    }))
   }
-  
+
+  getClipTranscriptSegments(clipId: string) {
+    // First get the clip to find its episode and time range
+    const clip = this.getClip(clipId) as any
+    if (!clip) return []
+
+    const stmt = this.db.prepare(`
+      SELECT * FROM transcript_segments
+      WHERE episode_id = ?
+        AND start_time >= ?
+        AND end_time <= ?
+      ORDER BY start_time ASC
+    `)
+    const segments = stmt.all(clip.episode_id, clip.start_time, clip.end_time) as any[]
+
+    // Parse words JSON if present
+    return segments.map(segment => ({
+      ...segment,
+      words: segment.words ? JSON.parse(segment.words) : undefined
+    }))
+  }
+
+  updateTranscriptSegment(episodeId: string, segmentIndex: number, text: string) {
+    // Get all segments for the episode to find the segment by index
+    const segments = this.getTranscriptSegments(episodeId)
+    if (!segments || segmentIndex >= segments.length) {
+      throw new Error('Segment index out of bounds')
+    }
+
+    const segment = segments[segmentIndex] as any
+    const stmt = this.db.prepare(`
+      UPDATE transcript_segments
+      SET text = ?
+      WHERE episode_id = ? AND start_time = ? AND end_time = ?
+    `)
+    return stmt.run(text, episodeId, segment.start_time, segment.end_time)
+  }
+
   // Clip operations
   insertClips(clips: Array<{
     id: string
@@ -352,16 +571,31 @@ class DatabaseManager {
     const stmt = this.db.prepare('UPDATE clips SET status = ? WHERE id = ?')
     return stmt.run(status, id)
   }
-  
+
+  updateClipBoundaries(id: string, startTime: number, endTime: number) {
+    const duration = endTime - startTime
+    const stmt = this.db.prepare(`
+      UPDATE clips
+      SET start_time = ?, end_time = ?, duration = ?
+      WHERE id = ?
+    `)
+    return stmt.run(startTime, endTime, duration, id)
+  }
+
   getClips(episodeId: string) {
     const stmt = this.db.prepare(`
-      SELECT * FROM clips 
-      WHERE episode_id = ? 
+      SELECT * FROM clips
+      WHERE episode_id = ?
       ORDER BY shareability_score DESC, start_time ASC
     `)
     return stmt.all(episodeId)
   }
-  
+
+  getClip(clipId: string) {
+    const stmt = this.db.prepare('SELECT * FROM clips WHERE id = ?')
+    return stmt.get(clipId)
+  }
+
   getApprovedClips(episodeId: string) {
     const stmt = this.db.prepare(`
       SELECT * FROM clips
@@ -446,6 +680,217 @@ class DatabaseManager {
     // Select the chosen description
     const selectStmt = this.db.prepare('UPDATE clip_descriptions SET is_selected = 1 WHERE id = ?')
     return selectStmt.run(descriptionId)
+  }
+
+  // Clip edits operations (for Editor screen)
+  getClipEdits(clipId: string) {
+    const stmt = this.db.prepare('SELECT * FROM clip_edits WHERE clip_id = ?')
+    return stmt.get(clipId)
+  }
+
+  saveClipEdits(clipId: string, edits: any) {
+    const now = new Date().toISOString()
+
+    console.log('[Database] Saving clip edits for:', clipId)
+    console.log('[Database] Logo position values:', {
+      logo_position_x: edits.logo_position_x,
+      logo_position_y: edits.logo_position_y
+    })
+
+    // Check if edits already exist
+    const existing = this.getClipEdits(clipId)
+
+    if (existing) {
+      // Update existing
+      const stmt = this.db.prepare(`
+        UPDATE clip_edits SET
+          captions_enabled = ?,
+          caption_segments = ?,
+          caption_font = ?,
+          caption_size = ?,
+          caption_color = ?,
+          caption_position = ?,
+          caption_custom_x = ?,
+          caption_custom_y = ?,
+          caption_bold = ?,
+          caption_italic = ?,
+          caption_outline = ?,
+          caption_outline_color = ?,
+          caption_outline_width = ?,
+          caption_shadow = ?,
+          caption_highlight_style = ?,
+          caption_background = ?,
+          caption_background_color = ?,
+          caption_background_opacity = ?,
+          caption_text_case = ?,
+          caption_words_per_caption = ?,
+          caption_max_width = ?,
+          caption_line_height = ?,
+          caption_letter_spacing = ?,
+          logo_enabled = ?,
+          logo_path = ?,
+          logo_position = ?,
+          logo_position_x = ?,
+          logo_position_y = ?,
+          logo_scale = ?,
+          logo_opacity = ?,
+          music_enabled = ?,
+          music_path = ?,
+          music_volume = ?,
+          music_duck_volume = ?,
+          music_duck_enabled = ?,
+          music_fade_in = ?,
+          music_fade_out = ?,
+          music_loop = ?,
+          aspect_ratio = ?,
+          crop_mode = ?,
+          crop_position_x = ?,
+          crop_position_y = ?,
+          updated_at = ?
+        WHERE clip_id = ?
+      `)
+
+      const logoPositionX = edits.logo_position_x ?? 85
+      const logoPositionY = edits.logo_position_y ?? 85
+      console.log('[Database] UPDATE: Actual values being saved:', {
+        logo_position_x: logoPositionX,
+        logo_position_y: logoPositionY
+      })
+
+      try {
+        const result = stmt.run(
+        edits.captions_enabled ?? 1,
+        edits.caption_segments ? JSON.stringify(edits.caption_segments) : null,
+        edits.caption_font ?? 'Inter',
+        edits.caption_size ?? 48,
+        edits.caption_color ?? '#FFFFFF',
+        edits.caption_position ?? 'bottom',
+        edits.caption_custom_x ?? null,
+        edits.caption_custom_y ?? null,
+        edits.caption_bold ?? 1,
+        edits.caption_italic ?? 0,
+        edits.caption_outline ?? 1,
+        edits.caption_outline_color ?? '#000000',
+        edits.caption_outline_width ?? 2,
+        edits.caption_shadow ?? 0,
+        edits.caption_highlight_style ?? 'word',
+        edits.caption_background ?? 0,
+        edits.caption_background_color ?? '#000000',
+        edits.caption_background_opacity ?? 0.5,
+        edits.caption_text_case ?? 'none',
+        edits.caption_words_per_caption ?? 1,
+        edits.caption_max_width ?? 90,
+        edits.caption_line_height ?? 1.2,
+        edits.caption_letter_spacing ?? 0,
+        edits.logo_enabled ?? 0,
+        edits.logo_path ?? null,
+        edits.logo_position ?? 'bottom-right',
+        logoPositionX,
+        logoPositionY,
+        edits.logo_scale ?? 0.15,
+        edits.logo_opacity ?? 0.8,
+        edits.music_enabled ?? 0,
+        edits.music_path ?? null,
+        edits.music_volume ?? 0.3,
+        edits.music_duck_volume ?? 0.1,
+        edits.music_duck_enabled ?? 1,
+        edits.music_fade_in ?? 1.0,
+        edits.music_fade_out ?? 1.0,
+        edits.music_loop ?? 1,
+        edits.aspect_ratio ?? '9:16',
+        edits.crop_mode ?? 'center',
+        edits.crop_position_x ?? 50,
+        edits.crop_position_y ?? 50,
+        now,
+        clipId
+      )
+        console.log('[Database] UPDATE successful, result:', result)
+        return result
+      } catch (error) {
+        console.error('[Database] UPDATE failed:', error)
+        throw error
+      }
+    } else {
+      // Insert new
+      const stmt = this.db.prepare(`
+        INSERT INTO clip_edits (
+          clip_id, captions_enabled, caption_segments, caption_font, caption_size,
+          caption_color, caption_position, caption_custom_x, caption_custom_y, caption_bold, caption_italic, caption_outline,
+          caption_outline_color, caption_outline_width, caption_shadow, caption_highlight_style,
+          caption_background, caption_background_color, caption_background_opacity,
+          caption_text_case, caption_words_per_caption, caption_max_width, caption_line_height, caption_letter_spacing,
+          logo_enabled, logo_path, logo_position, logo_position_x, logo_position_y, logo_scale, logo_opacity,
+          music_enabled, music_path, music_volume, music_duck_volume, music_duck_enabled, music_fade_in, music_fade_out, music_loop,
+          aspect_ratio, crop_mode, crop_position_x, crop_position_y, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      const logoPositionX = edits.logo_position_x ?? 85
+      const logoPositionY = edits.logo_position_y ?? 85
+      console.log('[Database] INSERT: Actual values being saved:', {
+        logo_position_x: logoPositionX,
+        logo_position_y: logoPositionY
+      })
+
+      try {
+        const result = stmt.run(
+        clipId,
+        edits.captions_enabled ?? 1,
+        edits.caption_segments ? JSON.stringify(edits.caption_segments) : null,
+        edits.caption_font ?? 'Inter',
+        edits.caption_size ?? 48,
+        edits.caption_color ?? '#FFFFFF',
+        edits.caption_position ?? 'bottom',
+        edits.caption_custom_x ?? null,
+        edits.caption_custom_y ?? null,
+        edits.caption_bold ?? 1,
+        edits.caption_italic ?? 0,
+        edits.caption_outline ?? 1,
+        edits.caption_outline_color ?? '#000000',
+        edits.caption_outline_width ?? 2,
+        edits.caption_shadow ?? 0,
+        edits.caption_highlight_style ?? 'word',
+        edits.caption_background ?? 0,
+        edits.caption_background_color ?? '#000000',
+        edits.caption_background_opacity ?? 0.5,
+        edits.caption_text_case ?? 'none',
+        edits.caption_words_per_caption ?? 1,
+        edits.caption_max_width ?? 90,
+        edits.caption_line_height ?? 1.2,
+        edits.caption_letter_spacing ?? 0,
+        edits.logo_enabled ?? 0,
+        edits.logo_path ?? null,
+        edits.logo_position ?? 'bottom-right',
+        logoPositionX,
+        logoPositionY,
+        edits.logo_scale ?? 0.15,
+        edits.logo_opacity ?? 0.8,
+        edits.music_enabled ?? 0,
+        edits.music_path ?? null,
+        edits.music_volume ?? 0.3,
+        edits.music_duck_volume ?? 0.1,
+        edits.music_duck_enabled ?? 1,
+        edits.music_fade_in ?? 1.0,
+        edits.music_fade_out ?? 1.0,
+        edits.music_loop ?? 1,
+        edits.aspect_ratio ?? '9:16',
+        edits.crop_mode ?? 'center',
+        edits.crop_position_x ?? 50,
+        edits.crop_position_y ?? 50,
+        now
+      )
+        console.log('[Database] INSERT successful, result:', result)
+        return result
+      } catch (error) {
+        console.error('[Database] INSERT failed:', error)
+        throw error
+      }
+    }
+  }
+
+  deleteClipEdits(clipId: string) {
+    const stmt = this.db.prepare('DELETE FROM clip_edits WHERE clip_id = ?')
+    return stmt.run(clipId)
   }
 
   insertClipThumbnail(clipId: string, filePath: string, timestamp: number) {

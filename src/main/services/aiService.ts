@@ -168,42 +168,78 @@ class AIService {
     ).join('\n')
 
     return `
-CONTEXT: This is a timestamped transcript from a podcast episode that is ${Math.round(duration / 60)} minutes long. Your task is to identify potential clip segments that:
+CONTEXT: This is a timestamped transcript from a podcast episode that is ${Math.round(duration / 60)} minutes long.
+
+⚠️ CRITICAL DURATION REQUIREMENT ⚠️
+EVERY CLIP MUST BE BETWEEN 35-60 SECONDS LONG
+- MINIMUM: 35 seconds (anything shorter will be REJECTED)
+- MAXIMUM: 60 seconds (anything longer will be REJECTED)
+- COMBINE multiple consecutive segments to reach the minimum 35 seconds
+- DO NOT suggest any clips shorter than 35 seconds
+
+Your task is to identify potential clip segments that:
 1. Contain complete thoughts or narratives
 2. Are engaging and shareable on social media
 3. Make sense without additional context
 4. Have natural conversation boundaries
-5. Are between 30-90 seconds in length
+5. Are EXACTLY 35-60 seconds in length
 
 TIMESTAMPED TRANSCRIPT:
 ${timestampedText}
 
-TASK: Identify 15-25 potential clip segments using the EXACT timestamps from the transcript above. For each segment:
+TASK: Identify 10-15 potential clip segments using the EXACT timestamps from the transcript above. For each segment:
 - Use PRECISE start/end times from the transcript segments (e.g., 180.5, 245.2)
-- Combine multiple consecutive segments if needed for complete thoughts
+- MUST combine multiple consecutive segments to reach AT LEAST 35 seconds
+- Calculate the duration: (end_time - start_time) must be between 35-60 seconds
 - Explain why this segment is clip-worthy
 - Categorize the content type
 - Rate the shareability potential (1-10)
 - Extract the most memorable quote from the actual transcript text
 
-IMPORTANT: Use only the exact timestamps shown in the transcript above. Do not invent or round timestamps.
+IMPORTANT:
+- Use only the exact timestamps shown in the transcript above
+- Every clip MUST be 35-60 seconds - NO EXCEPTIONS
+- If a thought is shorter than 35 seconds, include more context before/after to reach 35 seconds
 
 OUTPUT FORMAT (JSON):
 {
   "potential_clips": [
     {
       "id": "clip_1",
-      "start_time": 180.5,
-      "end_time": 245.2,
-      "duration": 64.7,
-      "content_type": "insight|story|advice|hot_take|humor|technical",
+      "start_time": 120.0,
+      "end_time": 160.0,
+      "duration": 40.0,
+      "content_type": "insight",
       "shareability_score": 8.5,
-      "reason": "Complete explanation of...",
+      "reason": "Complete explanation with good hook",
       "key_quote": "Exact quote from the transcript text",
-      "context_needed": "low|medium|high"
+      "context_needed": "low"
+    },
+    {
+      "id": "clip_2",
+      "start_time": 200.5,
+      "end_time": 255.5,
+      "duration": 55.0,
+      "content_type": "story",
+      "shareability_score": 9.0,
+      "reason": "Engaging narrative arc",
+      "key_quote": "Another exact quote",
+      "context_needed": "low"
     }
   ]
 }
+
+⚠️ DURATION VALIDATION EXAMPLES ⚠️
+✅ VALID: duration = 35.0 seconds (minimum)
+✅ VALID: duration = 45.5 seconds (good)
+✅ VALID: duration = 60.0 seconds (maximum)
+❌ REJECTED: duration = 25.0 seconds (TOO SHORT - must be at least 35)
+❌ REJECTED: duration = 70.0 seconds (TOO LONG - must be at most 60)
+
+BEFORE SUBMITTING YOUR RESPONSE:
+1. Check EVERY clip duration: (end_time - start_time) >= 35 AND <= 60
+2. Remove any clips that don't meet this requirement
+3. If you can't find 10 clips that meet the duration requirement, submit fewer clips
 
 Focus on finding clips that would make someone stop scrolling and want to hear more from this creator.
     `.trim()
@@ -321,9 +357,18 @@ OUTPUT FORMAT (JSON):
       parsed.potential_clips.forEach((clip: any, index: number) => {
         console.log(`Clip ${index + 1} timestamps: ${clip.start_time} - ${clip.end_time} (duration: ${clip.duration || (clip.end_time - clip.start_time)})`)
       })
-      
-      return {
-        potentialClips: parsed.potential_clips.map((clip: any, index: number) => ({
+
+      console.log('⚠️⚠️⚠️ ABOUT TO START DURATION FILTERING ⚠️⚠️⚠️')
+
+      const MIN_CLIP_DURATION = 35 // seconds
+      const MAX_CLIP_DURATION = 60 // seconds
+
+      console.log(`\n========== CLIP DURATION FILTERING ==========`)
+      console.log(`Total clips from AI: ${parsed.potential_clips.length}`)
+      console.log(`Required duration: ${MIN_CLIP_DURATION}-${MAX_CLIP_DURATION} seconds`)
+
+      const filteredClips = parsed.potential_clips
+        .map((clip: any, index: number) => ({
           id: clip.id || `clip_${index + 1}`,
           startTime: clip.start_time,
           endTime: clip.end_time,
@@ -334,6 +379,29 @@ OUTPUT FORMAT (JSON):
           reason: clip.reason,
           contextNeeded: clip.context_needed || 'low'
         }))
+        .filter((clip: any) => {
+          const isValid = clip.duration >= MIN_CLIP_DURATION && clip.duration <= MAX_CLIP_DURATION
+          if (!isValid) {
+            if (clip.duration < MIN_CLIP_DURATION) {
+              console.log(`❌ REJECTED ${clip.id}: ${clip.duration.toFixed(1)}s (TOO SHORT - minimum is ${MIN_CLIP_DURATION}s)`)
+            } else {
+              console.log(`❌ REJECTED ${clip.id}: ${clip.duration.toFixed(1)}s (TOO LONG - maximum is ${MAX_CLIP_DURATION}s)`)
+            }
+          } else {
+            console.log(`✅ ACCEPTED ${clip.id}: ${clip.duration.toFixed(1)}s`)
+          }
+          return isValid
+        })
+
+      console.log(`\nFINAL RESULT: ${filteredClips.length} clips passed duration filter`)
+      console.log(`==========================================\n`)
+
+      if (filteredClips.length < 5) {
+        console.warn(`⚠️ WARNING: Only ${filteredClips.length} clips meet duration requirements. AI should generate clips between 35-60 seconds.`)
+      }
+
+      return {
+        potentialClips: filteredClips
       }
     } catch (error) {
       console.error('Failed to parse analysis response:', error)
