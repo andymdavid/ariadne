@@ -14,7 +14,7 @@ export interface CaptionStyle {
   position: 'top' | 'center' | 'bottom' | 'custom'
   customX?: number  // Percentage 0-100
   customY?: number  // Percentage 0-100
-  bold: boolean
+  weight: number // Font weight: 100-900 (Thin to Black)
   italic: boolean
   outline: boolean
   outlineColor: string
@@ -46,7 +46,7 @@ const defaultStyle: CaptionStyle = {
   position: 'center',
   customX: undefined,
   customY: undefined,
-  bold: true,
+  weight: 700, // Bold
   italic: false,
   outline: false,
   outlineColor: '#000000',
@@ -144,6 +144,7 @@ export function CaptionStyleEditor({
                   className="w-full px-2 py-1.5 text-sm bg-bg-primary border border-border-default rounded text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
                 >
                   <option value="Inter">Inter</option>
+                  <option value="Anton">Anton</option>
                   <option value="Arial">Arial</option>
                   <option value="Helvetica">Helvetica</option>
                   <option value="Roboto">Roboto</option>
@@ -259,14 +260,23 @@ export function CaptionStyleEditor({
             <div className="text-xs font-medium text-text-primary mb-2">Text Style</div>
 
             <div className="flex flex-wrap gap-4">
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={style.bold}
-                  onChange={(e) => updateStyle({ bold: e.target.checked })}
-                  className="w-4 h-4 text-accent-primary rounded border-border-default"
-                />
-                <span className="text-xs text-text-primary">Bold</span>
+              <label className="flex flex-col space-y-1">
+                <span className="text-xs text-text-primary">Font Weight</span>
+                <select
+                  value={style.weight}
+                  onChange={(e) => updateStyle({ weight: parseInt(e.target.value) })}
+                  className="px-2 py-1 text-xs bg-bg-primary border border-border-default rounded text-text-primary"
+                >
+                  <option value="100">Thin (100)</option>
+                  <option value="200">ExtraLight (200)</option>
+                  <option value="300">Light (300)</option>
+                  <option value="400">Regular (400)</option>
+                  <option value="500">Medium (500)</option>
+                  <option value="600">SemiBold (600)</option>
+                  <option value="700">Bold (700)</option>
+                  <option value="800">ExtraBold (800)</option>
+                  <option value="900">Black (900)</option>
+                </select>
               </label>
 
               <label className="flex items-center space-x-2 cursor-pointer">

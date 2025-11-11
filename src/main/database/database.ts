@@ -228,6 +228,29 @@ class DatabaseManager {
         this.db.pragma('user_version = 11');
       }
     }
+
+    // Add caption_weight to clip_edits if we're upgrading from v11 or below (v12)
+    // This replaces the boolean caption_bold with a numeric weight (100-900)
+    if (preVersion <= 11) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN caption_weight INTEGER DEFAULT 700;
+        `);
+        console.log('✅ Added caption_weight column (v12) - font weights 100-900');
+
+        // Migrate existing caption_bold values to caption_weight
+        // bold=1 → weight=700, bold=0 → weight=400
+        this.db.exec(`
+          UPDATE clip_edits SET caption_weight = CASE WHEN caption_bold = 1 THEN 700 ELSE 400 END;
+        `);
+        console.log('✅ Migrated caption_bold values to caption_weight');
+
+        this.db.pragma('user_version = 12');
+      } catch (error) {
+        console.log('Caption weight column migration skipped (may already exist)');
+        this.db.pragma('user_version = 12');
+      }
+    }
   }
   
   private initializeSchema() {
@@ -691,12 +714,6 @@ class DatabaseManager {
   saveClipEdits(clipId: string, edits: any) {
     const now = new Date().toISOString()
 
-    console.log('[Database] Saving clip edits for:', clipId)
-    console.log('[Database] Logo position values:', {
-      logo_position_x: edits.logo_position_x,
-      logo_position_y: edits.logo_position_y
-    })
-
     // Check if edits already exist
     const existing = this.getClipEdits(clipId)
 
@@ -713,6 +730,7 @@ class DatabaseManager {
           caption_custom_x = ?,
           caption_custom_y = ?,
           caption_bold = ?,
+          caption_weight = ?,
           caption_italic = ?,
           caption_outline = ?,
           caption_outline_color = ?,
@@ -752,22 +770,18 @@ class DatabaseManager {
 
       const logoPositionX = edits.logo_position_x ?? 85
       const logoPositionY = edits.logo_position_y ?? 85
-      console.log('[Database] UPDATE: Actual values being saved:', {
-        logo_position_x: logoPositionX,
-        logo_position_y: logoPositionY
-      })
 
-      try {
-        const result = stmt.run(
+      const result = stmt.run(
         edits.captions_enabled ?? 1,
-        edits.caption_segments ? JSON.stringify(edits.caption_segments) : null,
+        edits.caption_segments ?? null,
         edits.caption_font ?? 'Inter',
         edits.caption_size ?? 48,
         edits.caption_color ?? '#FFFFFF',
         edits.caption_position ?? 'bottom',
         edits.caption_custom_x ?? null,
         edits.caption_custom_y ?? null,
-        edits.caption_bold ?? 1,
+        edits.caption_bold ?? 1, // Keep for backward compatibility
+        edits.caption_weight ?? (edits.caption_bold ? 700 : 400), // Default based on bold
         edits.caption_italic ?? 0,
         edits.caption_outline ?? 1,
         edits.caption_outline_color ?? '#000000',
@@ -804,46 +818,37 @@ class DatabaseManager {
         now,
         clipId
       )
-        console.log('[Database] UPDATE successful, result:', result)
-        return result
-      } catch (error) {
-        console.error('[Database] UPDATE failed:', error)
-        throw error
-      }
+      return result
     } else {
       // Insert new
       const stmt = this.db.prepare(`
         INSERT INTO clip_edits (
           clip_id, captions_enabled, caption_segments, caption_font, caption_size,
-          caption_color, caption_position, caption_custom_x, caption_custom_y, caption_bold, caption_italic, caption_outline,
+          caption_color, caption_position, caption_custom_x, caption_custom_y, caption_bold, caption_weight, caption_italic, caption_outline,
           caption_outline_color, caption_outline_width, caption_shadow, caption_highlight_style,
           caption_background, caption_background_color, caption_background_opacity,
           caption_text_case, caption_words_per_caption, caption_max_width, caption_line_height, caption_letter_spacing,
           logo_enabled, logo_path, logo_position, logo_position_x, logo_position_y, logo_scale, logo_opacity,
           music_enabled, music_path, music_volume, music_duck_volume, music_duck_enabled, music_fade_in, music_fade_out, music_loop,
           aspect_ratio, crop_mode, crop_position_x, crop_position_y, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
 
       const logoPositionX = edits.logo_position_x ?? 85
       const logoPositionY = edits.logo_position_y ?? 85
-      console.log('[Database] INSERT: Actual values being saved:', {
-        logo_position_x: logoPositionX,
-        logo_position_y: logoPositionY
-      })
 
-      try {
-        const result = stmt.run(
+      const result = stmt.run(
         clipId,
         edits.captions_enabled ?? 1,
-        edits.caption_segments ? JSON.stringify(edits.caption_segments) : null,
+        edits.caption_segments ?? null,
         edits.caption_font ?? 'Inter',
         edits.caption_size ?? 48,
         edits.caption_color ?? '#FFFFFF',
         edits.caption_position ?? 'bottom',
         edits.caption_custom_x ?? null,
         edits.caption_custom_y ?? null,
-        edits.caption_bold ?? 1,
+        edits.caption_bold ?? 1, // Keep for backward compatibility
+        edits.caption_weight ?? (edits.caption_bold ? 700 : 400), // Default based on bold
         edits.caption_italic ?? 0,
         edits.caption_outline ?? 1,
         edits.caption_outline_color ?? '#000000',
@@ -879,12 +884,7 @@ class DatabaseManager {
         edits.crop_position_y ?? 50,
         now
       )
-        console.log('[Database] INSERT successful, result:', result)
-        return result
-      } catch (error) {
-        console.error('[Database] INSERT failed:', error)
-        throw error
-      }
+      return result
     }
   }
 

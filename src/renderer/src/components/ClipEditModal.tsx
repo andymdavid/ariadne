@@ -89,29 +89,19 @@ export function ClipEditModal({
   // Load logo settings
   const loadLogoSettings = async () => {
     try {
-      console.log('[ClipEditModal] Loading logo settings for clip:', clipId)
       const existingEdits = await window.electronAPI?.getClipEdits?.(clipId)
-      console.log('[ClipEditModal] Loaded logo edits from DB:', {
-        logo_position_x: existingEdits?.logo_position_x,
-        logo_position_y: existingEdits?.logo_position_y,
-        logo_scale: existingEdits?.logo_scale,
-        logo_opacity: existingEdits?.logo_opacity
-      })
 
       if (existingEdits) {
-        const newSettings = {
+        setLogoSettings({
           enabled: existingEdits.logo_enabled === 1,
           logoPath: existingEdits.logo_path || null,
           positionX: existingEdits.logo_position_x ?? 85,
           positionY: existingEdits.logo_position_y ?? 85,
           scale: existingEdits.logo_scale ?? 0.15,
           opacity: existingEdits.logo_opacity ?? 0.8
-        }
-        console.log('[ClipEditModal] Setting logo settings to:', newSettings)
-        setLogoSettings(newSettings)
+        })
       } else {
         // Set default logo settings if no edits exist
-        console.log('[ClipEditModal] No existing edits, using defaults')
         setLogoSettings({
           enabled: false,
           logoPath: null,
@@ -334,7 +324,7 @@ export function ClipEditModal({
           position: existingEdits.caption_position || 'bottom',
           customX: existingEdits.caption_custom_x,
           customY: existingEdits.caption_custom_y,
-          bold: existingEdits.caption_bold === 1,
+          weight: existingEdits.caption_weight || (existingEdits.caption_bold === 1 ? 700 : 400),
           italic: existingEdits.caption_italic === 1,
           outline: existingEdits.caption_outline === 1,
           outlineColor: existingEdits.caption_outline_color || '#000000',
@@ -712,7 +702,8 @@ export function ClipEditModal({
         caption_position: captionStyle.position,
         caption_custom_x: captionStyle.customX,
         caption_custom_y: captionStyle.customY,
-        caption_bold: captionStyle.bold ? 1 : 0,
+        caption_bold: captionStyle.weight >= 700 ? 1 : 0, // Keep for backward compatibility
+        caption_weight: captionStyle.weight || 700,
         caption_italic: captionStyle.italic ? 1 : 0,
         caption_outline: captionStyle.outline ? 1 : 0,
         caption_outline_color: captionStyle.outlineColor,
@@ -732,7 +723,6 @@ export function ClipEditModal({
 
     // Add logo settings edits
     if (logoSettings) {
-      console.log('[ClipEditModal] Building logo edits with settings:', logoSettings)
       Object.assign(allEdits, {
         logo_enabled: logoSettings.enabled ? 1 : 0,
         logo_path: logoSettings.logoPath,
@@ -740,10 +730,6 @@ export function ClipEditModal({
         logo_position_y: logoSettings.positionY,
         logo_scale: logoSettings.scale,
         logo_opacity: logoSettings.opacity
-      })
-      console.log('[ClipEditModal] Logo edits in object:', {
-        logo_position_x: allEdits.logo_position_x,
-        logo_position_y: allEdits.logo_position_y
       })
     }
 
@@ -835,55 +821,38 @@ export function ClipEditModal({
     try {
       setSaving(true)
       setJustSaved(false)
-      console.log('[ClipEditModal] ========== SAVE STARTED ==========')
-      console.log('[ClipEditModal] Current logoSettings:', logoSettings)
 
       // Save duration changes if modified
       if (editedStartTime !== clipData.startTime || editedEndTime !== clipData.endTime) {
-        console.log('[ClipEditModal] Saving duration changes')
         await window.electronAPI?.updateClipBoundaries?.(
           clipId,
           editedStartTime,
           editedEndTime
         )
-        console.log('[ClipEditModal] Duration updated successfully')
       }
 
       // Build edits for the current clip
-      console.log('[ClipEditModal] Building edits object...')
       const allEdits = buildEditsObject(clipId, editedStartTime, editedEndTime)
-      console.log('[ClipEditModal] Edits object built:', allEdits)
 
       // Save all edits in one call
       if (Object.keys(allEdits).length > 0) {
-        console.log('[ClipEditModal] Calling saveClipEdits API...')
-        const result = await window.electronAPI?.saveClipEdits?.(clipId, allEdits)
-        console.log('[ClipEditModal] Save API returned:', result)
-      } else {
-        console.log('[ClipEditModal] No edits to save')
+        await window.electronAPI?.saveClipEdits?.(clipId, allEdits)
       }
 
       // Call the parent callback
-      console.log('[ClipEditModal] Calling parent onSave callback...')
       await onSave()
-      console.log('[ClipEditModal] Parent callback completed')
 
-      console.log('[ClipEditModal] Setting success state...')
       setHasUnsavedChanges(false)
       setJustSaved(true)
-      console.log('[ClipEditModal] ========== SAVE COMPLETED ==========')
 
       // Reset "Saved" state after 2 seconds
       setTimeout(() => {
         setJustSaved(false)
       }, 2000)
     } catch (error) {
-      console.error('[ClipEditModal] ========== SAVE FAILED ==========')
-      console.error('[ClipEditModal] Error details:', error)
-      console.error('[ClipEditModal] Error stack:', (error as Error).stack)
+      console.error('[ClipEditModal] Failed to save clip edits:', error)
       alert('Failed to save changes: ' + (error as Error).message)
     } finally {
-      console.log('[ClipEditModal] Finally block - setting saving to false')
       setSaving(false)
     }
   }
@@ -1634,7 +1603,7 @@ export function ClipEditModal({
                             fontFamily: captionStyle.font,
                             fontSize: `${Math.max(captionStyle.size * 0.25, 8)}px`, // Scale down for small preview
                             color: captionStyle.color,
-                            fontWeight: captionStyle.bold ? 'bold' : 'normal',
+                            fontWeight: captionStyle.weight || 400,
                             fontStyle: captionStyle.italic ? 'italic' : 'normal',
                             textShadow: captionStyle.shadow ? '1px 1px 2px rgba(0,0,0,0.8)' : 'none',
                             WebkitTextStroke: captionStyle.outline ? `${Math.max(captionStyle.outlineWidth * 0.25, 0.5)}px ${captionStyle.outlineColor}` : '0px transparent',

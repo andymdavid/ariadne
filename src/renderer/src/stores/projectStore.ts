@@ -163,9 +163,9 @@ const initialState: ProjectState = {
 // Screen flow definition
 const SCREEN_FLOW = {
   upload: { next: 'review', requires: [] },
-  review: { next: 'content', requires: ['upload'] },
+  review: { next: 'export', requires: ['upload'] },
   content: { next: 'export', requires: ['upload', 'review'] },
-  export: { next: null, requires: ['upload', 'review', 'content'] },
+  export: { next: null, requires: ['upload', 'review'] },
   library: { next: null, requires: [] }
 }
 

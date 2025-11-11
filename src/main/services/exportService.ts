@@ -106,7 +106,6 @@ class ExportService {
     onProgress?.(job)
 
     const inputPath = episode.file_path
-    const aspectRatio = options.aspectRatio || '9:16'
     const includeCaptions = options.includeCaptions !== false // Default true
 
     for (let i = 0; i < clips.length; i++) {
@@ -114,41 +113,124 @@ class ExportService {
       job.currentClipIndex = i
 
       try {
+        // Get clip edits from database
+        console.log(`========================================`)
+        console.log(`[ExportService] ⭐ PROCESSING CLIP ${i + 1}/${clips.length}`)
+        console.log(`[ExportService] Clip ID: ${clip.id}`)
+        const clipEdits = database.getClipEdits(clip.id)
+        console.log(`[ExportService] Clip edits loaded:`, clipEdits ? 'YES' : 'NO')
+        if (clipEdits) {
+          console.log(`[ExportService] - Captions enabled: ${clipEdits.captions_enabled}`)
+          console.log(`[ExportService] - Logo enabled: ${clipEdits.logo_enabled}`)
+          console.log(`[ExportService] - Music enabled: ${clipEdits.music_enabled}`)
+          console.log(`[ExportService] - Aspect ratio: ${clipEdits.aspect_ratio}`)
+        }
+        console.log(`========================================`)
+
         // Get clip title for filename
         let clipTitle = 'clip'
-        if (includeCaptions) {
-          const titles = database.getClipTitles(clip.id)
-          if (titles && titles.length > 0) {
-            const selectedTitle: any = titles.find((t: any) => t.is_selected) || titles[0]
-            clipTitle = this.sanitizeFilename(selectedTitle.title)
-          }
+        const titles = database.getClipTitles(clip.id)
+        if (titles && titles.length > 0) {
+          const selectedTitle: any = titles.find((t: any) => t.is_selected) || titles[0]
+          clipTitle = this.sanitizeFilename(selectedTitle.title)
         }
 
         // Generate output path
         const outputFilename = `${clipTitle}_${Date.now()}.mp4`
         const outputPath = join(outputDirectory, outputFilename)
 
-        // Get captions if needed
-        let captions: string | undefined
-        if (includeCaptions) {
-          const clipCaptions = clip.key_quote || clip.reason
-          if (clipCaptions) {
-            // Limit caption length for display
-            captions = clipCaptions.length > 100
-              ? clipCaptions.substring(0, 97) + '...'
-              : clipCaptions
+        // Parse caption segments from database
+        let captionSegments: any[] = []
+        if (includeCaptions && clipEdits && clipEdits.captions_enabled) {
+          try {
+            captionSegments = JSON.parse(clipEdits.caption_segments || '[]')
+            console.log(`[ExportService] Parsed ${captionSegments.length} caption segments`)
+          } catch (error) {
+            console.error('[ExportService] Failed to parse caption segments:', error)
           }
         }
 
-        // Export clip with FFmpeg
+        // Build caption style from database or defaults
+        const captionStyle = clipEdits ? {
+          enabled: clipEdits.captions_enabled === 1,
+          font: clipEdits.caption_font || 'Inter',
+          size: clipEdits.caption_size || 48,
+          color: clipEdits.caption_color || '#FFFFFF',
+          position: clipEdits.caption_position || 'bottom',
+          customX: clipEdits.caption_custom_x,
+          customY: clipEdits.caption_custom_y,
+          weight: clipEdits.caption_weight || (clipEdits.caption_bold === 1 ? 700 : 400), // Use weight, fallback to bold
+          italic: clipEdits.caption_italic === 1,
+          outline: clipEdits.caption_outline === 1,
+          outlineColor: clipEdits.caption_outline_color || '#000000',
+          outlineWidth: clipEdits.caption_outline_width || 2,
+          shadow: clipEdits.caption_shadow === 1,
+          highlightStyle: clipEdits.caption_highlight_style || 'word',
+          background: clipEdits.caption_background === 1,
+          backgroundColor: clipEdits.caption_background_color || '#000000',
+          backgroundOpacity: clipEdits.caption_background_opacity || 0.5,
+          textCase: clipEdits.caption_text_case || 'normal',
+          wordsPerCaption: clipEdits.caption_words_per_caption || 3,
+          maxWidth: clipEdits.caption_max_width ?? 90,
+          lineHeight: clipEdits.caption_line_height ?? 1.2,
+          letterSpacing: clipEdits.caption_letter_spacing ?? 0
+        } : null
+
+        // Build logo settings from database
+        const logoSettings = clipEdits && clipEdits.logo_enabled ? {
+          enabled: true,
+          logoPath: clipEdits.logo_path,
+          positionX: clipEdits.logo_position_x ?? 85,
+          positionY: clipEdits.logo_position_y ?? 85,
+          scale: clipEdits.logo_scale ?? 0.15,
+          opacity: clipEdits.logo_opacity ?? 0.8
+        } : null
+
+        // Build music settings from database
+        const musicSettings = clipEdits && clipEdits.music_enabled ? {
+          enabled: true,
+          musicPath: clipEdits.music_path,
+          volume: clipEdits.music_volume ?? 0.3,
+          duckVolume: clipEdits.music_duck_volume ?? 0.1,
+          duckEnabled: clipEdits.music_duck_enabled === 1,
+          fadeIn: clipEdits.music_fade_in ?? 1.0,
+          fadeOut: clipEdits.music_fade_out ?? 1.0,
+          loop: clipEdits.music_loop === 1
+        } : null
+
+        // Build frame settings from database
+        const frameSettings = clipEdits ? {
+          aspectRatio: (clipEdits.aspect_ratio || '9:16') as '9:16' | '1:1' | '16:9',
+          cropMode: (clipEdits.crop_mode || 'center') as 'center' | 'fit' | 'blur',
+          cropPositionX: clipEdits.crop_position_x ?? 50,
+          cropPositionY: clipEdits.crop_position_y ?? 50
+        } : {
+          aspectRatio: (options.aspectRatio || '9:16') as '9:16' | '1:1' | '16:9',
+          cropMode: 'center' as 'center' | 'fit' | 'blur',
+          cropPositionX: 50,
+          cropPositionY: 50
+        }
+
+        console.log(`[ExportService] Exporting clip ${clip.id} with settings:`, {
+          captionStyle: captionStyle?.enabled,
+          captionSegments: captionSegments.length,
+          logo: logoSettings?.enabled,
+          music: musicSettings?.enabled,
+          frame: frameSettings
+        })
+
+        // Export clip with FFmpeg using all settings
         await ffmpegService.exportReelClip(
           inputPath,
           clip.start_time,
           clip.duration,
           outputPath,
           {
-            captions,
-            aspectRatio,
+            captionSegments,
+            captionStyle,
+            logoSettings,
+            musicSettings,
+            frameSettings,
             onProgress: (clipProgress) => {
               // Calculate overall progress
               const overallProgress = ((i + (clipProgress / 100)) / clips.length) * 100
