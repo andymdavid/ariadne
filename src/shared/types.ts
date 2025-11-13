@@ -36,6 +36,8 @@ export interface Clip {
   keyQuote: string;
   reason: string;
   contextNeeded: 'low' | 'medium' | 'high';
+  videoWidth?: number | null;
+  videoHeight?: number | null;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
 }

@@ -168,6 +168,8 @@ export function useProcessingUpdates() {
               keyQuote: clip.keyQuote || clip.key_quote || 'No quote available',
               reason: clip.reason || 'No reason provided',
               contextNeeded: clip.contextNeeded || clip.context_needed || 'low',
+              videoWidth: clip.videoWidth ?? clip.video_width ?? null,
+              videoHeight: clip.videoHeight ?? clip.video_height ?? null,
               status: clip.status || 'pending',
               createdAt: clip.createdAt || clip.created_at || new Date().toISOString()
             }))

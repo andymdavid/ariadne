@@ -144,6 +144,8 @@ export function ReviewPage() {
             keyQuote: clip.key_quote || clip.keyQuote || 'No quote available',
             reason: clip.reason || 'No reason provided',
             contextNeeded: clip.context_needed || clip.contextNeeded || 'low',
+            videoWidth: clip.video_width ?? clip.videoWidth ?? null,
+            videoHeight: clip.video_height ?? clip.videoHeight ?? null,
             status: clip.status || 'pending'
           }
         })
@@ -308,7 +310,9 @@ export function ReviewPage() {
             keyQuote: editingClip.keyQuote,
             startTime: editingClip.startTime,
             endTime: editingClip.endTime,
-            duration: editingClip.duration
+            duration: editingClip.duration,
+            videoWidth: editingClip.videoWidth ?? null,
+            videoHeight: editingClip.videoHeight ?? null
           }}
           onClose={handleCloseEditModal}
           onSave={handleSaveClipEdits}

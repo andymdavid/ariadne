@@ -18,6 +18,7 @@ declare global {
       getEpisode: (episodeId: string) => Promise<any>;
       getEpisodeByProject: (projectId: string) => Promise<any>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
+      getClip: (clipId: string) => Promise<any>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;
       getApprovedClips: (episodeId: string) => Promise<any[]>;
       cleanupDatabase: () => Promise<any>;

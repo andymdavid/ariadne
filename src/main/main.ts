@@ -6,12 +6,51 @@ import { processingPipeline } from './services/processingPipeline';
 import { configService } from './services/configService';
 import { clipService } from './services/clipService';
 import { exportService } from './services/exportService';
+import { ffmpegService } from './services/ffmpegService';
 
 // TODO: Add electron-reload for development
 
 let mainWindow: BrowserWindow | null = null;
 
 const isDev = process.env.NODE_ENV === 'development';
+
+async function backfillClipDimensions(batchSize = 25) {
+  try {
+    let pending = database.getClipsMissingVideoDimensions(batchSize) as Array<{ id: string; episode_id: string; file_path: string }>;
+    if (!pending.length) {
+      console.log('[ClipDimensions] All clips already have stored dimensions');
+      return;
+    }
+
+    console.log(`[ClipDimensions] Backfilling video dimensions for ${pending.length} clip(s)`);
+
+    while (pending.length) {
+      for (const clip of pending) {
+        try {
+          const mediaInfo = await ffmpegService.getMediaInfo(clip.file_path);
+          const resolution = mediaInfo.resolution;
+          if (resolution?.width && resolution?.height) {
+            database.updateClipVideoDimensions(clip.id, resolution.width, resolution.height);
+            console.log(`[ClipDimensions] Stored ${resolution.width}x${resolution.height} for clip ${clip.id}`);
+          } else {
+            console.warn(`[ClipDimensions] No video stream found for clip ${clip.id} (${clip.file_path})`);
+          }
+        } catch (error) {
+          console.error(`[ClipDimensions] Failed to backfill clip ${clip.id}:`, error);
+        }
+      }
+
+      pending = database.getClipsMissingVideoDimensions(batchSize) as Array<{ id: string; episode_id: string; file_path: string }>;
+      if (pending.length) {
+        console.log(`[ClipDimensions] Continuing backfill, ${pending.length} clip(s) remaining`);
+      }
+    }
+
+    console.log('[ClipDimensions] Backfill completed');
+  } catch (error) {
+    console.error('[ClipDimensions] Backfill failed:', error);
+  }
+}
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -65,6 +104,10 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+
+  backfillClipDimensions().catch((error) => {
+    console.error('[ClipDimensions] Backfill task error:', error)
+  })
 
   app.on('activate', () => {
     // On macOS, re-create window when dock icon is clicked
@@ -124,6 +167,10 @@ ipcMain.handle('get-project', (event, projectId: string) => {
 
 ipcMain.handle('get-episode-clips', (event, episodeId: string) => {
   return database.getClips(episodeId);
+});
+
+ipcMain.handle('get-clip', (event, clipId: string) => {
+  return database.getClip(clipId);
 });
 
 ipcMain.handle('update-clip-status', (event, clipId: string, status: string) => {

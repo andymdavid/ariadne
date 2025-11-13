@@ -231,7 +231,7 @@ class ProcessingPipeline {
       }
       
       // Step 6: Store clips in database (even if empty)
-      const storedClips = await this.storeClips(episodeId, analysis.potentialClips)
+      const storedClips = await this.storeClips(episodeId, analysis.potentialClips, mediaInfo.resolution)
 
       // Step 7: Generate content packages (only if we have clips)
       if (aiAnalysisSucceeded && storedClips.length > 0) {
@@ -383,7 +383,11 @@ class ProcessingPipeline {
     database.insertTranscriptSegments(segments)
   }
   
-  private async storeClips(episodeId: string, clips: any[]): Promise<any[]> {
+  private async storeClips(
+    episodeId: string,
+    clips: any[],
+    sourceResolution?: { width: number; height: number }
+  ): Promise<any[]> {
     console.log(`Storing ${clips.length} clips for episode ${episodeId}`)
 
     const clipsWithIds = clips.map(clip => ({
@@ -396,7 +400,9 @@ class ProcessingPipeline {
       shareabilityScore: clip.shareabilityScore,
       keyQuote: clip.keyQuote,
       reason: clip.reason,
-      contextNeeded: clip.contextNeeded
+      contextNeeded: clip.contextNeeded,
+      videoWidth: sourceResolution?.width ?? null,
+      videoHeight: sourceResolution?.height ?? null
     }))
 
     database.insertClips(clipsWithIds)

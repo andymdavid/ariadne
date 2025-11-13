@@ -6,7 +6,20 @@ import { Textarea } from './ui/textarea'
 import { CaptionStyleEditor, CaptionStyle } from './CaptionStyleEditor'
 import { LogoEditor, LogoSettings } from './LogoEditor'
 import { MusicEditor, MusicSettings } from './MusicEditor'
-import { FrameEditor, FrameSettings } from './FrameEditor'
+import { FrameEditor } from './FrameEditor'
+import type { FrameSettings } from '@shared/types/frameSettings'
+import { DEFAULT_FRAME_SETTINGS } from '@shared/types/frameSettings'
+
+const ASPECT_RESOLUTIONS: Record<FrameSettings['aspectRatio'], { width: number; height: number }> = {
+  '9:16': { width: 1080, height: 1920 },
+  '1:1': { width: 1080, height: 1080 },
+  '16:9': { width: 1920, height: 1080 }
+}
+
+const getAspectResolution = (aspect?: FrameSettings['aspectRatio']) => {
+  if (!aspect) return ASPECT_RESOLUTIONS['9:16']
+  return ASPECT_RESOLUTIONS[aspect]
+}
 
 interface ClipEditModalProps {
   isOpen: boolean
@@ -18,12 +31,16 @@ interface ClipEditModalProps {
     startTime: number
     endTime: number
     duration: number
+    videoWidth?: number | null
+    videoHeight?: number | null
   }
   onClose: () => void
   onSave: () => void
 }
 
 type EditorTab = 'duration' | 'transcript' | 'captions' | 'logo' | 'music' | 'frame'
+
+const clampZoom = (value?: number) => Math.max(0.5, Math.min(4, value ?? 1))
 
 export function ClipEditModal({
   isOpen,
@@ -74,6 +91,12 @@ export function ClipEditModal({
   // Frame settings state
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(null)
   const [isDraggingCrop, setIsDraggingCrop] = useState(false)
+  const previousCropMode = useRef<FrameSettings['cropMode'] | null>(null)
+  const [isDraggingVideo, setIsDraggingVideo] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [videoMetadata, setVideoMetadata] = useState<{ width: number; height: number } | null>(null)
+  const [isVideoMetadataLoading, setIsVideoMetadataLoading] = useState(true)
+  const [videoMetadataError, setVideoMetadataError] = useState<string | null>(null)
 
   // Load clip video and caption style on mount
   useEffect(() => {
@@ -151,42 +174,172 @@ export function ClipEditModal({
     try {
       const existingEdits = await window.electronAPI?.getClipEdits?.(clipId)
       if (existingEdits) {
-        const settings = {
-          aspectRatio: (existingEdits.aspect_ratio || '9:16') as '9:16' | '1:1' | '16:9',
-          cropMode: (existingEdits.crop_mode || 'center') as 'center' | 'fit' | 'blur',
-          cropPositionX: existingEdits.crop_position_x ?? 50,
-          cropPositionY: existingEdits.crop_position_y ?? 50
+        const normalizedMode = existingEdits.crop_mode === 'canvas'
+          ? 'fit'
+          : (existingEdits.crop_mode || DEFAULT_FRAME_SETTINGS.cropMode)
+
+        const settings: FrameSettings = {
+          aspectRatio: (existingEdits.aspect_ratio || DEFAULT_FRAME_SETTINGS.aspectRatio) as FrameSettings['aspectRatio'],
+          cropMode: normalizedMode as FrameSettings['cropMode'],
+          cropPositionX: existingEdits.crop_position_x ?? DEFAULT_FRAME_SETTINGS.cropPositionX,
+          cropPositionY: existingEdits.crop_position_y ?? DEFAULT_FRAME_SETTINGS.cropPositionY,
+          zoomLevel: clampZoom(existingEdits.zoom_level ?? DEFAULT_FRAME_SETTINGS.zoomLevel),
+          videoOffsetX: existingEdits.video_offset_x ?? DEFAULT_FRAME_SETTINGS.videoOffsetX,
+          videoOffsetY: existingEdits.video_offset_y ?? DEFAULT_FRAME_SETTINGS.videoOffsetY
         }
         console.log('[ClipEditModal] Loaded frame settings:', settings)
         setFrameSettings(settings)
       } else {
         // Set default frame settings if no edits exist
         console.log('[ClipEditModal] No existing edits, using defaults')
-        setFrameSettings({
-          aspectRatio: '9:16',
-          cropMode: 'center',
-          cropPositionX: 50,
-          cropPositionY: 50
-        })
+        setFrameSettings({ ...DEFAULT_FRAME_SETTINGS })
       }
     } catch (error) {
       console.error('Failed to load frame settings:', error)
       // Set defaults on error
-      setFrameSettings({
-        aspectRatio: '9:16',
-        cropMode: 'center',
-        cropPositionX: 50,
-        cropPositionY: 50
-      })
+      setFrameSettings({ ...DEFAULT_FRAME_SETTINGS })
     }
   }
 
-  // Log frame settings changes
+  // Load persisted video metadata for Canvas Fit preview/export parity
   useEffect(() => {
-    if (frameSettings) {
-      console.log('[ClipEditModal] Frame settings updated:', frameSettings)
+    if (!isOpen) return
+
+    let cancelled = false
+
+    const applyMetadata = (width: number, height: number) => {
+      if (cancelled) return
+      setVideoMetadata({ width, height })
+      setVideoMetadataError(null)
+      setIsVideoMetadataLoading(false)
+    }
+
+    const fetchMetadata = async () => {
+      setIsVideoMetadataLoading(true)
+      setVideoMetadataError(null)
+
+      // Prefer metadata already provided via clipData prop
+      if (clipData?.videoWidth && clipData?.videoHeight) {
+        applyMetadata(clipData.videoWidth, clipData.videoHeight)
+        return
+      }
+
+      try {
+        const clipRecord = await window.electronAPI?.getClip?.(clipId)
+        if (cancelled) return
+
+        if (clipRecord?.video_width && clipRecord?.video_height) {
+          applyMetadata(clipRecord.video_width, clipRecord.video_height)
+        } else {
+          setVideoMetadata(null)
+          setVideoMetadataError('Video dimensions are unavailable for this clip.')
+          setIsVideoMetadataLoading(false)
+        }
+      } catch (error) {
+        if (cancelled) return
+        console.error('Failed to load video metadata:', error)
+        setVideoMetadata(null)
+        setVideoMetadataError('Failed to load video dimensions.')
+        setIsVideoMetadataLoading(false)
+      }
+    }
+
+    fetchMetadata()
+
+    return () => {
+      cancelled = true
+    }
+  }, [clipId, clipData?.videoWidth, clipData?.videoHeight, isOpen])
+
+  const clampCanvasFitOffsets = (
+  proposedX: number,
+  proposedY: number,
+  settingsOverride?: FrameSettings | null
+): { x: number; y: number } => {
+    const metadata = videoMetadata
+    const activeSettings = settingsOverride ?? frameSettings
+
+    if (!metadata || activeSettings?.cropMode !== 'fit') {
+      return { x: proposedX, y: proposedY }
+    }
+
+  const resolution = getAspectResolution(activeSettings.aspectRatio)
+  const zoom = activeSettings.zoomLevel ?? 1
+  const baseScale = resolution.width / metadata.width
+  const videoWidth = metadata.width * baseScale * zoom
+  const videoHeight = metadata.height * baseScale * zoom
+
+    const minVisibleRatio = 0.1
+    const minVisibleWidth = videoWidth * minVisibleRatio
+    const minVisibleHeight = videoHeight * minVisibleRatio
+
+    const leftBase = (resolution.width - videoWidth) / 2
+    const topBase = (resolution.height - videoHeight) / 2
+
+    let offsetX = proposedX
+    let offsetY = proposedY
+
+    const desiredLeft = leftBase + offsetX
+    const desiredTop = topBase + offsetY
+    const minLeft = minVisibleWidth - videoWidth
+    const maxLeft = resolution.width - minVisibleWidth
+    const minTop = minVisibleHeight - videoHeight
+    const maxTop = resolution.height - minVisibleHeight
+
+    if (desiredLeft < minLeft) {
+      offsetX += (minLeft - desiredLeft)
+    } else if (desiredLeft > maxLeft) {
+      offsetX -= (desiredLeft - maxLeft)
+    }
+
+    if (desiredTop < minTop) {
+      offsetY += (minTop - desiredTop)
+    } else if (desiredTop > maxTop) {
+      offsetY -= (desiredTop - maxTop)
+    }
+
+    return { x: offsetX, y: offsetY }
+  }
+
+  // Log frame settings changes and handle mode transitions
+  useEffect(() => {
+    if (!frameSettings) return
+    console.log('[ClipEditModal] Frame settings updated:', frameSettings)
+
+    const prevMode = previousCropMode.current
+    previousCropMode.current = frameSettings.cropMode
+
+    if (frameSettings.cropMode === 'fit' && prevMode !== 'fit') {
+      setFrameSettings(prev => prev ? {
+        ...prev,
+        videoOffsetX: prev.videoOffsetX ?? 0,
+        videoOffsetY: prev.videoOffsetY ?? 0,
+        zoomLevel: clampZoom(prev.zoomLevel)
+      } : prev)
     }
   }, [frameSettings])
+
+  // Clamp historical offsets once when metadata becomes available
+  useEffect(() => {
+    if (!frameSettings || frameSettings.cropMode !== 'fit' || !videoMetadata) return
+
+    const clamped = clampCanvasFitOffsets(
+      frameSettings.videoOffsetX ?? 0,
+      frameSettings.videoOffsetY ?? 0,
+      frameSettings
+    )
+
+    if (
+      clamped.x !== (frameSettings.videoOffsetX ?? 0) ||
+      clamped.y !== (frameSettings.videoOffsetY ?? 0)
+    ) {
+      setFrameSettings(prev => prev ? {
+        ...prev,
+        videoOffsetX: clamped.x,
+        videoOffsetY: clamped.y
+      } : prev)
+    }
+  }, [videoMetadata, frameSettings?.cropMode])
 
   // Load and sync music with video
   useEffect(() => {
@@ -668,6 +821,60 @@ export function ClipEditModal({
     }
   }, [isDraggingCrop])
 
+  // Canvas Fit dragging handler
+  useEffect(() => {
+    if (!isDraggingVideo) return
+
+    const handleVideoDrag = (e: MouseEvent) => {
+      if (!frameSettings || frameSettings.cropMode !== 'fit') return
+      const resolution = getAspectResolution(frameSettings.aspectRatio)
+      const container = videoContainerRef.current
+      if (!container) return
+
+      const previewScaleX = container.offsetWidth / resolution.width || 1
+      const previewScaleY = container.offsetHeight / resolution.height || 1
+
+      const deltaX = e.clientX - dragStart.x
+      const deltaY = e.clientY - dragStart.y
+
+      if (deltaX === 0 && deltaY === 0) return
+
+      setFrameSettings(prev => prev ? {
+        ...prev,
+        ...(() => {
+          const nextOffsetX = (prev.videoOffsetX ?? 0) + (deltaX / previewScaleX)
+          const nextOffsetY = (prev.videoOffsetY ?? 0) + (deltaY / previewScaleY)
+          const clamped = clampCanvasFitOffsets(nextOffsetX, nextOffsetY, prev)
+          return {
+            videoOffsetX: clamped.x,
+            videoOffsetY: clamped.y
+          }
+        })()
+      } : prev)
+
+      setDragStart({ x: e.clientX, y: e.clientY })
+      setHasUnsavedChanges(true)
+    }
+
+    const handleMouseUp = () => {
+      setIsDraggingVideo(false)
+    }
+
+    document.addEventListener('mousemove', handleVideoDrag)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleVideoDrag)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDraggingVideo, dragStart, frameSettings, videoMetadata])
+
+  useEffect(() => {
+    if (frameSettings?.cropMode !== 'fit') {
+      setIsDraggingVideo(false)
+    }
+  }, [frameSettings?.cropMode])
+
   const handleClose = () => {
     if (hasUnsavedChanges) {
       const confirmed = window.confirm(
@@ -753,7 +960,10 @@ export function ClipEditModal({
         aspect_ratio: frameSettings.aspectRatio,
         crop_mode: frameSettings.cropMode,
         crop_position_x: frameSettings.cropPositionX ?? 50,
-        crop_position_y: frameSettings.cropPositionY ?? 50
+        crop_position_y: frameSettings.cropPositionY ?? 50,
+        zoom_level: frameSettings.zoomLevel ?? 1.0,
+        video_offset_x: frameSettings.videoOffsetX ?? 0,
+        video_offset_y: frameSettings.videoOffsetY ?? 0
       })
     }
 
@@ -1419,24 +1629,38 @@ export function ClipEditModal({
 
           {/* Right Panel: Video Preview (25%) */}
           <div className="border-l border-border-default bg-bg-secondary flex flex-col items-center justify-center p-4 flex-shrink-0" style={{ width: '25%' }}>
-            <div
-              ref={videoContainerRef}
-              className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center"
-              style={{
-                aspectRatio: frameSettings?.aspectRatio || '9/16',
-                width: '100%',
-                maxHeight: '100%'
-              }}
-            >
-              {/* Loading Overlay - shows even when no clipPath yet */}
-              {loading && (
-                <div className="absolute inset-0 flex items-center justify-center text-white bg-black/70 z-10">
-                  Loading video...
-                </div>
-              )}
+          <div
+            ref={videoContainerRef}
+            className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center"
+            style={{
+              aspectRatio: frameSettings?.aspectRatio || '9/16',
+              width: '100%',
+              maxHeight: '100%'
+            }}
+          >
+            {/* Loading Overlay - shows even when no clipPath yet */}
+            {loading && (
+              <div className="absolute inset-0 flex items-center justify-center text-white bg-black/70 z-10">
+                Loading video...
+              </div>
+            )}
+            {frameSettings?.cropMode === 'fit' && (
+              <>
+                {isVideoMetadataLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center text-white bg-black/70 z-10">
+                    Loading video dimensions...
+                  </div>
+                )}
+                {!isVideoMetadataLoading && !videoMetadata && (
+                  <div className="absolute inset-0 flex items-center justify-center text-white bg-black/70 z-10 text-center px-4">
+                    {videoMetadataError || 'Video dimensions unavailable. Canvas Fit preview is disabled.'}
+                  </div>
+                )}
+              </>
+            )}
 
-              {/* Hidden audio element for music playback */}
-              <audio ref={audioRef} style={{ display: 'none' }} />
+            {/* Hidden audio element for music playback */}
+            <audio ref={audioRef} style={{ display: 'none' }} />
 
               {/* Always render video if we have a clipPath */}
               {clipPath ? (
@@ -1462,28 +1686,94 @@ export function ClipEditModal({
                   <video
                     ref={videoRef}
                     src={clipPath}
-                    className="absolute inset-0"
+                    className="absolute"
                     controls={false}
-                    onMouseDown={(e) => {
-                      if (frameSettings?.cropMode === 'center' && e.button === 0) {
-                        e.preventDefault()
-                        setIsDraggingCrop(true)
+                    onLoadedMetadata={(e) => {
+                      if (videoMetadata) return
+
+                      const vid = e.currentTarget
+                      if (vid.videoWidth && vid.videoHeight) {
+                        console.log('[ClipEditModal] Video metadata fallback from element:', vid.videoWidth, 'x', vid.videoHeight)
+                        setVideoMetadata({ width: vid.videoWidth, height: vid.videoHeight })
+                        setIsVideoMetadataLoading(false)
+                        setVideoMetadataError(null)
                       }
                     }}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: frameSettings?.cropMode === 'center' ? 'cover' : 'contain',
-                      objectPosition: frameSettings?.cropMode === 'center'
-                        ? `${frameSettings.cropPositionX ?? 50}% ${frameSettings.cropPositionY ?? 50}%`
-                        : 'center',
-                      cursor: frameSettings?.cropMode === 'center'
-                        ? (isDraggingCrop ? 'grabbing' : 'grab')
-                        : 'default',
-                      zIndex: 1,
-                      imageRendering: 'high-quality',
-                      border: isDraggingCrop ? '2px dashed rgba(59, 130, 246, 0.5)' : 'none'
+                    onMouseDown={(e) => {
+                      if (e.button !== 0) return
+
+                      if (frameSettings?.cropMode === 'center') {
+                        e.preventDefault()
+                        setIsDraggingCrop(true)
+                      } else if (frameSettings?.cropMode === 'fit') {
+                        if (!videoMetadata || isVideoMetadataLoading) return
+                        e.preventDefault()
+                        setIsDraggingVideo(true)
+                        setDragStart({ x: e.clientX, y: e.clientY })
+                      }
                     }}
+                    style={(() => {
+                      const baseStyle: React.CSSProperties = {
+                        zIndex: 1
+                      }
+
+                      if (!frameSettings) {
+                        return baseStyle
+                      }
+
+                      if (frameSettings.cropMode === 'center') {
+                        return {
+                          ...baseStyle,
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          objectPosition: `${frameSettings.cropPositionX ?? 50}% ${frameSettings.cropPositionY ?? 50}%`,
+                          transform: `scale(${frameSettings.zoomLevel ?? 1})`,
+                          cursor: isDraggingCrop ? 'grabbing' : 'grab',
+                          border: isDraggingCrop ? '2px dashed rgba(59, 130, 246, 0.5)' : 'none'
+                        }
+                      }
+
+                      if (frameSettings.cropMode === 'fit') {
+                        const container = videoContainerRef.current
+                        if (!videoMetadata || !container) {
+                          return {
+                            ...baseStyle,
+                            width: '100%',
+                            height: 'auto',
+                            opacity: isVideoMetadataLoading ? 0 : 1,
+                            pointerEvents: isVideoMetadataLoading ? 'none' : 'auto'
+                          }
+                        }
+
+                        const zoom = frameSettings.zoomLevel ?? 1
+                        const resolution = getAspectResolution(frameSettings.aspectRatio)
+                        const previewScaleX = container.offsetWidth / resolution.width || 1
+                        const previewScaleY = container.offsetHeight / resolution.height || 1
+                        const offsetXOutput = (frameSettings.videoOffsetX ?? 0) * previewScaleX
+                        const offsetYOutput = (frameSettings.videoOffsetY ?? 0) * previewScaleY
+
+                        return {
+                          ...baseStyle,
+                          position: 'absolute',
+                          width: '100%',
+                          height: 'auto',
+                          top: '50%',
+                          left: '50%',
+                          transformOrigin: 'center center',
+                          transform: `translate(-50%, -50%) translate(${offsetXOutput}px, ${offsetYOutput}px) scale(${zoom})`,
+                          cursor: isDraggingVideo ? 'grabbing' : 'grab'
+                        }
+                      }
+
+                      // blur/default fallback
+                      return {
+                        ...baseStyle,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'contain'
+                      }
+                    })()}
                   />
                   {captionStyle?.enabled && !loading && (() => {
                     // Get clip-relative segments for caption display

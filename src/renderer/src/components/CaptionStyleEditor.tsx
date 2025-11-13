@@ -70,35 +70,34 @@ export function CaptionStyleEditor({
   onStyleChange
 }: CaptionStyleEditorProps) {
   const [style, setStyle] = useState<CaptionStyle>(currentStyle || defaultStyle)
-  const isInitialMount = useRef(true)
+  const hasSyncedWithParent = useRef(false)
 
-  // Only sync on initial mount, not on every currentStyle change
+  // Sync local state any time parent provides/updates its canonical style
   useEffect(() => {
-    if (isInitialMount.current && currentStyle) {
-      console.log('[CaptionStyleEditor] Initial sync with parent style')
+    if (currentStyle) {
+      console.log('[CaptionStyleEditor] Syncing style from parent')
       setStyle(currentStyle)
-      isInitialMount.current = false
+      hasSyncedWithParent.current = true
     }
-  }, [])
+  }, [currentStyle])
 
-  // Notify parent of style changes (skip first render)
+  // Notify parent after we've synced at least once (prevents onChange spam during mount)
   // IMPORTANT: Preserve customX/customY from parent (set by dragging)
   useEffect(() => {
-    if (!isInitialMount.current) {
-      // Merge local style with parent's customX/customY to preserve drag positioning
-      const mergedStyle = {
-        ...style,
-        customX: currentStyle?.customX ?? style.customX,
-        customY: currentStyle?.customY ?? style.customY
-      }
-      console.log('[CaptionStyleEditor] User changed style, notifying parent:', mergedStyle)
-      onStyleChange(mergedStyle)
+    if (!hasSyncedWithParent.current) return
+
+    const mergedStyle = {
+      ...style,
+      customX: currentStyle?.customX ?? style.customX,
+      customY: currentStyle?.customY ?? style.customY
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [style])
+    console.log('[CaptionStyleEditor] User changed style, notifying parent:', mergedStyle)
+    onStyleChange(mergedStyle)
+  }, [style, currentStyle, onStyleChange])
 
   const updateStyle = (updates: Partial<CaptionStyle>) => {
     console.log('[CaptionStyleEditor] Updating style with:', updates)
+    hasSyncedWithParent.current = true
     setStyle(prev => ({ ...prev, ...updates }))
   }
 
@@ -182,9 +181,9 @@ export function CaptionStyleEditor({
                 <input
                   type="range"
                   min="24"
-                  max="96"
+                  max="160"
                   step="4"
-                  value={style.size}
+                  value={Math.min(style.size, 160)}
                   onChange={(e) => updateStyle({ size: Number(e.target.value) })}
                   className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
                 />

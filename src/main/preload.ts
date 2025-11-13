@@ -26,6 +26,7 @@ const electronAPI = {
   getEpisode: (episodeId: string) => ipcRenderer.invoke('get-episode', episodeId),
   getEpisodeByProject: (projectId: string) => ipcRenderer.invoke('get-episode-by-project', projectId),
   getEpisodeClips: (episodeId: string) => ipcRenderer.invoke('get-episode-clips', episodeId),
+  getClip: (clipId: string) => ipcRenderer.invoke('get-clip', clipId),
   getTranscriptSegments: (episodeId: string) => ipcRenderer.invoke('get-transcript-segments', episodeId),
   updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) =>
     ipcRenderer.invoke('update-transcript-segment', episodeId, segmentIndex, text),
@@ -131,6 +132,7 @@ declare global {
       getEpisode: (episodeId: string) => Promise<any>;
       getEpisodeByProject: (projectId: string) => Promise<any>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
+      getClip: (clipId: string) => Promise<any>;
       getTranscriptSegments: (episodeId: string) => Promise<any[]>;
       updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) => Promise<any>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;

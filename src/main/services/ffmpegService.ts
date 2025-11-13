@@ -367,6 +367,11 @@ class FFmpegService {
         cropMode: 'center' | 'fit' | 'blur'
         cropPositionX: number
         cropPositionY: number
+        zoomLevel?: number
+        videoOffsetX?: number
+        videoOffsetY?: number
+        videoWidth?: number | null
+        videoHeight?: number | null
       }
       onProgress?: (progress: number) => void
     } = {}
@@ -455,8 +460,39 @@ class FFmpegService {
         console.log(`[FFmpegService] Center crop with position: X=${cropX}, Y=${cropY}`)
         filters.push(`${videoLabel}${cropFilter},${scaleFilter}${currentVideoOutput}`)
       } else if (frameSettings.cropMode === 'fit') {
-        // Scale to fit mode: letterbox/pillarbox
-        filters.push(`${videoLabel}scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2:color=black${currentVideoOutput}`)
+        const zoom = frameSettings.zoomLevel ?? 1
+        const sourceWidth = frameSettings.videoWidth || resolution.width
+        const sourceHeight = frameSettings.videoHeight || resolution.height
+
+        const baseScale = resolution.width / sourceWidth
+
+        const scaledWidth = Math.round(sourceWidth * baseScale * zoom)
+        const scaledHeight = Math.round(sourceHeight * baseScale * zoom)
+
+        const offsetX = frameSettings.videoOffsetX ?? 0
+        const offsetY = frameSettings.videoOffsetY ?? 0
+
+        const centerX = resolution.width / 2
+        const centerY = resolution.height / 2
+        const posX = Math.round(centerX - scaledWidth / 2 + offsetX)
+        const posY = Math.round(centerY - scaledHeight / 2 + offsetY)
+
+        console.log('[FFmpegService] Canvas Fit export:', {
+          zoom,
+          baseScale,
+          sourceWidth,
+          sourceHeight,
+          scaledWidth,
+          scaledHeight,
+          posX,
+          posY,
+          offsetX,
+          offsetY
+        })
+
+        filters.push(`color=black:s=${resolution.width}x${resolution.height}[bg]`)
+        filters.push(`${videoLabel}scale=${scaledWidth}:${scaledHeight}[scaled]`)
+        filters.push(`[bg][scaled]overlay=${posX}:${posY}${currentVideoOutput}`)
       } else if (frameSettings.cropMode === 'blur') {
         // Blur background mode: blurred background with fitted video on top
         filters.push(`${videoLabel}split[blur][fg]`)

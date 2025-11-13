@@ -1,12 +1,5 @@
-import { useState, useEffect } from 'react'
-import { IoCropOutline } from 'react-icons/io5'
-
-export interface FrameSettings {
-  aspectRatio: '9:16' | '1:1' | '16:9'
-  cropMode: 'center' | 'fit' | 'blur'
-  cropPositionX?: number  // For center crop mode (percentage 0-100, default 50)
-  cropPositionY?: number  // For center crop mode (percentage 0-100, default 50)
-}
+import { useState, useEffect, useRef } from 'react'
+import { FrameSettings, DEFAULT_FRAME_SETTINGS } from '@shared/types/frameSettings'
 
 export interface FrameEditorProps {
   clipId: string
@@ -14,16 +7,31 @@ export interface FrameEditorProps {
   onSettingsChange: (settings: FrameSettings) => void
 }
 
-const defaultSettings: FrameSettings = {
-  aspectRatio: '9:16',
-  cropMode: 'center'
-}
-
 const aspectRatioOptions = [
   { value: '1:1' as const, label: '1:1', description: 'Square (Instagram Post)' },
   { value: '9:16' as const, label: '9:16', description: 'Vertical (TikTok, Reels, Shorts)' },
   { value: '16:9' as const, label: '16:9', description: 'Landscape (YouTube)' }
 ]
+
+const clampZoom = (value?: number) => {
+  const raw = value ?? 1
+  return Math.max(0.5, Math.min(4, raw))
+}
+
+const approxEqual = (a: number, b: number, tolerance = 0.01) => Math.abs(a - b) <= tolerance
+
+const areFrameSettingsEqual = (a: FrameSettings | null, b: FrameSettings | null) => {
+  if (!a || !b) return false
+  return (
+    a.aspectRatio === b.aspectRatio &&
+    a.cropMode === b.cropMode &&
+    (a.cropPositionX ?? 50) === (b.cropPositionX ?? 50) &&
+    (a.cropPositionY ?? 50) === (b.cropPositionY ?? 50) &&
+    clampZoom(a.zoomLevel) === clampZoom(b.zoomLevel) &&
+    approxEqual(a.videoOffsetX ?? 0, b.videoOffsetX ?? 0) &&
+    approxEqual(a.videoOffsetY ?? 0, b.videoOffsetY ?? 0)
+  )
+}
 
 const cropModeOptions = [
   {
@@ -39,12 +47,13 @@ const cropModeOptions = [
   },
   {
     value: 'fit' as const,
-    label: 'Scale to Fit',
-    description: 'Show entire video with bars',
-    detail: 'Video fits within frame (bars on top/bottom or sides)',
+    label: 'Canvas Fit',
+    description: 'Scale video layer with zoom control',
+    detail: 'Drag to reposition, zoom slider to scale (CapCut style)',
     visual: (
-      <div className="w-12 h-16 border-2 border-accent-primary rounded flex items-center justify-center bg-bg-tertiary">
-        <div className="w-8 h-8 bg-accent-primary/40 border border-accent-primary/60"></div>
+      <div className="w-12 h-16 border-2 border-accent-primary rounded relative">
+        <div className="absolute inset-1 bg-accent-primary/10"></div>
+        <div className="absolute inset-x-2 inset-y-0 bg-accent-primary/50"></div>
       </div>
     )
   },
@@ -67,18 +76,39 @@ export function FrameEditor({
   currentSettings,
   onSettingsChange
 }: FrameEditorProps) {
-  const [settings, setSettings] = useState<FrameSettings>(currentSettings || defaultSettings)
+  const [settings, setSettings] = useState<FrameSettings>(
+    currentSettings
+      ? { ...currentSettings, zoomLevel: currentSettings.zoomLevel ?? DEFAULT_FRAME_SETTINGS.zoomLevel }
+      : { ...DEFAULT_FRAME_SETTINGS }
+  )
   const [loading, setLoading] = useState(true)
+  const isLocalUpdateRef = useRef(false)
 
-  // Load existing frame settings on mount
+  // Load existing frame settings on mount or when prop updates
   useEffect(() => {
-    loadFrameSettings()
-  }, [clipId])
+    if (currentSettings) {
+      setSettings(prev => {
+        if (areFrameSettingsEqual(prev, currentSettings)) {
+          return prev
+        }
+        return {
+          ...currentSettings,
+          zoomLevel: clampZoom(currentSettings.zoomLevel)
+        }
+      })
+      setLoading(false)
+    } else {
+      loadFrameSettings()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipId, currentSettings?.aspectRatio, currentSettings?.cropMode, currentSettings?.cropPositionX, currentSettings?.cropPositionY, currentSettings?.zoomLevel, currentSettings?.videoOffsetX, currentSettings?.videoOffsetY])
 
   // Notify parent of settings changes
   useEffect(() => {
+    if (!isLocalUpdateRef.current) return
     onSettingsChange(settings)
-  }, [settings])
+    isLocalUpdateRef.current = false
+  }, [settings, onSettingsChange])
 
   const loadFrameSettings = async () => {
     try {
@@ -89,9 +119,26 @@ export function FrameEditor({
       console.log('[FrameEditor] Existing edits:', existingEdits)
 
       if (existingEdits) {
-        setSettings({
-          aspectRatio: (existingEdits.aspect_ratio || defaultSettings.aspectRatio) as '9:16' | '1:1' | '16:9',
-          cropMode: (existingEdits.crop_mode || defaultSettings.cropMode) as 'center' | 'fit' | 'blur'
+        const normalizedCropMode = existingEdits.crop_mode === 'canvas'
+          ? 'fit'
+          : (existingEdits.crop_mode || DEFAULT_FRAME_SETTINGS.cropMode)
+
+        setSettings(prev => {
+          const next = {
+            aspectRatio: (existingEdits.aspect_ratio || DEFAULT_FRAME_SETTINGS.aspectRatio) as FrameSettings['aspectRatio'],
+            cropMode: normalizedCropMode as FrameSettings['cropMode'],
+            cropPositionX: existingEdits.crop_position_x ?? 50,
+            cropPositionY: existingEdits.crop_position_y ?? 50,
+            zoomLevel: clampZoom(existingEdits.zoom_level ?? DEFAULT_FRAME_SETTINGS.zoomLevel),
+            videoOffsetX: existingEdits.video_offset_x ?? DEFAULT_FRAME_SETTINGS.videoOffsetX,
+            videoOffsetY: existingEdits.video_offset_y ?? DEFAULT_FRAME_SETTINGS.videoOffsetY
+          }
+
+          if (areFrameSettingsEqual(prev, next)) {
+            return prev
+          }
+
+          return next
         })
       }
 
@@ -103,7 +150,34 @@ export function FrameEditor({
   }
 
   const updateSettings = (updates: Partial<FrameSettings>) => {
-    setSettings(prev => ({ ...prev, ...updates }))
+    isLocalUpdateRef.current = true
+    setSettings(prev => {
+      let next: FrameSettings = {
+        ...prev,
+        ...updates,
+        zoomLevel: updates.zoomLevel !== undefined ? clampZoom(updates.zoomLevel) : prev.zoomLevel
+      }
+
+      if (updates.cropMode && updates.cropMode !== prev.cropMode) {
+        if (updates.cropMode === 'fit') {
+          next = {
+            ...next,
+            videoOffsetX: 0,
+            videoOffsetY: 0,
+            zoomLevel: clampZoom(next.zoomLevel)
+          }
+        } else if (prev.cropMode === 'fit' && updates.cropMode === 'center') {
+          next = {
+            ...next,
+            videoOffsetX: 0,
+            videoOffsetY: 0,
+            zoomLevel: clampZoom(next.zoomLevel)
+          }
+        }
+      }
+
+      return next
+    })
   }
 
   if (loading) {
@@ -233,11 +307,44 @@ export function FrameEditor({
       {/* Info Box */}
       <div className="p-3 bg-accent-primary/5 border border-accent-primary/20 rounded-lg">
         <p className="text-xs text-text-secondary">
-          💡 <span className="font-medium">Tip:</span> {settings.cropMode === 'center'
-            ? 'In Center Crop mode, drag the video in the preview to adjust the crop position'
+          💡 <span className="font-medium">Tip:</span> {settings.cropMode === 'center' || settings.cropMode === 'fit'
+            ? 'Drag the video in the preview to adjust framing; use the zoom slider to punch in or reveal more'
             : 'The video preview on the right will update to show how your clip will look with the selected aspect ratio and crop mode'}
         </p>
       </div>
+
+      {/* Zoom Control (Center crop only) */}
+      {(settings.cropMode === 'center' || settings.cropMode === 'fit') && (
+        <div className="space-y-3 p-3 bg-bg-secondary rounded-lg border border-border-default">
+          <div className="flex items-center justify-between text-xs font-medium text-text-primary">
+            <span>Zoom / Scale</span>
+            <span className="text-text-secondary">{(settings.zoomLevel ?? 1).toFixed(2)}x</span>
+          </div>
+          <input
+            type="range"
+            min="0.5"
+            max="4.0"
+            step="0.01"
+            value={settings.zoomLevel ?? 1}
+            onChange={(e) => updateSettings({ zoomLevel: Number(e.target.value) })}
+            className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
+          />
+          <p className="text-xs text-text-muted">
+            1.0x keeps the default framing. Increase to punch in, decrease to reveal more of the original video.
+          </p>
+
+          {settings.cropMode === 'fit' && (Math.round(settings.videoOffsetX ?? 0) !== 0 || Math.round(settings.videoOffsetY ?? 0) !== 0) && (
+            <div className="text-center">
+              <button
+                onClick={() => updateSettings({ videoOffsetX: 0, videoOffsetY: 0 })}
+                className="text-xs text-accent-primary hover:underline"
+              >
+                Reset position to center
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

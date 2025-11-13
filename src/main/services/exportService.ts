@@ -199,16 +199,27 @@ class ExportService {
         } : null
 
         // Build frame settings from database
+        const normalizedCropMode = clipEdits?.crop_mode === 'canvas' ? 'fit' : clipEdits?.crop_mode
         const frameSettings = clipEdits ? {
           aspectRatio: (clipEdits.aspect_ratio || '9:16') as '9:16' | '1:1' | '16:9',
-          cropMode: (clipEdits.crop_mode || 'center') as 'center' | 'fit' | 'blur',
+          cropMode: (normalizedCropMode || 'center') as 'center' | 'fit' | 'blur',
           cropPositionX: clipEdits.crop_position_x ?? 50,
-          cropPositionY: clipEdits.crop_position_y ?? 50
+          cropPositionY: clipEdits.crop_position_y ?? 50,
+          zoomLevel: clipEdits.zoom_level ?? 1,
+          videoOffsetX: clipEdits.video_offset_x ?? 0,
+          videoOffsetY: clipEdits.video_offset_y ?? 0,
+          videoWidth: clip.video_width ?? null,
+          videoHeight: clip.video_height ?? null
         } : {
           aspectRatio: (options.aspectRatio || '9:16') as '9:16' | '1:1' | '16:9',
           cropMode: 'center' as 'center' | 'fit' | 'blur',
           cropPositionX: 50,
-          cropPositionY: 50
+          cropPositionY: 50,
+          zoomLevel: 1,
+          videoOffsetX: 0,
+          videoOffsetY: 0,
+          videoWidth: clip.video_width ?? null,
+          videoHeight: clip.video_height ?? null
         }
 
         console.log(`[ExportService] Exporting clip ${clip.id} with settings:`, {

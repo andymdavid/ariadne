@@ -80,6 +80,11 @@ class DatabaseManager {
 
         aspect_ratio TEXT DEFAULT '9:16',
         crop_mode TEXT DEFAULT 'center',
+        crop_position_x REAL DEFAULT 50,
+        crop_position_y REAL DEFAULT 50,
+        zoom_level REAL DEFAULT 1.0,
+        video_offset_x REAL DEFAULT 0,
+        video_offset_y REAL DEFAULT 0,
 
         updated_at TEXT NOT NULL,
 
@@ -251,6 +256,50 @@ class DatabaseManager {
         this.db.pragma('user_version = 12');
       }
     }
+
+    // Add zoom level to clip_edits if we're upgrading from v12 or below (v13)
+    if (preVersion <= 12) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN zoom_level REAL DEFAULT 1.0;
+        `)
+        console.log('✅ Added zoom_level column (v13)')
+        this.db.pragma('user_version = 13')
+      } catch (error) {
+        console.log('Zoom level column migration skipped (may already exist)')
+        this.db.pragma('user_version = 13')
+      }
+    }
+
+    // Add Canvas Fit offset columns to clip_edits (v14)
+    if (preVersion <= 13) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clip_edits ADD COLUMN video_offset_x REAL DEFAULT 0;
+          ALTER TABLE clip_edits ADD COLUMN video_offset_y REAL DEFAULT 0;
+        `)
+        console.log('✅ Added Canvas Fit offset columns (v14)')
+        this.db.pragma('user_version = 14')
+      } catch (error) {
+        console.log('Canvas Fit offset columns migration skipped (may already exist)')
+        this.db.pragma('user_version = 14')
+      }
+    }
+
+    // Add video dimension columns to clips table (v15)
+    if (preVersion <= 14) {
+      try {
+        this.db.exec(`
+          ALTER TABLE clips ADD COLUMN video_width INTEGER;
+          ALTER TABLE clips ADD COLUMN video_height INTEGER;
+        `)
+        console.log('✅ Added clip video dimension columns (v15)')
+        this.db.pragma('user_version = 15')
+      } catch (error) {
+        console.log('Clip video dimension columns migration skipped (may already exist)')
+        this.db.pragma('user_version = 15')
+      }
+    }
   }
   
   private initializeSchema() {
@@ -324,6 +373,8 @@ class DatabaseManager {
           key_quote TEXT NOT NULL,
           reason TEXT NOT NULL,
           context_needed TEXT NOT NULL DEFAULT 'low',
+          video_width INTEGER,
+          video_height INTEGER,
           status TEXT NOT NULL DEFAULT 'pending',
           created_at TEXT NOT NULL,
           FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
@@ -560,13 +611,15 @@ class DatabaseManager {
     keyQuote: string
     reason: string
     contextNeeded: string
+    videoWidth?: number | null
+    videoHeight?: number | null
   }>) {
     const now = new Date().toISOString()
     const stmt = this.db.prepare(`
       INSERT INTO clips 
       (id, episode_id, start_time, end_time, duration, content_type, shareability_score, 
-       key_quote, reason, context_needed, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       key_quote, reason, context_needed, video_width, video_height, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     
     const insertMany = this.db.transaction((clipsToInsert: typeof clips) => {
@@ -582,6 +635,8 @@ class DatabaseManager {
           clip.keyQuote,
           clip.reason,
           clip.contextNeeded,
+          clip.videoWidth ?? null,
+          clip.videoHeight ?? null,
           now
         )
       }
@@ -603,6 +658,26 @@ class DatabaseManager {
       WHERE id = ?
     `)
     return stmt.run(startTime, endTime, duration, id)
+  }
+
+  getClipsMissingVideoDimensions(limit = 50) {
+    const stmt = this.db.prepare(`
+      SELECT c.id, c.episode_id, e.file_path
+      FROM clips c
+      INNER JOIN episodes e ON c.episode_id = e.id
+      WHERE c.video_width IS NULL OR c.video_height IS NULL
+      LIMIT ?
+    `)
+    return stmt.all(limit)
+  }
+
+  updateClipVideoDimensions(clipId: string, width: number, height: number) {
+    const stmt = this.db.prepare(`
+      UPDATE clips
+      SET video_width = ?, video_height = ?
+      WHERE id = ?
+    `)
+    return stmt.run(width, height, clipId)
   }
 
   getClips(episodeId: string) {
@@ -764,6 +839,9 @@ class DatabaseManager {
           crop_mode = ?,
           crop_position_x = ?,
           crop_position_y = ?,
+          zoom_level = ?,
+          video_offset_x = ?,
+          video_offset_y = ?,
           updated_at = ?
         WHERE clip_id = ?
       `)
@@ -815,6 +893,9 @@ class DatabaseManager {
         edits.crop_mode ?? 'center',
         edits.crop_position_x ?? 50,
         edits.crop_position_y ?? 50,
+        edits.zoom_level ?? 1,
+        edits.video_offset_x ?? 0,
+        edits.video_offset_y ?? 0,
         now,
         clipId
       )
@@ -830,8 +911,8 @@ class DatabaseManager {
           caption_text_case, caption_words_per_caption, caption_max_width, caption_line_height, caption_letter_spacing,
           logo_enabled, logo_path, logo_position, logo_position_x, logo_position_y, logo_scale, logo_opacity,
           music_enabled, music_path, music_volume, music_duck_volume, music_duck_enabled, music_fade_in, music_fade_out, music_loop,
-          aspect_ratio, crop_mode, crop_position_x, crop_position_y, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          aspect_ratio, crop_mode, crop_position_x, crop_position_y, zoom_level, video_offset_x, video_offset_y, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
 
       const logoPositionX = edits.logo_position_x ?? 85
@@ -882,6 +963,9 @@ class DatabaseManager {
         edits.crop_mode ?? 'center',
         edits.crop_position_x ?? 50,
         edits.crop_position_y ?? 50,
+        edits.zoom_level ?? 1,
+        edits.video_offset_x ?? 0,
+        edits.video_offset_y ?? 0,
         now
       )
       return result

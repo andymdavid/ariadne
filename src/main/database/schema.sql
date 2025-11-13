@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS clips (
     key_quote TEXT NOT NULL,
     reason TEXT NOT NULL,
     context_needed TEXT NOT NULL DEFAULT 'low',
+    video_width INTEGER,
+    video_height INTEGER,
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL,
     FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
