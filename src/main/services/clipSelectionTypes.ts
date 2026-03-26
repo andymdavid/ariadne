@@ -28,6 +28,7 @@ export interface ClipCandidate {
 
 export interface RankedClipSelection {
   id: string
+  candidateId: string
   startTime: number
   endTime: number
   duration: number

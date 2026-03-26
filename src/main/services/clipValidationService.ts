@@ -11,7 +11,7 @@ class ClipValidationService {
     const reranked = clips
       .map(clip => ({
         ...clip,
-        validationScore: this.computeValidationScore(clip, candidateMap.get(clip.id))
+        validationScore: this.computeValidationScore(clip, candidateMap.get(clip.candidateId))
       }))
       .filter(clip => this.passesValidation(clip))
       .sort((left, right) => {

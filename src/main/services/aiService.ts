@@ -39,7 +39,7 @@ class AIService {
     onProgress?: (progress: number) => void
   ): Promise<TranscriptAnalysis> {
     onProgress?.(10)
-    const candidates = clipCandidateService.generateCandidates(transcriptData.segments)
+    const candidates = clipCandidateService.generateCandidates(transcriptData.segments).slice(0, 36)
 
     if (candidates.length === 0) {
       return { potentialClips: [] }
@@ -197,6 +197,7 @@ RULES:
 - Prefer clips that start cleanly, end cleanly, and stand alone.
 - Reject clips that feel like the middle of a longer explanation.
 - Favor moments suitable for ${platformLabel}.
+- Favor the strongest candidates near the top of the list unless a lower candidate is clearly better.
 - ${extraGuidance}
 
 CANDIDATES:
@@ -513,6 +514,7 @@ OUTPUT FORMAT (JSON):
 
     return {
       id: `clip_${index + 1}`,
+      candidateId,
       startTime: candidate.startTime,
       endTime: candidate.endTime,
       duration: candidate.duration,
