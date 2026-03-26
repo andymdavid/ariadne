@@ -1,0 +1,42 @@
+{
+  "name": "Example Podcast Excerpt",
+  "transcriptSegments": [
+    {
+      "start": 0.0,
+      "end": 4.2,
+      "text": "Most people think the hard part is getting started."
+    },
+    {
+      "start": 4.2,
+      "end": 8.6,
+      "text": "It isn't."
+    },
+    {
+      "start": 8.6,
+      "end": 15.4,
+      "text": "The hard part is staying focused after the excitement wears off."
+    },
+    {
+      "start": 15.4,
+      "end": 23.8,
+      "text": "That is where systems beat motivation every single time."
+    },
+    {
+      "start": 23.8,
+      "end": 31.4,
+      "text": "If you can make the next step obvious, your odds go way up."
+    },
+    {
+      "start": 31.4,
+      "end": 40.1,
+      "text": "And that is the difference between people who drift and people who ship."
+    }
+  ],
+  "expectedGoodClips": [
+    {
+      "startTime": 0.0,
+      "endTime": 40.1
+    }
+  ],
+  "expectedBadRanges": []
+}
