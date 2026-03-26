@@ -1,4 +1,6 @@
 import { APIConfig } from '@shared/types'
+import clipCandidateService from './clipCandidateService'
+import type { ClipCandidate } from './clipSelectionTypes'
 
 export interface TranscriptAnalysis {
   potentialClips: Array<{
@@ -36,23 +38,28 @@ class AIService {
     onProgress?: (progress: number) => void
   ): Promise<TranscriptAnalysis> {
     onProgress?.(10)
+    const candidates = clipCandidateService.generateCandidates(transcriptData.segments)
+
+    if (candidates.length === 0) {
+      return { potentialClips: [] }
+    }
     
     const maxRetries = 3
     const strategies = [
       { 
         name: 'standard', 
-        prompt: this.buildAnalysisPrompt(transcriptData, duration),
-        systemMessage: 'You are an expert content analyst specializing in identifying self-contained, shareable segments from long-form conversations for social media.'
+        prompt: this.buildCandidateRankingPrompt(candidates, duration, 'balanced'),
+        systemMessage: 'You are an expert short-form content analyst. Rank only the grounded clip candidates provided. Never invent timestamps or candidate IDs.'
       },
       { 
-        name: 'simplified', 
-        prompt: this.buildSimplifiedAnalysisPrompt(transcriptData, duration),
-        systemMessage: 'You are a content analyst. Find interesting clips in this transcript. Always respond with valid JSON.'
+        name: 'strict-json', 
+        prompt: this.buildCandidateRankingPrompt(candidates, duration, 'strict'),
+        systemMessage: 'Select the best grounded candidates for short-form video. Respond with valid JSON only.'
       },
       { 
-        name: 'structured', 
-        prompt: this.buildStructuredAnalysisPrompt(transcriptData, duration),
-        systemMessage: 'Extract clips from transcript. Respond only with JSON object containing potential_clips array.'
+        name: 'minimal', 
+        prompt: this.buildCandidateRankingPrompt(candidates, duration, 'minimal'),
+        systemMessage: 'Choose the best candidate IDs from the provided grounded clip list. Respond only with JSON.'
       }
     ]
     
@@ -81,7 +88,7 @@ class AIService {
         
         onProgress?.(70 + (attempt * 5))
         
-        const analysis = this.parseAnalysisResponse(response.content)
+        const analysis = this.parseAnalysisResponse(response.content, candidates)
         
         console.log(`AI Analysis completed on attempt ${attempt + 1}: Found ${analysis.potentialClips.length} clips`)
         console.log('Clips summary:', analysis.potentialClips.map(c => ({ 
@@ -161,87 +168,51 @@ class AIService {
     }
   }
   
-  private buildAnalysisPrompt(transcriptData: { text: string; segments: Array<{ id: number; start: number; end: number; text: string }> }, duration: number): string {
-    // Build timestamped transcript for better AI analysis
-    const timestampedText = transcriptData.segments.map(segment => 
-      `[${segment.start.toFixed(1)}s - ${segment.end.toFixed(1)}s]: ${segment.text}`
-    ).join('\n')
+  private buildCandidateRankingPrompt(candidates: ClipCandidate[], duration: number, mode: 'balanced' | 'strict' | 'minimal'): string {
+    const candidateText = candidates.map(candidate => `
+ID: ${candidate.id}
+TIME: ${candidate.startTime.toFixed(1)}-${candidate.endTime.toFixed(1)} (${candidate.duration.toFixed(1)}s)
+OPEN: ${candidate.openingLine}
+CLOSE: ${candidate.closingLine}
+TEXT: ${this.truncateText(candidate.text, 420)}
+HEURISTIC_SCORE: ${candidate.heuristicScore.toFixed(2)}
+    `.trim()).join('\n\n')
+
+    const extraGuidance = mode === 'balanced'
+      ? `Prioritize candidates with a clean hook, one strong idea, low context dependence, and a satisfying ending.`
+      : mode === 'strict'
+        ? `Only select candidates that feel complete and coherent as standalone short-form clips.`
+        : `Choose the best candidate IDs only from this list.`
 
     return `
-CONTEXT: This is a timestamped transcript from a podcast episode that is ${Math.round(duration / 60)} minutes long.
+CONTEXT: These are pre-generated, grounded clip candidates from a ${Math.round(duration / 60)} minute transcript.
 
-⚠️ CRITICAL DURATION REQUIREMENT ⚠️
-EVERY CLIP MUST BE BETWEEN 35-60 SECONDS LONG
-- MINIMUM: 35 seconds (anything shorter will be REJECTED)
-- MAXIMUM: 60 seconds (anything longer will be REJECTED)
-- COMBINE multiple consecutive segments to reach the minimum 35 seconds
-- DO NOT suggest any clips shorter than 35 seconds
+RULES:
+- You must choose only from the candidate IDs provided.
+- Do not invent timestamps.
+- Prefer clips that start cleanly, end cleanly, and stand alone.
+- Reject clips that feel like the middle of a longer explanation.
+- Favor moments suitable for YouTube Shorts, Reels, and TikTok.
+- ${extraGuidance}
 
-Your task is to identify potential clip segments that:
-1. Contain complete thoughts or narratives
-2. Are engaging and shareable on social media
-3. Make sense without additional context
-4. Have natural conversation boundaries
-5. Are EXACTLY 35-60 seconds in length
-
-TIMESTAMPED TRANSCRIPT:
-${timestampedText}
-
-TASK: Identify 10-15 potential clip segments using the EXACT timestamps from the transcript above. For each segment:
-- Use PRECISE start/end times from the transcript segments (e.g., 180.5, 245.2)
-- MUST combine multiple consecutive segments to reach AT LEAST 35 seconds
-- Calculate the duration: (end_time - start_time) must be between 35-60 seconds
-- Explain why this segment is clip-worthy
-- Categorize the content type
-- Rate the shareability potential (1-10)
-- Extract the most memorable quote from the actual transcript text
-
-IMPORTANT:
-- Use only the exact timestamps shown in the transcript above
-- Every clip MUST be 35-60 seconds - NO EXCEPTIONS
-- If a thought is shorter than 35 seconds, include more context before/after to reach 35 seconds
+CANDIDATES:
+${candidateText}
 
 OUTPUT FORMAT (JSON):
 {
-  "potential_clips": [
+  "selected_candidates": [
     {
-      "id": "clip_1",
-      "start_time": 120.0,
-      "end_time": 160.0,
-      "duration": 40.0,
+      "candidate_id": "candidate_1_4",
       "content_type": "insight",
-      "shareability_score": 8.5,
-      "reason": "Complete explanation with good hook",
-      "key_quote": "Exact quote from the transcript text",
-      "context_needed": "low"
-    },
-    {
-      "id": "clip_2",
-      "start_time": 200.5,
-      "end_time": 255.5,
-      "duration": 55.0,
-      "content_type": "story",
-      "shareability_score": 9.0,
-      "reason": "Engaging narrative arc",
-      "key_quote": "Another exact quote",
+      "shareability_score": 8.7,
+      "reason": "Why this candidate works as a standalone clip",
+      "key_quote": "Exact quote from the candidate text",
       "context_needed": "low"
     }
   ]
 }
 
-⚠️ DURATION VALIDATION EXAMPLES ⚠️
-✅ VALID: duration = 35.0 seconds (minimum)
-✅ VALID: duration = 45.5 seconds (good)
-✅ VALID: duration = 60.0 seconds (maximum)
-❌ REJECTED: duration = 25.0 seconds (TOO SHORT - must be at least 35)
-❌ REJECTED: duration = 70.0 seconds (TOO LONG - must be at most 60)
-
-BEFORE SUBMITTING YOUR RESPONSE:
-1. Check EVERY clip duration: (end_time - start_time) >= 35 AND <= 60
-2. Remove any clips that don't meet this requirement
-3. If you can't find 10 clips that meet the duration requirement, submit fewer clips
-
-Focus on finding clips that would make someone stop scrolling and want to hear more from this creator.
+Return 8-12 candidates if possible. Respond with JSON only.
     `.trim()
   }
   
@@ -328,7 +299,7 @@ OUTPUT FORMAT (JSON):
     return { content: data.choices[0].message.content }
   }
   
-  private parseAnalysisResponse(content: string): TranscriptAnalysis {
+  private parseAnalysisResponse(content: string, candidates: ClipCandidate[]): TranscriptAnalysis {
     try {
       if (!content || content.trim().length === 0) {
         console.error('Empty response content from AI API')
@@ -347,16 +318,15 @@ OUTPUT FORMAT (JSON):
       
       console.log('Extracted JSON:', jsonString.substring(0, 200) + '...')
       const parsed = JSON.parse(jsonString)
-      console.log('Parsed AI clips:', parsed.potential_clips?.length, 'clips found')
+      const selectedCandidates = Array.isArray(parsed.selected_candidates)
+        ? parsed.selected_candidates
+        : Array.isArray(parsed.potential_clips)
+          ? parsed.potential_clips
+          : null
       
-      if (!parsed.potential_clips || !Array.isArray(parsed.potential_clips)) {
-        throw new Error('Invalid response format: missing potential_clips array')
+      if (!selectedCandidates) {
+        throw new Error('Invalid response format: missing selected_candidates array')
       }
-      
-      // Log timestamp analysis
-      parsed.potential_clips.forEach((clip: any, index: number) => {
-        console.log(`Clip ${index + 1} timestamps: ${clip.start_time} - ${clip.end_time} (duration: ${clip.duration || (clip.end_time - clip.start_time)})`)
-      })
 
       console.log('⚠️⚠️⚠️ ABOUT TO START DURATION FILTERING ⚠️⚠️⚠️')
 
@@ -364,21 +334,14 @@ OUTPUT FORMAT (JSON):
       const MAX_CLIP_DURATION = 60 // seconds
 
       console.log(`\n========== CLIP DURATION FILTERING ==========`)
-      console.log(`Total clips from AI: ${parsed.potential_clips.length}`)
+      console.log(`Total clips from AI: ${selectedCandidates.length}`)
       console.log(`Required duration: ${MIN_CLIP_DURATION}-${MAX_CLIP_DURATION} seconds`)
 
-      const filteredClips = parsed.potential_clips
-        .map((clip: any, index: number) => ({
-          id: clip.id || `clip_${index + 1}`,
-          startTime: clip.start_time,
-          endTime: clip.end_time,
-          duration: clip.duration || (clip.end_time - clip.start_time),
-          contentType: clip.content_type,
-          shareabilityScore: clip.shareability_score,
-          keyQuote: clip.key_quote,
-          reason: clip.reason,
-          contextNeeded: clip.context_needed || 'low'
-        }))
+      const candidateMap = new Map(candidates.map(candidate => [candidate.id, candidate]))
+
+      const filteredClips = selectedCandidates
+        .map((clip: any, index: number) => this.resolveCandidateSelection(clip, index, candidateMap))
+        .filter((clip: any): clip is NonNullable<typeof clip> => Boolean(clip))
         .filter((clip: any) => {
           const isValid = clip.duration >= MIN_CLIP_DURATION && clip.duration <= MAX_CLIP_DURATION
           if (!isValid) {
@@ -391,6 +354,12 @@ OUTPUT FORMAT (JSON):
             console.log(`✅ ACCEPTED ${clip.id}: ${clip.duration.toFixed(1)}s`)
           }
           return isValid
+        })
+        .filter((clip: any, index: number, allClips: any[]) => {
+          const hasHeavyOverlap = allClips
+            .slice(0, index)
+            .some((existing: any) => this.calculateOverlapRatio(existing, clip) > 0.5)
+          return !hasHeavyOverlap
         })
 
       console.log(`\nFINAL RESULT: ${filteredClips.length} clips passed duration filter`)
@@ -504,40 +473,6 @@ OUTPUT FORMAT (JSON):
     return null
   }
   
-  private buildSimplifiedAnalysisPrompt(transcriptData: { text: string; segments?: any[] }, duration: number): string {
-    return `Find interesting clips in this ${Math.round(duration/60)} minute transcript.
-
-TRANSCRIPT:
-${transcriptData.text}
-
-Return JSON with this exact format:
-{
-  "potential_clips": [
-    {
-      "id": "clip_1",
-      "start_time": 120.5,
-      "end_time": 180.0,
-      "duration": 59.5,
-      "content_type": "insight",
-      "shareability_score": 8.5,
-      "reason": "Why this is interesting",
-      "key_quote": "Main quote from the clip"
-    }
-  ]
-}`
-  }
-  
-  private buildStructuredAnalysisPrompt(transcriptData: { text: string; segments?: any[] }, duration: number): string {
-    return `TASK: Extract clips from transcript
-DURATION: ${Math.round(duration/60)} minutes
-
-TRANSCRIPT:
-${transcriptData.text.substring(0, 8000)} // Truncate for structured approach
-
-RESPOND WITH JSON ONLY:
-{"potential_clips":[{"id":"clip_1","start_time":0,"end_time":30,"duration":30,"content_type":"insight","shareability_score":8.0,"reason":"explanation","key_quote":"quote"}]}`
-  }
-  
   private parseContentResponse(content: string): ContentPackage {
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/)
@@ -561,6 +496,72 @@ RESPOND WITH JSON ONLY:
   
   updateConfig(config: APIConfig) {
     this.config = config
+  }
+
+  private resolveCandidateSelection(
+    clip: any,
+    index: number,
+    candidateMap: Map<string, ClipCandidate>
+  ) {
+    const candidateId = clip.candidate_id || clip.id
+    const candidate = candidateMap.get(candidateId)
+
+    if (!candidate) {
+      console.warn(`Skipping unknown candidate from AI response: ${candidateId}`)
+      return null
+    }
+
+    return {
+      id: `clip_${index + 1}`,
+      startTime: candidate.startTime,
+      endTime: candidate.endTime,
+      duration: candidate.duration,
+      contentType: clip.content_type || 'insight',
+      shareabilityScore: Number(clip.shareability_score) || 0,
+      keyQuote: this.resolveKeyQuote(clip.key_quote, candidate.text),
+      reason: clip.reason || 'Strong standalone clip candidate',
+      contextNeeded: clip.context_needed || 'low'
+    }
+  }
+
+  private resolveKeyQuote(rawQuote: string | undefined, candidateText: string): string {
+    if (rawQuote && this.normalizedIncludes(candidateText, rawQuote)) {
+      return rawQuote.trim()
+    }
+
+    const sentences = candidateText
+      .split(/[.!?]+/)
+      .map(sentence => sentence.trim())
+      .filter(Boolean)
+
+    return sentences.find(sentence => sentence.length >= 20)?.slice(0, 180) || candidateText.slice(0, 180)
+  }
+
+  private normalizedIncludes(haystack: string, needle: string): boolean {
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+    return normalize(haystack).includes(normalize(needle))
+  }
+
+  private calculateOverlapRatio(
+    left: { startTime: number; endTime: number; duration: number },
+    right: { startTime: number; endTime: number; duration: number }
+  ): number {
+    const overlapStart = Math.max(left.startTime, right.startTime)
+    const overlapEnd = Math.min(left.endTime, right.endTime)
+
+    if (overlapEnd <= overlapStart) {
+      return 0
+    }
+
+    const overlap = overlapEnd - overlapStart
+    return overlap / Math.min(left.duration, right.duration)
+  }
+
+  private truncateText(text: string, maxLength: number): string {
+    if (text.length <= maxLength) {
+      return text
+    }
+    return `${text.slice(0, maxLength - 3).trim()}...`
   }
 
 }
