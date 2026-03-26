@@ -4,7 +4,14 @@ import { MainContentPanel } from '../components/MainContentPanel'
 
 interface ConfigState {
   openRouterKey: string
-  model: 'deepseek-r1' | 'claude-sonnet-4'
+  model:
+    | 'google-gemini-2.5-flash'
+    | 'google-gemini-2.5-pro'
+    | 'anthropic-claude-sonnet-4.6'
+    | 'openai-gpt-5.4'
+    | 'deepseek-r1'
+    | 'google-gemini-2.5-flash-lite'
+  clipSelectionPlatform: 'youtube_shorts' | 'instagram_reels' | 'tiktok'
   autoApproveThreshold: number
   defaultExportFormat: '9:16' | '1:1' | '16:9'
   isValid: boolean
@@ -17,7 +24,8 @@ export function SettingsPage() {
 
   const [config, setConfig] = useState<ConfigState>({
     openRouterKey: '',
-    model: 'deepseek-r1',
+    model: 'google-gemini-2.5-flash',
+    clipSelectionPlatform: 'youtube_shorts',
     autoApproveThreshold: 8.0,
     defaultExportFormat: '9:16',
     isValid: false,
@@ -37,7 +45,8 @@ export function SettingsPage() {
       if (data) {
         setConfig({
           openRouterKey: data.apiConfig.openRouterKey || '',
-          model: data.apiConfig.model || 'deepseek-r1',
+          model: data.apiConfig.model || 'google-gemini-2.5-flash',
+          clipSelectionPlatform: data.apiConfig.clipSelectionPlatform || 'youtube_shorts',
           autoApproveThreshold: data.userPreferences.autoApproveThreshold || 8.0,
           defaultExportFormat: data.userPreferences.defaultExportFormat || '9:16',
           isValid: data.isConfigured,
@@ -72,7 +81,8 @@ export function SettingsPage() {
       // Update API config
       await window.electronAPI?.updateApiConfig({
         openRouterKey: config.openRouterKey,
-        model: config.model
+        model: config.model,
+        clipSelectionPlatform: config.clipSelectionPlatform
       })
       
       // Update user preferences
@@ -99,7 +109,7 @@ export function SettingsPage() {
     setConfig(prev => ({ ...prev, openRouterKey: value }))
   }
 
-  const handleModelChange = (model: 'deepseek-r1' | 'claude-sonnet-4') => {
+  const handleModelChange = (model: ConfigState['model']) => {
     setConfig(prev => ({ ...prev, model }))
   }
 
@@ -176,15 +186,15 @@ export function SettingsPage() {
                     <input
                       type="radio"
                       name="model"
-                      checked={config.model === 'deepseek-r1'}
-                      onChange={() => handleModelChange('deepseek-r1')}
+                      checked={config.model === 'google-gemini-2.5-flash'}
+                      onChange={() => handleModelChange('google-gemini-2.5-flash')}
                       className="text-accent-primary"
                     />
                     <div>
-                      <span className="text-text-primary">DeepSeek R1</span>
-                      <span className="text-sm text-accent-success ml-2">(Recommended)</span>
+                      <span className="text-text-primary">Gemini 2.5 Flash</span>
+                      <span className="text-sm text-accent-success ml-2">(Balanced)</span>
                       <p className="text-xs text-text-muted">
-                        ~$0.14/1M tokens • Fast and cost-effective
+                        ~$0.30/M input • ~$2.50/M output
                       </p>
                     </div>
                   </label>
@@ -192,19 +202,104 @@ export function SettingsPage() {
                     <input
                       type="radio"
                       name="model"
-                      checked={config.model === 'claude-sonnet-4'}
-                      onChange={() => handleModelChange('claude-sonnet-4')}
+                      checked={config.model === 'google-gemini-2.5-pro'}
+                      onChange={() => handleModelChange('google-gemini-2.5-pro')}
                       className="text-accent-primary"
                     />
                     <div>
-                      <span className="text-text-primary">Claude Sonnet 4</span>
-                      <span className="text-sm text-accent-warning ml-2">(Production)</span>
+                      <span className="text-text-primary">Gemini 2.5 Pro</span>
+                      <span className="text-sm text-accent-warning ml-2">(Quality)</span>
                       <p className="text-xs text-text-muted">
-                        ~$3/1M tokens • Highest quality
+                        ~$1.25/M input • ~$10/M output
+                      </p>
+                    </div>
+                  </label>
+                  <label className="flex items-center space-x-3">
+                    <input
+                      type="radio"
+                      name="model"
+                      checked={config.model === 'anthropic-claude-sonnet-4.6'}
+                      onChange={() => handleModelChange('anthropic-claude-sonnet-4.6')}
+                      className="text-accent-primary"
+                    />
+                    <div>
+                      <span className="text-text-primary">Claude Sonnet 4.6</span>
+                      <span className="text-sm text-accent-warning ml-2">(Quality)</span>
+                      <p className="text-xs text-text-muted">
+                        ~$3/M input • ~$15/M output
+                      </p>
+                    </div>
+                  </label>
+                  <label className="flex items-center space-x-3">
+                    <input
+                      type="radio"
+                      name="model"
+                      checked={config.model === 'openai-gpt-5.4'}
+                      onChange={() => handleModelChange('openai-gpt-5.4')}
+                      className="text-accent-primary"
+                    />
+                    <div>
+                      <span className="text-text-primary">GPT-5.4</span>
+                      <span className="text-sm text-accent-warning ml-2">(Quality)</span>
+                      <p className="text-xs text-text-muted">
+                        ~$2.50/M input • ~$15/M output
+                      </p>
+                    </div>
+                  </label>
+                  <label className="flex items-center space-x-3">
+                    <input
+                      type="radio"
+                      name="model"
+                      checked={config.model === 'google-gemini-2.5-flash-lite'}
+                      onChange={() => handleModelChange('google-gemini-2.5-flash-lite')}
+                      className="text-accent-primary"
+                    />
+                    <div>
+                      <span className="text-text-primary">Gemini 2.5 Flash-Lite</span>
+                      <span className="text-sm text-text-muted ml-2">(Budget)</span>
+                      <p className="text-xs text-text-muted">
+                        ~$0.10/M input • ~$0.40/M output
+                      </p>
+                    </div>
+                  </label>
+                  <label className="flex items-center space-x-3">
+                    <input
+                      type="radio"
+                      name="model"
+                      checked={config.model === 'deepseek-r1'}
+                      onChange={() => handleModelChange('deepseek-r1')}
+                      className="text-accent-primary"
+                    />
+                    <div>
+                      <span className="text-text-primary">DeepSeek R1</span>
+                      <span className="text-sm text-text-muted ml-2">(Budget)</span>
+                      <p className="text-xs text-text-muted">
+                        ~$0.70/M input • ~$2.50/M output
                       </p>
                     </div>
                   </label>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  Clip Selection Platform
+                </label>
+                <select
+                  value={config.clipSelectionPlatform}
+                  onChange={(e) => setConfig(prev => ({
+                    ...prev,
+                    clipSelectionPlatform: e.target.value as ConfigState['clipSelectionPlatform']
+                  }))}
+                  className="input w-full"
+                >
+                  <option value="youtube_shorts">YouTube Shorts</option>
+                  <option value="instagram_reels">Instagram Reels</option>
+                  <option value="tiktok">TikTok</option>
+                </select>
+                <p className="text-xs text-text-muted mt-1">
+                  Tunes clip ranking toward platform-specific hooks and endings.
+                </p>
               </div>
             </div>
           </div>

@@ -71,7 +71,7 @@ class AIService {
         console.log(`AI Analysis attempt ${attempt + 1}/${maxRetries} using ${strategy.name} strategy`)
         
         const response = await this.callOpenRouter({
-          model: this.config.model === 'deepseek-r1' ? 'deepseek/deepseek-r1' : 'anthropic/claude-3-5-sonnet-20241022',
+          model: this.getModelId(this.config.model),
           messages: [
             {
               role: 'system',
@@ -139,7 +139,7 @@ class AIService {
       onProgress?.(30)
       
       const response = await this.callOpenRouter({
-        model: this.config.model === 'deepseek-r1' ? 'deepseek/deepseek-r1' : 'anthropic/claude-3-5-sonnet-20241022',
+        model: this.getModelId(this.config.model),
         messages: [
           {
             role: 'system',
@@ -184,15 +184,18 @@ HEURISTIC_SCORE: ${candidate.heuristicScore.toFixed(2)}
         ? `Only select candidates that feel complete and coherent as standalone short-form clips.`
         : `Choose the best candidate IDs only from this list.`
 
+    const platformLabel = this.getPlatformLabel()
+
     return `
 CONTEXT: These are pre-generated, grounded clip candidates from a ${Math.round(duration / 60)} minute transcript.
+PRIMARY PLATFORM: ${platformLabel}
 
 RULES:
 - You must choose only from the candidate IDs provided.
 - Do not invent timestamps.
 - Prefer clips that start cleanly, end cleanly, and stand alone.
 - Reject clips that feel like the middle of a longer explanation.
-- Favor moments suitable for YouTube Shorts, Reels, and TikTok.
+- Favor moments suitable for ${platformLabel}.
 - ${extraGuidance}
 
 CANDIDATES:
@@ -355,6 +358,7 @@ OUTPUT FORMAT (JSON):
           }
           return isValid
         })
+        .filter((clip: any) => this.passesStandaloneValidation(clip))
         .filter((clip: any, index: number, allClips: any[]) => {
           const hasHeavyOverlap = allClips
             .slice(0, index)
@@ -517,10 +521,11 @@ OUTPUT FORMAT (JSON):
       endTime: candidate.endTime,
       duration: candidate.duration,
       contentType: clip.content_type || 'insight',
-      shareabilityScore: Number(clip.shareability_score) || 0,
+      shareabilityScore: Number(clip.shareability_score) || this.heuristicToShareability(candidate.heuristicScore),
       keyQuote: this.resolveKeyQuote(clip.key_quote, candidate.text),
       reason: clip.reason || 'Strong standalone clip candidate',
-      contextNeeded: clip.context_needed || 'low'
+      contextNeeded: clip.context_needed || 'low',
+      transcriptText: candidate.text
     }
   }
 
@@ -562,6 +567,55 @@ OUTPUT FORMAT (JSON):
       return text
     }
     return `${text.slice(0, maxLength - 3).trim()}...`
+  }
+
+  private getModelId(model: APIConfig['model']): string {
+    switch (model) {
+      case 'google-gemini-2.5-flash':
+        return 'google/gemini-2.5-flash'
+      case 'google-gemini-2.5-pro':
+        return 'google/gemini-2.5-pro'
+      case 'anthropic-claude-sonnet-4.6':
+        return 'anthropic/claude-sonnet-4.6'
+      case 'openai-gpt-5.4':
+        return 'openai/gpt-5.4'
+      case 'google-gemini-2.5-flash-lite':
+        return 'google/gemini-2.5-flash-lite'
+      case 'deepseek-r1':
+      default:
+        return 'deepseek/deepseek-r1'
+    }
+  }
+
+  private getPlatformLabel(): string {
+    switch (this.config.clipSelectionPlatform) {
+      case 'instagram_reels':
+        return 'Instagram Reels'
+      case 'tiktok':
+        return 'TikTok'
+      case 'youtube_shorts':
+      default:
+        return 'YouTube Shorts'
+    }
+  }
+
+  private heuristicToShareability(heuristicScore: number): number {
+    return Math.max(1, Math.min(10, Number((heuristicScore * 1.8).toFixed(1))))
+  }
+
+  private passesStandaloneValidation(clip: {
+    keyQuote: string
+    transcriptText: string
+    contextNeeded: string
+  }): boolean {
+    const normalizedText = clip.transcriptText.toLowerCase()
+    const quoteIsGrounded = this.normalizedIncludes(clip.transcriptText, clip.keyQuote)
+    const startsMidThought = /^(and|but|so|because|then|which|that|it|this)\b/i.test(clip.transcriptText.trim())
+    const lacksSentenceEnding = !/[.!?]["']?\s*$/.test(clip.transcriptText.trim())
+    const hasHeavyContextDependency = clip.contextNeeded === 'high' ||
+      /\b(as i said|like i said|earlier|before this|previously|that point)\b/.test(normalizedText)
+
+    return quoteIsGrounded && !startsMidThought && !lacksSentenceEnding && !hasHeavyContextDependency
   }
 
 }

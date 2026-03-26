@@ -34,7 +34,8 @@ class ConfigService {
         apiConfig: {
           openRouterKey: undefined,
           whisperEndpoint: undefined,
-          model: 'deepseek-r1'
+          model: 'google-gemini-2.5-flash',
+          clipSelectionPlatform: 'youtube_shorts'
         },
         userPreferences: {
           theme: 'dark',
@@ -73,12 +74,20 @@ class ConfigService {
     return this.getApiConfig().openRouterKey
   }
   
-  setModel(model: 'deepseek-r1' | 'claude-sonnet-4'): void {
+  setModel(model: APIConfig['model']): void {
     this.updateApiConfig({ model })
   }
   
-  getModel(): 'deepseek-r1' | 'claude-sonnet-4' {
+  getModel(): APIConfig['model'] {
     return this.getApiConfig().model
+  }
+
+  setClipSelectionPlatform(platform: APIConfig['clipSelectionPlatform']): void {
+    this.updateApiConfig({ clipSelectionPlatform: platform })
+  }
+
+  getClipSelectionPlatform(): APIConfig['clipSelectionPlatform'] {
+    return this.getApiConfig().clipSelectionPlatform
   }
   
   // User Preferences
@@ -221,9 +230,9 @@ class ConfigService {
     return process.env.NODE_ENV === 'development'
   }
   
-  getModelForEnvironment(): 'deepseek-r1' | 'claude-sonnet-4' {
+  getModelForEnvironment(): APIConfig['model'] {
     if (this.isDevelopment()) {
-      return 'deepseek-r1' // Cheaper for development
+      return 'google-gemini-2.5-flash' // Balanced default for development
     }
     return this.getModel()
   }

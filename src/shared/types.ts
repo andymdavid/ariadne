@@ -70,5 +70,12 @@ export interface ProcessingProgress {
 export interface APIConfig {
   openRouterKey?: string;
   whisperEndpoint?: string;
-  model: 'deepseek-r1' | 'claude-sonnet-4';
+  model:
+    | 'google-gemini-2.5-flash'
+    | 'google-gemini-2.5-pro'
+    | 'anthropic-claude-sonnet-4.6'
+    | 'openai-gpt-5.4'
+    | 'deepseek-r1'
+    | 'google-gemini-2.5-flash-lite';
+  clipSelectionPlatform: 'youtube_shorts' | 'instagram_reels' | 'tiktok';
 }
