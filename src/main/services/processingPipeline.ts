@@ -7,6 +7,7 @@ import AIService from './aiService'
 import LocalWhisperService from './localWhisperService'
 import { configService } from './configService'
 import type { ProcessingProgress } from '@shared/types'
+import type { AudioChunk } from './clipSelectionTypes'
 
 export interface ProcessingResult {
   projectId: string
@@ -244,7 +245,6 @@ class ProcessingPipeline {
         try {
           await this.generateContentPackages(
             storedClips.slice(0, 10), // Top 10 clips with IDs
-            transcription.text,
             (progress) => {
               this.sendProgress(window, {
                 stage: 'generating',
@@ -413,7 +413,6 @@ class ProcessingPipeline {
   
   private async generateContentPackages(
     clips: any[],
-    fullTranscript: string,
     onProgress?: (progress: number) => void
   ) {
     if (!this.aiService) return
@@ -424,8 +423,7 @@ class ProcessingPipeline {
       const clip = clips[i]
 
       try {
-        // Extract clip transcript (approximate)
-        const clipText = this.extractClipText(fullTranscript, clip)
+        const clipText = this.extractClipText(clip.id)
 
         const contentPackage = await this.aiService.generateContentPackage(
           clipText,
@@ -456,15 +454,9 @@ class ProcessingPipeline {
     }
   }
   
-  private extractClipText(fullTranscript: string, clip: any): string {
-    // This is a simple approximation - in a real implementation,
-    // you'd want to use the actual transcript segments with timestamps
-    const words = fullTranscript.split(' ')
-    const totalDuration = words.length / 3 // Rough estimate: 3 words per second
-    const startIndex = Math.floor((clip.startTime / totalDuration) * words.length)
-    const endIndex = Math.floor((clip.endTime / totalDuration) * words.length)
-    
-    return words.slice(startIndex, endIndex).join(' ')
+  private extractClipText(clipId: string): string {
+    const segments = database.getClipTranscriptSegments(clipId) as Array<{ text: string }>
+    return segments.map(segment => segment.text).join(' ').trim()
   }
   
   private sendProgress(window: BrowserWindow | undefined, progress: ProcessingProgress) {
@@ -542,11 +534,11 @@ class ProcessingPipeline {
   /**
    * Split large audio file into chunks for Whisper processing
    */
-  private async splitAudioFile(audioPath: string, durationInSeconds: number): Promise<string[]> {
+  private async splitAudioFile(audioPath: string, durationInSeconds: number): Promise<AudioChunk[]> {
     const chunkDurationMinutes = 10; // 10-minute chunks
     const chunkDurationSeconds = chunkDurationMinutes * 60;
     const numChunks = Math.ceil(durationInSeconds / chunkDurationSeconds);
-    const chunks: string[] = [];
+    const chunks: AudioChunk[] = [];
 
     const tempDir = join(require('os').tmpdir(), 'ariadne-chunks-' + Date.now());
     await import('fs').then(fs => fs.promises.mkdir(tempDir, { recursive: true }));
@@ -554,13 +546,14 @@ class ProcessingPipeline {
     for (let i = 0; i < numChunks; i++) {
       const startTime = i * chunkDurationSeconds;
       const chunkPath = join(tempDir, `chunk_${i}.wav`);
+      const chunkDuration = Math.min(chunkDurationSeconds, durationInSeconds - startTime)
       
       // Extract audio chunk using FFmpeg directly
       await new Promise<void>((resolve, reject) => {
         const ffmpeg = require('fluent-ffmpeg');
         ffmpeg(audioPath)
           .seekInput(startTime)
-          .duration(Math.min(chunkDurationSeconds, durationInSeconds - startTime))
+          .duration(chunkDuration)
           .audioCodec('pcm_s16le')
           .audioChannels(1)
           .audioFrequency(16000)
@@ -571,7 +564,11 @@ class ProcessingPipeline {
           .run();
       });
       
-      chunks.push(chunkPath);
+      chunks.push({
+        path: chunkPath,
+        startTime,
+        duration: chunkDuration
+      });
     }
 
     return chunks;
@@ -580,10 +577,11 @@ class ProcessingPipeline {
   /**
    * Clean up temporary chunk files
    */
-  private async cleanupChunks(chunks: string[]): Promise<void> {
+  private async cleanupChunks(chunks: AudioChunk[]): Promise<void> {
     const fs = await import('fs');
     
-    for (const chunkPath of chunks) {
+    for (const chunk of chunks) {
+      const chunkPath = chunk.path
       try {
         await fs.promises.unlink(chunkPath);
       } catch (error) {
@@ -593,7 +591,7 @@ class ProcessingPipeline {
 
     // Try to cleanup the temp directory
     if (chunks.length > 0) {
-      const tempDir = require('path').dirname(chunks[0]);
+      const tempDir = require('path').dirname(chunks[0].path);
       try {
         await fs.promises.rmdir(tempDir);
       } catch (error) {

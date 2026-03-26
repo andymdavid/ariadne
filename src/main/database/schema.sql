@@ -62,6 +62,35 @@ CREATE TABLE IF NOT EXISTS content_packages (
     FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS clip_titles (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    is_selected INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS clip_descriptions (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    description TEXT NOT NULL,
+    platform TEXT NOT NULL DEFAULT 'general',
+    is_selected INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS clip_thumbnails (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    timestamp REAL NOT NULL,
+    is_selected INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+);
+
 -- Exports table
 CREATE TABLE IF NOT EXISTS exports (
     id TEXT PRIMARY KEY,
@@ -87,4 +116,7 @@ CREATE INDEX IF NOT EXISTS idx_transcript_segments_episode_id ON transcript_segm
 CREATE INDEX IF NOT EXISTS idx_clips_episode_id ON clips (episode_id);
 CREATE INDEX IF NOT EXISTS idx_clips_status ON clips (status);
 CREATE INDEX IF NOT EXISTS idx_content_packages_clip_id ON content_packages (clip_id);
+CREATE INDEX IF NOT EXISTS idx_clip_titles_clip_id ON clip_titles (clip_id);
+CREATE INDEX IF NOT EXISTS idx_clip_descriptions_clip_id ON clip_descriptions (clip_id);
+CREATE INDEX IF NOT EXISTS idx_clip_thumbnails_clip_id ON clip_thumbnails (clip_id);
 CREATE INDEX IF NOT EXISTS idx_exports_clip_id ON exports (clip_id);

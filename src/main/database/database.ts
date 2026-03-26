@@ -45,6 +45,32 @@ class DatabaseManager {
         created_at TEXT NOT NULL,
         FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
       );`,
+      `CREATE TABLE IF NOT EXISTS clip_titles (
+        id TEXT PRIMARY KEY,
+        clip_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        is_selected INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS clip_descriptions (
+        id TEXT PRIMARY KEY,
+        clip_id TEXT NOT NULL,
+        description TEXT NOT NULL,
+        platform TEXT NOT NULL DEFAULT 'general',
+        is_selected INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS clip_thumbnails (
+        id TEXT PRIMARY KEY,
+        clip_id TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        timestamp REAL NOT NULL,
+        is_selected INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );`,
       `CREATE TABLE IF NOT EXISTS clip_edits (
         clip_id TEXT PRIMARY KEY,
 
@@ -570,8 +596,8 @@ class DatabaseManager {
     const stmt = this.db.prepare(`
       SELECT * FROM transcript_segments
       WHERE episode_id = ?
-        AND start_time >= ?
-        AND end_time <= ?
+        AND end_time > ?
+        AND start_time < ?
       ORDER BY start_time ASC
     `)
     const segments = stmt.all(clip.episode_id, clip.start_time, clip.end_time) as any[]
@@ -707,7 +733,7 @@ class DatabaseManager {
   insertClipTitles(clipId: string, titles: string[]) {
     const now = new Date().toISOString()
     const stmt = this.db.prepare(`
-      INSERT INTO clip_titles (id, clip_id, title, is_selected, created_at)
+      INSERT OR REPLACE INTO clip_titles (id, clip_id, title, is_selected, created_at)
       VALUES (?, ?, ?, ?, ?)
     `)
 
@@ -748,7 +774,7 @@ class DatabaseManager {
   insertClipDescription(clipId: string, description: string, platform: string = 'general') {
     const now = new Date().toISOString()
     const stmt = this.db.prepare(`
-      INSERT INTO clip_descriptions (id, clip_id, description, platform, is_selected, created_at)
+      INSERT OR REPLACE INTO clip_descriptions (id, clip_id, description, platform, is_selected, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `)
     return stmt.run(

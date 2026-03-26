@@ -1,7 +1,8 @@
 import { spawn } from 'child_process'
-import { join, dirname } from 'path'
+import { join } from 'path'
 import { promises as fs, existsSync } from 'fs'
 import { tmpdir } from 'os'
+import type { AudioChunk } from './clipSelectionTypes'
 
 export interface WhisperResponse {
   text: string
@@ -119,7 +120,7 @@ class LocalWhisperService {
    * Transcribe audio in chunks for larger files
    */
   async transcribeInChunks(
-    audioChunks: string[],
+    audioChunks: AudioChunk[],
     options: TranscriptionOptions = {},
     onProgress?: (chunkIndex: number, chunkProgress: number, totalProgress: number, partialText?: string) => void
   ): Promise<WhisperResponse> {
@@ -128,7 +129,8 @@ class LocalWhisperService {
     let cumulativeOffset = 0
     
     for (let i = 0; i < audioChunks.length; i++) {
-      const chunkPath = audioChunks[i]
+      const chunk = audioChunks[i]
+      const chunkPath = chunk.path
       console.log(`Processing chunk ${i + 1}/${audioChunks.length}: ${chunkPath}`)
       
       try {
@@ -148,8 +150,8 @@ class LocalWhisperService {
         const partialTranscript = results.map(r => r.text).join(' ')
         onProgress?.(i, 100, ((i + 1) / audioChunks.length) * 100, partialTranscript)
         
-        // Update cumulative offset for next chunk (10 minutes = 600 seconds per chunk)
-        cumulativeOffset += 600 // 10 minutes in seconds
+        // Advance by the actual extracted chunk duration.
+        cumulativeOffset += chunk.duration
         
       } catch (error) {
         console.error(`Failed to transcribe chunk ${i}:`, error)
