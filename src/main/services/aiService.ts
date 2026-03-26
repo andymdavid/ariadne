@@ -1,6 +1,7 @@
 import { APIConfig } from '@shared/types'
 import clipCandidateService from './clipCandidateService'
-import type { ClipCandidate } from './clipSelectionTypes'
+import clipValidationService from './clipValidationService'
+import type { ClipCandidate, RankedClipSelection } from './clipSelectionTypes'
 
 export interface TranscriptAnalysis {
   potentialClips: Array<{
@@ -342,10 +343,10 @@ OUTPUT FORMAT (JSON):
 
       const candidateMap = new Map(candidates.map(candidate => [candidate.id, candidate]))
 
-      const filteredClips = selectedCandidates
+      const resolvedClips = selectedCandidates
         .map((clip: any, index: number) => this.resolveCandidateSelection(clip, index, candidateMap))
         .filter((clip: any): clip is NonNullable<typeof clip> => Boolean(clip))
-        .filter((clip: any) => {
+        .filter((clip: RankedClipSelection) => {
           const isValid = clip.duration >= MIN_CLIP_DURATION && clip.duration <= MAX_CLIP_DURATION
           if (!isValid) {
             if (clip.duration < MIN_CLIP_DURATION) {
@@ -358,13 +359,8 @@ OUTPUT FORMAT (JSON):
           }
           return isValid
         })
-        .filter((clip: any) => this.passesStandaloneValidation(clip))
-        .filter((clip: any, index: number, allClips: any[]) => {
-          const hasHeavyOverlap = allClips
-            .slice(0, index)
-            .some((existing: any) => this.calculateOverlapRatio(existing, clip) > 0.5)
-          return !hasHeavyOverlap
-        })
+
+      const filteredClips = clipValidationService.validateAndRank(resolvedClips, candidates)
 
       console.log(`\nFINAL RESULT: ${filteredClips.length} clips passed duration filter`)
       console.log(`==========================================\n`)
@@ -506,7 +502,7 @@ OUTPUT FORMAT (JSON):
     clip: any,
     index: number,
     candidateMap: Map<string, ClipCandidate>
-  ) {
+  ): RankedClipSelection | null {
     const candidateId = clip.candidate_id || clip.id
     const candidate = candidateMap.get(candidateId)
 
@@ -527,7 +523,9 @@ OUTPUT FORMAT (JSON):
       contextNeeded: clip.context_needed || 'low',
       transcriptText: candidate.text,
       naturalStart: candidate.naturalStart,
-      naturalEnd: candidate.naturalEnd
+      naturalEnd: candidate.naturalEnd,
+      heuristicScore: candidate.heuristicScore,
+      validationScore: 0
     }
   }
 
@@ -547,21 +545,6 @@ OUTPUT FORMAT (JSON):
   private normalizedIncludes(haystack: string, needle: string): boolean {
     const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
     return normalize(haystack).includes(normalize(needle))
-  }
-
-  private calculateOverlapRatio(
-    left: { startTime: number; endTime: number; duration: number },
-    right: { startTime: number; endTime: number; duration: number }
-  ): number {
-    const overlapStart = Math.max(left.startTime, right.startTime)
-    const overlapEnd = Math.min(left.endTime, right.endTime)
-
-    if (overlapEnd <= overlapStart) {
-      return 0
-    }
-
-    const overlap = overlapEnd - overlapStart
-    return overlap / Math.min(left.duration, right.duration)
   }
 
   private truncateText(text: string, maxLength: number): string {
@@ -603,30 +586,6 @@ OUTPUT FORMAT (JSON):
 
   private heuristicToShareability(heuristicScore: number): number {
     return Math.max(1, Math.min(10, Number((heuristicScore * 1.8).toFixed(1))))
-  }
-
-  private passesStandaloneValidation(clip: {
-    keyQuote: string
-    transcriptText: string
-    contextNeeded: string
-    naturalStart: boolean
-    naturalEnd: boolean
-  }): boolean {
-    const normalizedText = clip.transcriptText.toLowerCase()
-    const quoteIsGrounded = this.normalizedIncludes(clip.transcriptText, clip.keyQuote)
-    const startsMidThought = /^(and|but|so|because|then|which|that|it|this)\b/i.test(clip.transcriptText.trim())
-    const lacksSentenceEnding = !/[.!?]["']?\s*$/.test(clip.transcriptText.trim())
-    const hasHeavyContextDependency = clip.contextNeeded === 'high' ||
-      /\b(as i said|like i said|earlier|before this|previously|that point)\b/.test(normalizedText)
-
-    return (
-      quoteIsGrounded &&
-      clip.naturalStart &&
-      clip.naturalEnd &&
-      !startsMidThought &&
-      !lacksSentenceEnding &&
-      !hasHeavyContextDependency
-    )
   }
 
 }

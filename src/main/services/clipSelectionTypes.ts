@@ -25,3 +25,20 @@ export interface ClipCandidate {
   naturalEnd: boolean
   heuristicScore: number
 }
+
+export interface RankedClipSelection {
+  id: string
+  startTime: number
+  endTime: number
+  duration: number
+  contentType: 'insight' | 'story' | 'advice' | 'hot_take' | 'humor' | 'technical'
+  shareabilityScore: number
+  keyQuote: string
+  reason: string
+  contextNeeded: 'low' | 'medium' | 'high'
+  transcriptText: string
+  naturalStart: boolean
+  naturalEnd: boolean
+  heuristicScore: number
+  validationScore: number
+}
