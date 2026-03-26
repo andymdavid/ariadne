@@ -637,6 +637,7 @@ class DatabaseManager {
     keyQuote: string
     reason: string
     contextNeeded: string
+    status?: string
     videoWidth?: number | null
     videoHeight?: number | null
   }>) {
@@ -644,8 +645,8 @@ class DatabaseManager {
     const stmt = this.db.prepare(`
       INSERT INTO clips 
       (id, episode_id, start_time, end_time, duration, content_type, shareability_score, 
-       key_quote, reason, context_needed, video_width, video_height, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       key_quote, reason, context_needed, status, video_width, video_height, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     
     const insertMany = this.db.transaction((clipsToInsert: typeof clips) => {
@@ -661,6 +662,7 @@ class DatabaseManager {
           clip.keyQuote,
           clip.reason,
           clip.contextNeeded,
+          clip.status || 'pending',
           clip.videoWidth ?? null,
           clip.videoHeight ?? null,
           now

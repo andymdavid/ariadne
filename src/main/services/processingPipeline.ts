@@ -408,6 +408,7 @@ class ProcessingPipeline {
       keyQuote: clip.keyQuote,
       reason: clip.reason,
       contextNeeded: clip.contextNeeded,
+      status: clip.shareabilityScore >= configService.getAutoApproveThreshold() ? 'approved' : 'pending',
       videoWidth: sourceResolution?.width ?? null,
       videoHeight: sourceResolution?.height ?? null
     }))
