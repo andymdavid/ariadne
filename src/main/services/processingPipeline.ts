@@ -57,10 +57,6 @@ class ProcessingPipeline {
       // Ensure services are initialized
       this.initializeServices()
       
-      if (!this.aiService) {
-        throw new Error('AI service not configured. Please set up OpenRouter API key in settings.')
-      }
-      
       if (!this.whisperService) {
         throw new Error('Whisper service not available. Please install whisper with: pipx install openai-whisper')
       }
@@ -197,38 +193,49 @@ class ProcessingPipeline {
       this.sendProgress(window, {
         stage: 'analyzing',
         progress: 65,
-        message: 'Analyzing content for clip suggestions...'
+        message: this.aiService
+          ? 'Analyzing content for clip suggestions...'
+          : 'Transcription completed. Skipping AI clip analysis...'
       })
       
       let analysis: any = null
       let aiAnalysisSucceeded = false
       
-      try {
-        analysis = await this.aiService.analyzeTranscript(
-          transcription, // Pass full transcription object with segments
-          mediaInfo.duration,
-          (progress) => {
-            this.sendProgress(window, {
-              stage: 'analyzing',
-              progress: 65 + (progress * 0.25), // 65-90%
-              message: 'AI analyzing content...'
-            })
-          }
-        )
-        aiAnalysisSucceeded = true
-        console.log('AI analysis completed successfully')
-      } catch (aiError) {
-        console.error('AI analysis failed, proceeding with transcript-only mode:', aiError)
-        
-        // Graceful degradation: Create empty clips array but preserve transcription
+      if (!this.aiService) {
         analysis = { potentialClips: [] }
-        aiAnalysisSucceeded = false
-        
         this.sendProgress(window, {
           stage: 'analyzing',
           progress: 90,
-          message: 'AI analysis failed - transcript saved successfully'
+          message: 'Transcript saved. Add an OpenRouter key to enable clip suggestions.'
         })
+      } else {
+        try {
+          analysis = await this.aiService.analyzeTranscript(
+            transcription, // Pass full transcription object with segments
+            mediaInfo.duration,
+            (progress) => {
+              this.sendProgress(window, {
+                stage: 'analyzing',
+                progress: 65 + (progress * 0.25), // 65-90%
+                message: 'AI analyzing content...'
+              })
+            }
+          )
+          aiAnalysisSucceeded = true
+          console.log('AI analysis completed successfully')
+        } catch (aiError) {
+          console.error('AI analysis failed, proceeding with transcript-only mode:', aiError)
+          
+          // Graceful degradation: Create empty clips array but preserve transcription
+          analysis = { potentialClips: [] }
+          aiAnalysisSucceeded = false
+          
+          this.sendProgress(window, {
+            stage: 'analyzing',
+            progress: 90,
+            message: 'AI analysis failed - transcript saved successfully'
+          })
+        }
       }
       
       // Step 6: Store clips in database (even if empty)
