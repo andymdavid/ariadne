@@ -361,7 +361,12 @@ OUTPUT FORMAT (JSON):
           return isValid
         })
 
-      const filteredClips = clipValidationService.validateAndRank(resolvedClips, candidates)
+      let filteredClips = clipValidationService.validateAndRank(resolvedClips, candidates)
+
+      if (filteredClips.length < 5) {
+        console.warn(`Validation left only ${filteredClips.length} clips. Supplementing from heuristic candidates.`)
+        filteredClips = this.supplementFromHeuristics(filteredClips, candidates, 8)
+      }
 
       console.log(`\nFINAL RESULT: ${filteredClips.length} clips passed duration filter`)
       console.log(`==========================================\n`)
@@ -554,6 +559,56 @@ OUTPUT FORMAT (JSON):
       return text
     }
     return `${text.slice(0, maxLength - 3).trim()}...`
+  }
+
+  private supplementFromHeuristics(
+    existingClips: TranscriptAnalysis['potentialClips'],
+    candidates: ClipCandidate[],
+    targetCount: number
+  ): TranscriptAnalysis['potentialClips'] {
+    const usedCandidateKeys = new Set(existingClips.map(clip => `${clip.startTime}-${clip.endTime}`))
+    const supplemented = [...existingClips]
+
+    for (const candidate of candidates) {
+      if (supplemented.length >= targetCount) {
+        break
+      }
+
+      const candidateKey = `${candidate.startTime}-${candidate.endTime}`
+      const overlapsTooMuch = supplemented.some(clip => {
+        const overlapStart = Math.max(clip.startTime, candidate.startTime)
+        const overlapEnd = Math.min(clip.endTime, candidate.endTime)
+        if (overlapEnd <= overlapStart) {
+          return false
+        }
+        const overlap = overlapEnd - overlapStart
+        return overlap / Math.min(clip.duration, candidate.duration) > 0.5
+      })
+
+      if (
+        usedCandidateKeys.has(candidateKey) ||
+        overlapsTooMuch ||
+        !candidate.naturalStart ||
+        !candidate.naturalEnd
+      ) {
+        continue
+      }
+
+      supplemented.push({
+        id: `fallback_${supplemented.length + 1}`,
+        startTime: candidate.startTime,
+        endTime: candidate.endTime,
+        duration: candidate.duration,
+        contentType: 'insight',
+        shareabilityScore: this.heuristicToShareability(candidate.heuristicScore),
+        keyQuote: this.resolveKeyQuote(undefined, candidate.text),
+        reason: 'Fallback heuristic candidate selected due to low validated AI yield.',
+        contextNeeded: 'low'
+      })
+      usedCandidateKeys.add(candidateKey)
+    }
+
+    return supplemented
   }
 
   private getModelId(model: APIConfig['model']): string {

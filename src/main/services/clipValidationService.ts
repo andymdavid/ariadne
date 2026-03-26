@@ -4,7 +4,7 @@ class ClipValidationService {
   validateAndRank(
     clips: RankedClipSelection[],
     candidates: ClipCandidate[]
-  ): Array<Omit<RankedClipSelection, 'transcriptText' | 'naturalStart' | 'naturalEnd' | 'heuristicScore' | 'validationScore'>> {
+  ): Array<Omit<RankedClipSelection, 'candidateId' | 'transcriptText' | 'naturalStart' | 'naturalEnd' | 'heuristicScore' | 'validationScore'>> {
     const accepted: RankedClipSelection[] = []
     const candidateMap = new Map(candidates.map(candidate => [candidate.id, candidate]))
 
@@ -28,7 +28,7 @@ class ClipValidationService {
       }
     }
 
-    return accepted.map(({ transcriptText, naturalStart, naturalEnd, heuristicScore, validationScore, ...clip }) => clip)
+    return accepted.map(({ candidateId, transcriptText, naturalStart, naturalEnd, heuristicScore, validationScore, ...clip }) => clip)
   }
 
   private passesValidation(clip: RankedClipSelection): boolean {
