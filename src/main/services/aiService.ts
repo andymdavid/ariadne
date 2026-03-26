@@ -525,7 +525,9 @@ OUTPUT FORMAT (JSON):
       keyQuote: this.resolveKeyQuote(clip.key_quote, candidate.text),
       reason: clip.reason || 'Strong standalone clip candidate',
       contextNeeded: clip.context_needed || 'low',
-      transcriptText: candidate.text
+      transcriptText: candidate.text,
+      naturalStart: candidate.naturalStart,
+      naturalEnd: candidate.naturalEnd
     }
   }
 
@@ -607,6 +609,8 @@ OUTPUT FORMAT (JSON):
     keyQuote: string
     transcriptText: string
     contextNeeded: string
+    naturalStart: boolean
+    naturalEnd: boolean
   }): boolean {
     const normalizedText = clip.transcriptText.toLowerCase()
     const quoteIsGrounded = this.normalizedIncludes(clip.transcriptText, clip.keyQuote)
@@ -615,7 +619,14 @@ OUTPUT FORMAT (JSON):
     const hasHeavyContextDependency = clip.contextNeeded === 'high' ||
       /\b(as i said|like i said|earlier|before this|previously|that point)\b/.test(normalizedText)
 
-    return quoteIsGrounded && !startsMidThought && !lacksSentenceEnding && !hasHeavyContextDependency
+    return (
+      quoteIsGrounded &&
+      clip.naturalStart &&
+      clip.naturalEnd &&
+      !startsMidThought &&
+      !lacksSentenceEnding &&
+      !hasHeavyContextDependency
+    )
   }
 
 }

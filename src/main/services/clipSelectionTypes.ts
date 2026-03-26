@@ -21,5 +21,7 @@ export interface ClipCandidate {
   text: string
   openingLine: string
   closingLine: string
+  naturalStart: boolean
+  naturalEnd: boolean
   heuristicScore: number
 }

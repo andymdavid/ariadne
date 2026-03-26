@@ -30,6 +30,9 @@ class ClipCandidateService {
           continue
         }
 
+        const naturalStart = this.isNaturalStart(usableSegments, startIndex)
+        const naturalEnd = this.isNaturalEnd(usableSegments, endIndex)
+
         const candidate: ClipCandidate = {
           id: `candidate_${startIndex}_${endIndex}`,
           startTime: startSegment.start,
@@ -40,6 +43,8 @@ class ClipCandidateService {
           text,
           openingLine: startSegment.text.trim(),
           closingLine: endSegment.text.trim(),
+          naturalStart,
+          naturalEnd,
           heuristicScore: this.scoreCandidate(windowSegments, duration, text)
         }
 
@@ -63,12 +68,16 @@ class ClipCandidateService {
     const pronounContextPenalty = this.countContextReferences(normalizedText) * 0.05
     const sentenceCount = text.split(/[.!?]+/).map(part => part.trim()).filter(Boolean).length
     const densityScore = Math.min(sentenceCount / 5, 1)
+    const naturalStartBonus = this.looksLikeSentenceStart(firstSegment.text) ? 0.8 : 0
+    const naturalEndBonus = /[.!?]["']?$/.test(lastSegment.text.trim()) ? 0.8 : 0
 
     return (
       idealDurationScore * 3 +
       openingHookScore * 2.5 +
       endingScore * 2 +
-      densityScore * 1.5 -
+      densityScore * 1.5 +
+      naturalStartBonus +
+      naturalEndBonus -
       fillerPenalty -
       pronounContextPenalty
     )
@@ -99,6 +108,9 @@ class ClipCandidateService {
     const selected: ClipCandidate[] = []
 
     for (const candidate of candidates) {
+      if (!candidate.naturalStart || !candidate.naturalEnd) {
+        continue
+      }
       const overlapsTooMuch = selected.some(existing => this.overlapRatio(existing, candidate) > 0.65)
       if (!overlapsTooMuch) {
         selected.push(candidate)
@@ -121,6 +133,33 @@ class ClipCandidateService {
 
     const overlap = overlapEnd - overlapStart
     return overlap / Math.min(left.duration, right.duration)
+  }
+
+  private isNaturalStart(segments: TranscriptSegmentInput[], index: number): boolean {
+    const current = segments[index]
+    const previous = segments[index - 1]
+
+    if (!current) return false
+    if (!previous) return this.looksLikeSentenceStart(current.text)
+
+    const hasGap = current.start - previous.end >= 0.35
+    return hasGap || /[.!?]["']?$/.test(previous.text.trim()) || this.looksLikeSentenceStart(current.text)
+  }
+
+  private isNaturalEnd(segments: TranscriptSegmentInput[], index: number): boolean {
+    const current = segments[index]
+    const next = segments[index + 1]
+
+    if (!current) return false
+    if (!next) return /[.!?]["']?$/.test(current.text.trim())
+
+    const hasGap = next.start - current.end >= 0.35
+    return hasGap || /[.!?]["']?$/.test(current.text.trim())
+  }
+
+  private looksLikeSentenceStart(text: string): boolean {
+    const trimmed = text.trim()
+    return /^[A-Z0-9"'(]/.test(trimmed) && !/^(and|but|so|because|then)\b/i.test(trimmed)
   }
 }
 
