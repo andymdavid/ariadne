@@ -18,6 +18,7 @@
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",
+    "build:clip-fixture": "node scripts/build-clip-fixture.js",
     "eval:clips": "node scripts/evaluate-clip-selection.js",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",

@@ -14,6 +14,7 @@ This harness is intentionally lightweight. It does not run the app directly. It 
 ## Files
 
 - script: `scripts/evaluate-clip-selection.js`
+- builder: `scripts/build-clip-fixture.js`
 - fixture template: `docs/clip-evaluation-fixture-template.json`
 
 ## Usage
@@ -70,10 +71,19 @@ The harness scores:
 
 ## Recommended Workflow
 
-1. Build a small benchmark set of real episodes.
-2. Save model outputs as JSON files.
-3. Score each output with the harness.
-4. Track:
+1. Export transcript segments to JSON.
+2. Generate a fixture skeleton:
+
+```bash
+npm run build:clip-fixture -- path/to/transcript.json eval/fixtures/episode-001.json path/to/result.json
+```
+
+3. Open the generated fixture and mark:
+   - `expectedGoodClips`
+   - `expectedBadRanges`
+4. Save model outputs as JSON files.
+5. Score each output with the harness.
+6. Track:
    - average clip score
    - expected-good coverage
    - bad-range intrusion
