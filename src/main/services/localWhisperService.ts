@@ -57,7 +57,7 @@ class LocalWhisperService {
       throw new Error('Audio file not found')
     }
     
-    onProgress?.(10)
+    onProgress?.(0)
     
     try {
       // Create temporary directory for output
@@ -82,15 +82,12 @@ class LocalWhisperService {
         args.push('--word_timestamps', 'True')
       }
       
-      onProgress?.(20)
-      
       // Run whisper command
       await this.runWhisperCommand(args, (progress, partialText) => {
-        // Map whisper progress (rough estimate) to our progress range (20-90%)
-        onProgress?.(20 + (progress * 0.7), partialText)
+        onProgress?.(progress, partialText)
       })
       
-      onProgress?.(90)
+      onProgress?.(95)
       
       // Read the generated JSON file
       const audioFileName = audioFilePath.split('/').pop()?.split('.')[0] || 'audio'
