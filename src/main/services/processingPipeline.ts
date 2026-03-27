@@ -117,6 +117,7 @@ class ProcessingPipeline {
       
       // Step 3: Transcribe audio (with chunking for large files)
       console.log('Starting transcription stage...')
+      const transcriptionStartedAt = Date.now()
       this.sendProgress(window, {
         stage: 'transcribing',
         progress: 30,
@@ -151,10 +152,16 @@ class ProcessingPipeline {
             wordTimestamps: true
           },
           (chunkIndex, chunkProgress, totalProgress, partialText) => {
+            const timeRemaining = this.estimateRemainingFromProgress(
+              transcriptionStartedAt,
+              totalProgress / 100,
+              mediaInfo.duration
+            )
             this.sendProgress(window, {
               stage: 'transcribing',
               progress: 30 + (totalProgress * 0.35 / 100), // 30-65%
               message: `Transcribing chunk ${chunkIndex + 1}/${chunks.length}...`,
+              timeRemaining,
               thinkingMessage: this.getThinkingMessage('chunked', chunkIndex),
               partialTranscript: partialText,
               recentTranscriptLines: partialText ? this.extractRecentLines(partialText) : undefined
@@ -174,10 +181,16 @@ class ProcessingPipeline {
             wordTimestamps: true
           },
           (progress, partialText) => {
+            const timeRemaining = this.estimateRemainingFromProgress(
+              transcriptionStartedAt,
+              progress / 100,
+              mediaInfo.duration
+            )
             this.sendProgress(window, {
               stage: 'transcribing',
               progress: 30 + (progress * 0.35), // 30-65%
               message: 'Transcribing audio...',
+              timeRemaining,
               thinkingMessage: this.getThinkingMessage('transcribing'),
               partialTranscript: partialText,
               recentTranscriptLines: partialText ? this.extractRecentLines(partialText) : undefined
@@ -475,6 +488,22 @@ class ProcessingPipeline {
   private estimateTranscriptionTime(durationInSeconds: number): number {
     // Rough estimate: Whisper processes about 10x faster than real-time
     return Math.ceil(durationInSeconds / 10)
+  }
+
+  private estimateRemainingFromProgress(
+    startedAt: number,
+    progressFraction: number,
+    mediaDurationInSeconds: number
+  ): number {
+    const clampedFraction = Math.max(0.01, Math.min(progressFraction, 0.99))
+    const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+
+    if (progressFraction <= 0.02) {
+      return this.estimateTranscriptionTime(mediaDurationInSeconds)
+    }
+
+    const estimatedTotalSeconds = elapsedSeconds / clampedFraction
+    return Math.max(1, Math.ceil(estimatedTotalSeconds - elapsedSeconds))
   }
 
   private getThinkingMessage(stage: string, chunkIndex?: number): string {

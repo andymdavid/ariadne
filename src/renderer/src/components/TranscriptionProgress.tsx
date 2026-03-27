@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useProcessingStore } from '../stores/processingStore'
-import { AudioWaveform } from './AudioWaveform'
-import { ProcessingIcon, MicrophoneIcon, BrainIcon } from './ProcessingIcon'
 
 const thinkingMessages = {
   transcribing: [
@@ -67,12 +65,10 @@ const stageLabels = {
 }
 
 export function TranscriptionProgress() {
-  const { stage, progress, message, timeRemaining, thinkingMessage } = useProcessingStore()
+  const { stage, progress, message, timeRemaining } = useProcessingStore()
   
   const [currentThinkingMessage, setCurrentThinkingMessage] = useState('')
   const [messageIndex, setMessageIndex] = useState(0)
-  const [isMessageFading, setIsMessageFading] = useState(false)
-  const [stageTransition, setStageTransition] = useState(false)
 
   // Cycle through thinking messages with smooth transitions
   useEffect(() => {
@@ -85,16 +81,10 @@ export function TranscriptionProgress() {
     }
 
     const interval = setInterval(() => {
-      // Start fade out
-      setIsMessageFading(true)
-      
       setTimeout(() => {
         // Change message after fade out
         setMessageIndex((prev) => (prev + 1) % stageMessages.length)
         setCurrentThinkingMessage(stageMessages[(messageIndex + 1) % stageMessages.length])
-        
-        // Fade back in
-        setIsMessageFading(false)
       }, 300) // Fade duration
       
     }, 2500) // Change message every 2.5 seconds
@@ -104,24 +94,13 @@ export function TranscriptionProgress() {
 
   // Handle stage transitions with animation
   useEffect(() => {
-    setStageTransition(true)
-    
-    const timer = setTimeout(() => {
-      setStageTransition(false)
-    }, 500)
-    
     const stageMessages = thinkingMessages[stage as keyof typeof thinkingMessages] || []
     if (stageMessages.length > 0) {
       setCurrentThinkingMessage(stageMessages[0])
       setMessageIndex(0)
-      setIsMessageFading(false)
     }
-    
-    return () => clearTimeout(timer)
   }, [stage])
 
-
-  const displayMessage = thinkingMessage || currentThinkingMessage
 
   const formatTimeRemaining = (seconds?: number) => {
     if (!seconds) return null
@@ -131,6 +110,13 @@ export function TranscriptionProgress() {
       return `${minutes}m ${remainingSeconds}s remaining`
     }
     return `${remainingSeconds}s remaining`
+  }
+
+  const getProgressLabel = () => {
+    if (stage === 'transcribing' || stage === 'analyzing' || stage === 'generating') {
+      return `${Math.round(progress)}% overall`
+    }
+    return `${Math.round(progress)}% complete`
   }
 
   return (
@@ -161,7 +147,7 @@ export function TranscriptionProgress() {
         </div>
         
         <div className="flex justify-between items-center text-sm text-text-muted">
-          <span>{Math.round(progress)}% complete</span>
+          <span>{getProgressLabel()}</span>
           {timeRemaining && (
             <span>{formatTimeRemaining(timeRemaining)}</span>
           )}
