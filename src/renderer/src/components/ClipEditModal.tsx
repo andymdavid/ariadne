@@ -70,6 +70,7 @@ export function ClipEditModal({
   const [episodeDuration, setEpisodeDuration] = useState<number | null>(null)
   const [showManualInputs, setShowManualInputs] = useState(false)
   const [allEpisodeSegments, setAllEpisodeSegments] = useState<any[]>([])
+  const [selectedTrimWordId, setSelectedTrimWordId] = useState<string | null>(null)
   const pendingSeekTimeRef = useRef<number | null>(null)
 
   // Transcript tab state
@@ -1114,6 +1115,40 @@ export function ClipEditModal({
   }
 
   const clipRelativeCurrentTime = Math.max(0, currentTime - editedStartTime)
+  const episodeWords = allEpisodeSegments.flatMap((segment: any, segmentIndex: number) =>
+    Array.isArray(segment.words)
+      ? segment.words.map((word: any, wordIndex: number) => ({
+          id: `${segment.id || segment.start_time || segmentIndex}-word-${wordIndex}`,
+          text: String(word.word ?? '').trim(),
+          start: Number(word.start),
+          end: Number(word.end),
+          segmentId: segment.id || `${segment.start_time}-${segment.end_time}`,
+        })).filter((word: { text: string; start: number; end: number }) =>
+          word.text.length > 0 && Number.isFinite(word.start) && Number.isFinite(word.end)
+        )
+      : []
+  )
+  const trimWordContextStart = Math.max(0, editedStartTime - 4)
+  const trimWordContextEnd = editedEndTime + 4
+  const visibleTrimWords = episodeWords.filter((word) =>
+    word.end >= trimWordContextStart && word.start <= trimWordContextEnd
+  )
+  const activeTrimWord = visibleTrimWords.find((word) => currentTime >= word.start && currentTime <= word.end) || null
+  const selectedTrimWord = visibleTrimWords.find((word) => word.id === selectedTrimWordId) || activeTrimWord || null
+
+  const applyWordStartBoundary = (wordStart: number) => {
+    if (editedEndTime - wordStart < 35) return
+    setEditedStartTime(wordStart)
+    setHasUnsavedChanges(true)
+    seekSourceVideo(wordStart)
+  }
+
+  const applyWordEndBoundary = (wordEnd: number) => {
+    if (wordEnd - editedStartTime < 35) return
+    setEditedEndTime(wordEnd)
+    setHasUnsavedChanges(true)
+    seekSourceVideo(Math.min(wordEnd, editedEndTime))
+  }
 
   if (!isOpen) return null
 
@@ -1346,6 +1381,98 @@ export function ClipEditModal({
                       </div>
                     )
                   })()}
+
+                  {visibleTrimWords.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-px flex-1 bg-border-default" />
+                        <h4 className="text-sm font-semibold text-text-primary">Word Boundaries</h4>
+                        <div className="h-px flex-1 bg-border-default" />
+                      </div>
+
+                      <div className="p-4 bg-gradient-to-br from-bg-secondary to-bg-tertiary rounded-xl border border-border-default shadow-sm space-y-3">
+                        <div className="flex items-center justify-between gap-3 text-xs text-text-muted">
+                          <span>
+                            Click a word to target an exact trim anchor from Whisper timing.
+                          </span>
+                          {activeTrimWord && (
+                            <span className="font-mono text-accent-primary">
+                              Playhead: "{activeTrimWord.text}" at {formatPreciseTime(activeTrimWord.start)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="max-h-36 overflow-y-auto rounded-lg border border-border-default bg-bg-primary/70 p-3">
+                          <div className="flex flex-wrap gap-2">
+                            {visibleTrimWords.map((word) => {
+                              const isSelected = selectedTrimWord?.id === word.id
+                              const isActive = activeTrimWord?.id === word.id
+                              const isInsideClip = word.start >= editedStartTime && word.end <= editedEndTime
+
+                              return (
+                                <button
+                                  key={word.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedTrimWordId(word.id)
+                                    seekSourceVideo(word.start)
+                                  }}
+                                  className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                                    isSelected
+                                      ? 'border-accent-primary bg-accent-primary text-white'
+                                      : isActive
+                                        ? 'border-accent-primary/60 bg-accent-primary/10 text-accent-primary'
+                                        : isInsideClip
+                                          ? 'border-green-300 bg-green-50 text-green-800'
+                                          : 'border-border-default bg-bg-secondary text-text-secondary hover:border-accent-primary/40 hover:text-text-primary'
+                                  }`}
+                                  title={`${word.text} • ${formatPreciseTime(word.start)} - ${formatPreciseTime(word.end)}`}
+                                >
+                                  {word.text}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {selectedTrimWord && (
+                          <div className="flex items-center justify-between gap-4 rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                            <div className="space-y-1">
+                              <div className="text-sm font-semibold text-text-primary">
+                                "{selectedTrimWord.text}"
+                              </div>
+                              <div className="text-xs font-mono text-text-muted">
+                                start {formatPreciseTime(selectedTrimWord.start)} • end {formatPreciseTime(selectedTrimWord.end)}
+                              </div>
+                            </div>
+
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => applyWordStartBoundary(selectedTrimWord.start)}
+                                disabled={editedEndTime - selectedTrimWord.start < 35}
+                                className="border-green-300 bg-green-50 text-green-700 hover:bg-green-100"
+                              >
+                                Set Start To Word
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => applyWordEndBoundary(selectedTrimWord.end)}
+                                disabled={selectedTrimWord.end - editedStartTime < 35}
+                                className="border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                              >
+                                Set End After Word
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Live Transcript Preview */}
                   {allEpisodeSegments.length > 0 && (() => {
