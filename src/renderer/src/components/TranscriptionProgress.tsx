@@ -131,6 +131,24 @@ export function TranscriptionProgress() {
     }
   }
 
+  const getInlineStatus = () => {
+    const parts: string[] = []
+
+    if (showDualProgress) {
+      parts.push(getStageLabel())
+      parts.push(getOverallLabel())
+    } else {
+      parts.push(getStageLabel())
+    }
+
+    const eta = formatTimeRemaining(timeRemaining)
+    if (eta) {
+      parts.push(`ETA ${eta.replace(' remaining', '')}`)
+    }
+
+    return parts.join(' • ')
+  }
+
   return (
     <div className="max-w-2xl w-full space-y-6 text-center">
       {/* Clean Minimal Header */}
@@ -145,6 +163,12 @@ export function TranscriptionProgress() {
         {message && (
           <p className="text-sm text-text-secondary">
             {message}
+          </p>
+        )}
+
+        {showDualProgress && (
+          <p className="text-xs text-text-muted">
+            {getInlineStatus()}
           </p>
         )}
       </div>
@@ -173,12 +197,14 @@ export function TranscriptionProgress() {
           />
         </div>
         
-        <div className="flex justify-between items-center text-sm text-text-muted">
-          <span>{showDualProgress ? getOverallLabel() : getStageLabel()}</span>
-          {timeRemaining && (
-            <span>{formatTimeRemaining(timeRemaining)}</span>
-          )}
-        </div>
+        {!showDualProgress && (
+          <div className="flex justify-between items-center text-sm text-text-muted">
+            <span>{getStageLabel()}</span>
+            {timeRemaining && (
+              <span>{formatTimeRemaining(timeRemaining)}</span>
+            )}
+          </div>
+        )}
       </div>
 
 
