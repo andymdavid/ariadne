@@ -17,6 +17,8 @@ export function useProcessingUpdates() {
   
   // Singleton episode ID to prevent race conditions
   const episodeIdRef = useRef<string | null>(null)
+  const uploadStageUnlockedRef = useRef(false)
+  const reviewStageUnlockedRef = useRef(false)
 
   // Multi-tier auto-save implementation
   const triggerAutoSave = useCallback((level: 'level1' | 'level2' | 'level3', reason: string) => {
@@ -96,6 +98,8 @@ export function useProcessingUpdates() {
       // Reset episode ID singleton when a new processing session starts
       if (data.stage === 'uploading' && data.progress <= 10) {
         episodeIdRef.current = null
+        uploadStageUnlockedRef.current = false
+        reviewStageUnlockedRef.current = false
         console.log('🔄 PROCESSING START: Reset singleton episode ID for new session')
       }
       
@@ -118,15 +122,17 @@ export function useProcessingUpdates() {
       }
       
       // MULTI-TIER AUTO-SAVE: Save at different processing stages
-      if (data.stage === 'transcribing' && data.progress > 30) {
+      if (data.stage === 'transcribing' && data.progress > 30 && !uploadStageUnlockedRef.current) {
         // LEVEL 1: Mark upload complete and save basic project shell
+        uploadStageUnlockedRef.current = true
         markScreenCompleted('upload')
         console.log('⏸️ AUTO-SAVE LEVEL 1 DISABLED - debugging duplicate projects')
         // triggerAutoSave('level1', 'File uploaded and transcription started')
       }
       
-      if (data.stage === 'analyzing') {
+      if (data.stage === 'analyzing' && !reviewStageUnlockedRef.current) {
         // LEVEL 2: Transcription complete - save transcript data
+        reviewStageUnlockedRef.current = true
         markScreenCompleted('review')
         console.log('Transcription completed - Review screen unlocked')
         console.log('⏸️ AUTO-SAVE LEVEL 2 DISABLED - debugging duplicate projects')

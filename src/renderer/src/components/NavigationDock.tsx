@@ -50,6 +50,7 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
   const [filteredSlashCommands, setFilteredSlashCommands] = useState<any[]>([])
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
   const [localMessages, setLocalMessages] = useState<StatusMessage[]>([])
+  const messageCounterRef = useRef(0)
   const commandInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
@@ -136,8 +137,9 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
 
   // Add a status message
   const addStatusMessage = useCallback((message: string, type: StatusMessage['type'] = 'status', icon?: React.ComponentType<any>) => {
+    messageCounterRef.current += 1
     const newMessage: StatusMessage = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${messageCounterRef.current}`,
       type,
       message,
       timestamp: new Date(),

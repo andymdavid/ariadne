@@ -29,6 +29,9 @@ function App() {
   const [commandInput, setCommandInput] = useState('')
   const [sessionMessages, setSessionMessages] = useState<StatusMessage[]>([])
   const [hasActivatedAriadne, setHasActivatedAriadne] = useState(false)
+  const messageCounterRef = useRef(0)
+  const processingAnnouncementActiveRef = useRef(false)
+  const lastAnnouncedStageRef = useRef('')
   
   // Get processing state from store
   const { isProcessing, stage, message: processingMessage } = useProcessingStore()
@@ -130,6 +133,11 @@ function App() {
   }, [location.pathname, navigate, sessionData])
 
   // Add message to session history
+  const nextMessageId = () => {
+    messageCounterRef.current += 1
+    return `${Date.now()}-${messageCounterRef.current}`
+  }
+
   const addSessionMessage = (message: StatusMessage) => {
     console.log('Adding session message:', message)
     setSessionMessages(prev => {
@@ -190,7 +198,7 @@ function App() {
       // Add system health message
       if (!systemHealthy) {
         const healthWarning: StatusMessage = {
-          id: Date.now().toString(),
+          id: nextMessageId(),
           type: 'info',
           message: '⚠️ System validation detected issues - run "validate system" for details',
           timestamp: new Date()
@@ -207,7 +215,7 @@ function App() {
     const currentScreen = getCurrentScreen()
     if (currentScreen !== 'upload' && sessionMessages.length > 0) {
       const navMessage: StatusMessage = {
-        id: Date.now().toString(),
+        id: nextMessageId(),
         type: 'info',
         message: `Navigated to ${currentScreen} screen`,
         timestamp: new Date()
@@ -218,15 +226,17 @@ function App() {
 
   // AI Companion: Auto-open status display and add messages when processing starts
   useEffect(() => {
-    if (isProcessing && !hasActivatedAriadne) {
+    if (isProcessing && !processingAnnouncementActiveRef.current) {
+      processingAnnouncementActiveRef.current = true
       // Automatically open command mode to show status display
       setIsCommandMode(true)
       setHasActivatedAriadne(true)
-      setPreviousStage('') // Reset stage tracking
+      setPreviousStage('')
+      lastAnnouncedStageRef.current = ''
       
       // Add initial processing message - only once
       const startMessage: StatusMessage = {
-        id: Date.now().toString(),
+        id: nextMessageId(),
         type: 'info',
         message: '🤖 Activating Ariadne...',
         timestamp: new Date(),
@@ -239,7 +249,7 @@ function App() {
       const addCompanionMessage = (message: string, delay: number, icon?: React.ComponentType<any>) => {
         setTimeout(() => {
           const companionMessage: StatusMessage = {
-            id: Date.now().toString(),
+            id: nextMessageId(),
             type: 'status',
             message,
             timestamp: new Date(),
@@ -253,39 +263,41 @@ function App() {
       // Initial file analysis message
       addCompanionMessage('Analyzing your podcast file...', 500, IoCloudUpload)
       
-    } else if (!isProcessing && hasActivatedAriadne) {
+    } else if (!isProcessing && processingAnnouncementActiveRef.current) {
+      processingAnnouncementActiveRef.current = false
       // When processing ends, add final completion message and reset
       const completionMessage: StatusMessage = {
-        id: Date.now().toString(), 
+        id: nextMessageId(), 
         type: 'success',
         message: '🎉 All clips generated successfully! Ready to review your content.',
         timestamp: new Date(),
         icon: IoCheckmarkCircle
       }
       addSessionMessage(completionMessage)
-      setHasActivatedAriadne(false) // Reset for next processing session
-      setPreviousStage('') // Reset stage tracking
+      setHasActivatedAriadne(false)
+      setPreviousStage('')
+      lastAnnouncedStageRef.current = ''
     }
-  }, [isProcessing, hasActivatedAriadne, addSessionMessage])
+  }, [isProcessing, addSessionMessage])
 
   // Track previous stage to detect stage changes and add completion messages
   const [previousStage, setPreviousStage] = useState<string>('')
   
   // Update AI companion messages based on processing stage changes
   useEffect(() => {
-    if (isProcessing && hasActivatedAriadne) {
+    if (isProcessing && hasActivatedAriadne && lastAnnouncedStageRef.current !== stage) {
       // Add completion message for previous stage
-      if (previousStage && previousStage !== stage) {
+      if (lastAnnouncedStageRef.current && lastAnnouncedStageRef.current !== stage) {
         const completionMessages = {
           extracting: 'Audio extraction complete ✅',
           transcribing: 'Transcription complete ✅',
           analyzing: 'Content analysis complete ✅'
         }
         
-        const completionMsg = completionMessages[previousStage as keyof typeof completionMessages]
+        const completionMsg = completionMessages[lastAnnouncedStageRef.current as keyof typeof completionMessages]
         if (completionMsg) {
           const completionMessage: StatusMessage = {
-            id: Date.now().toString(),
+            id: nextMessageId(),
             type: 'success',
             message: completionMsg,
             timestamp: new Date(),
@@ -305,9 +317,9 @@ function App() {
       }
       
       const stageData = stageMessages[stage as keyof typeof stageMessages]
-      if (stageData && previousStage !== stage) {
+      if (stageData) {
         const stageMessage: StatusMessage = {
-          id: Date.now().toString(),
+          id: nextMessageId(),
           type: 'status',
           message: stageData.message,
           timestamp: new Date(),
@@ -319,6 +331,7 @@ function App() {
       
       // Update previous stage
       setPreviousStage(stage)
+      lastAnnouncedStageRef.current = stage
     }
   }, [stage, isProcessing, hasActivatedAriadne, addSessionMessage, previousStage])
 
@@ -342,7 +355,7 @@ function App() {
     
     // Add command to session history
     const commandMessage: StatusMessage = {
-      id: Date.now().toString(),
+      id: nextMessageId(),
       type: 'info',
       message: `> ${command}`,
       timestamp: new Date()
@@ -357,7 +370,7 @@ function App() {
         
         // Add success message to session history
         const successMessage: StatusMessage = {
-          id: (Date.now() + 1).toString(),
+          id: nextMessageId(),
           type: 'success',
           message: result.message,
           timestamp: new Date()
@@ -373,7 +386,7 @@ function App() {
         
         // Add error message to session history
         const errorMessage: StatusMessage = {
-          id: (Date.now() + 1).toString(),
+          id: nextMessageId(),
           type: 'error',
           message: result.message,
           timestamp: new Date()
@@ -387,7 +400,7 @@ function App() {
       
       // Add error to session history
       const errorMessage: StatusMessage = {
-        id: (Date.now() + 1).toString(),
+        id: nextMessageId(),
         type: 'error',
         message: errorMsg,
         timestamp: new Date()
@@ -463,7 +476,7 @@ function App() {
         
         // Add cancellation message
         const cancelMessage: StatusMessage = {
-          id: Date.now().toString(),
+          id: nextMessageId(),
           type: 'info',
           message: '⏹️ Processing cancelled by user',
           timestamp: new Date()
@@ -481,7 +494,7 @@ function App() {
         
         // Add test message
         const testMessage: StatusMessage = {
-          id: Date.now().toString(),
+          id: nextMessageId(),
           type: 'success',
           message: '✅ Navigation test - screens marked as completed',
           timestamp: new Date()
