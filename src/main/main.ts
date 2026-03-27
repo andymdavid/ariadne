@@ -13,6 +13,7 @@ import { ffmpegService } from './services/ffmpegService';
 
 let mainWindow: BrowserWindow | null = null;
 let activeProcessingJob: { jobId: string; filePath: string } | null = null;
+const allowedMediaPaths = new Set<string>();
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -88,7 +89,14 @@ app.whenReady().then(() => {
     console.log('Serving file via app-file protocol:', filePath)
     
     // Security check: ensure the file exists and is in a safe location
-    if (existsSync(filePath) && (filePath.includes(app.getPath('userData')) || filePath.includes('/tmp/'))) {
+    if (
+      existsSync(filePath) &&
+      (
+        filePath.includes(app.getPath('userData')) ||
+        filePath.includes('/tmp/') ||
+        allowedMediaPaths.has(filePath)
+      )
+    ) {
       callback({ path: filePath })
     } else {
       console.error('File not found or not in safe location:', filePath)
@@ -212,6 +220,26 @@ ipcMain.handle('get-episode', (event, episodeId: string) => {
 
 ipcMain.handle('get-episode-by-project', (event, projectId: string) => {
   return database.getEpisodeByProjectId(projectId);
+});
+
+ipcMain.handle('get-episode-media-source', (event, episodeId: string) => {
+  let episode = database.getEpisode(episodeId) as any;
+
+  if (!episode) {
+    episode = database.getEpisodeByProjectId(episodeId) as any;
+  }
+
+  if (!episode?.file_path) {
+    throw new Error('Episode media source not found');
+  }
+
+  allowedMediaPaths.add(episode.file_path);
+
+  return {
+    mediaUrl: `app-file://${episode.file_path}`,
+    filePath: episode.file_path,
+    duration: episode.duration || 0,
+  };
 });
 
 ipcMain.handle('get-transcript-segments', (event, episodeId: string) => {

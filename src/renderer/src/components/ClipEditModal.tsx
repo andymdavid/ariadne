@@ -52,7 +52,7 @@ export function ClipEditModal({
 }: ClipEditModalProps) {
   const [activeTab, setActiveTab] = useState<EditorTab>('duration')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
-  const [clipPath, setClipPath] = useState<string | null>(null)
+  const [mediaSourceUrl, setMediaSourceUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
@@ -70,6 +70,7 @@ export function ClipEditModal({
   const [episodeDuration, setEpisodeDuration] = useState<number | null>(null)
   const [showManualInputs, setShowManualInputs] = useState(false)
   const [allEpisodeSegments, setAllEpisodeSegments] = useState<any[]>([])
+  const pendingSeekTimeRef = useRef<number | null>(null)
 
   // Transcript tab state
   const [clipTranscriptSegments, setClipTranscriptSegments] = useState<any[]>([])
@@ -101,7 +102,7 @@ export function ClipEditModal({
   // Load clip video and caption style on mount
   useEffect(() => {
     if (isOpen && clipId && !saving) {
-      loadClipVideo()
+      loadSourceMedia()
       loadCaptionStyle()
       loadLogoSettings()
       loadMusicSettings()
@@ -369,6 +370,7 @@ export function ClipEditModal({
     if (!video || !audio || !musicSettings?.enabled || !musicSettings?.musicPath) return
 
     const handleVideoPlay = () => {
+      audio.currentTime = Math.max(0, video.currentTime - editedStartTime)
       audio.play().catch(err => console.error('Failed to play audio:', err))
     }
 
@@ -377,8 +379,8 @@ export function ClipEditModal({
     }
 
     const handleVideoSeeked = () => {
-      // Sync audio time with video time
-      audio.currentTime = video.currentTime
+      // Keep music aligned to the clip-relative playhead.
+      audio.currentTime = Math.max(0, video.currentTime - editedStartTime)
     }
 
     video.addEventListener('play', handleVideoPlay)
@@ -390,7 +392,7 @@ export function ClipEditModal({
       video.removeEventListener('pause', handleVideoPause)
       video.removeEventListener('seeked', handleVideoSeeked)
     }
-  }, [musicSettings?.enabled, musicSettings?.musicPath])
+  }, [editedStartTime, musicSettings?.enabled, musicSettings?.musicPath])
 
   // Sync blur video with main video
   useEffect(() => {
@@ -446,10 +448,12 @@ export function ClipEditModal({
     const clipRelativeSegments = clipTranscriptSegments
       .filter((seg: any) => seg.start_time >= editedStartTime && seg.end_time <= editedEndTime)
 
+    const clipRelativeCurrentTime = Math.max(0, currentTime - editedStartTime)
+
     const isDuringSpeech = clipRelativeSegments.some((seg: any) => {
       const segmentStart = seg.start_time - editedStartTime
       const segmentEnd = seg.end_time - editedStartTime
-      return currentTime >= segmentStart && currentTime <= segmentEnd
+      return clipRelativeCurrentTime >= segmentStart && clipRelativeCurrentTime <= segmentEnd
     })
 
     // Apply ducking - reduce volume during speech
@@ -498,7 +502,7 @@ export function ClipEditModal({
       } else {
         // Set default caption style
         console.log('[ClipEditModal] No existing edits, using defaults')
-        const defaultStyle = {
+        const defaultStyle: CaptionStyle = {
           enabled: true,
           font: 'Inter',
           size: 48,
@@ -506,7 +510,7 @@ export function ClipEditModal({
           position: 'bottom',
           customX: undefined,
           customY: undefined,
-          bold: true,
+          weight: 700,
           italic: false,
           outline: true,
           outlineColor: '#000000',
@@ -533,14 +537,27 @@ export function ClipEditModal({
   // Video event listeners
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !clipPath) return
+    if (!video || !mediaSourceUrl) return
 
-    const handleTimeUpdate = () => setCurrentTime(video.currentTime)
+    const handleTimeUpdate = () => {
+      const absoluteTime = video.currentTime
+      setCurrentTime(absoluteTime)
+
+      if (absoluteTime >= editedEndTime) {
+        video.pause()
+        video.currentTime = editedEndTime
+        setCurrentTime(editedEndTime)
+      }
+    }
     const handlePlay = () => setIsPlaying(true)
     const handlePause = () => setIsPlaying(false)
     const handleLoadedMetadata = () => {
       setDuration(video.duration)
       setLoading(false)
+      const seekTarget = pendingSeekTimeRef.current ?? editedStartTime
+      video.currentTime = seekTarget
+      setCurrentTime(seekTarget)
+      pendingSeekTimeRef.current = null
       console.log('Video metadata loaded, duration:', video.duration)
     }
     const handleError = () => {
@@ -575,38 +592,40 @@ export function ClipEditModal({
       video.removeEventListener('error', handleError)
       video.removeEventListener('canplay', handleCanPlay)
     }
-  }, [clipPath])
+  }, [editedEndTime, editedStartTime, mediaSourceUrl])
 
-  const loadClipVideo = async (useEditedTimes = false) => {
+  const seekSourceVideo = (absoluteTime: number) => {
+    const maxTime = episodeDuration ?? duration ?? absoluteTime
+    const boundedTime = Math.max(0, Math.min(absoluteTime, maxTime))
+
+    if (videoRef.current) {
+      videoRef.current.currentTime = boundedTime
+    }
+
+    setCurrentTime(boundedTime)
+  }
+
+  const loadSourceMedia = async () => {
     try {
-      console.log('loadClipVideo called, useEditedTimes:', useEditedTimes)
+      console.log('loadSourceMedia called')
       setLoading(true)
-      setClipPath(null) // Reset clip path to clear any previous video
+      pendingSeekTimeRef.current = editedStartTime
 
-      const startTime = useEditedTimes ? editedStartTime : clipData.startTime
-      const endTime = useEditedTimes ? editedEndTime : clipData.endTime
+      const result = await window.electronAPI?.getEpisodeMediaSource?.(episodeId)
 
-      console.log('Calling playClip with:', { episodeId, startTime, endTime, clipId })
+      console.log('getEpisodeMediaSource result:', result)
 
-      const result = await window.electronAPI?.playClip?.(
-        episodeId,
-        startTime,
-        endTime,
-        clipId
-      )
-
-      console.log('playClip result:', result)
-
-      if (result?.clipPath) {
-        const fullPath = `app-file://${result.clipPath}`
-        console.log('Setting clipPath to:', fullPath)
-        setClipPath(fullPath)
+      if (result?.mediaUrl) {
+        setMediaSourceUrl(result.mediaUrl)
+        if (result.duration) {
+          setEpisodeDuration(result.duration)
+        }
       } else {
-        console.warn('No clipPath in result, stopping loading')
+        console.warn('No mediaUrl in result, stopping loading')
         setLoading(false)
       }
     } catch (error) {
-      console.error('Failed to load clip video:', error)
+      console.error('Failed to load source media:', error)
       setLoading(false)
     }
   }
@@ -885,7 +904,7 @@ export function ClipEditModal({
     onClose()
   }
 
-  const buildEditsObject = (targetClipId: string, targetStartTime: number, targetEndTime: number) => {
+  const buildEditsObject = (_targetClipId: string, targetStartTime: number, targetEndTime: number) => {
     const allEdits: any = {}
 
     // Add caption style edits
@@ -1070,6 +1089,10 @@ export function ClipEditModal({
   const togglePlayPause = () => {
     if (videoRef.current) {
       if (videoRef.current.paused) {
+        if (videoRef.current.currentTime < editedStartTime || videoRef.current.currentTime >= editedEndTime) {
+          videoRef.current.currentTime = editedStartTime
+          setCurrentTime(editedStartTime)
+        }
         videoRef.current.play()
       } else {
         videoRef.current.pause()
@@ -1082,6 +1105,15 @@ export function ClipEditModal({
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
+
+  const formatPreciseTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    const ms = Math.round((seconds - Math.floor(seconds)) * 1000)
+    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`
+  }
+
+  const clipRelativeCurrentTime = Math.max(0, currentTime - editedStartTime)
 
   if (!isOpen) return null
 
@@ -1145,7 +1177,7 @@ export function ClipEditModal({
                   <div className="flex items-center justify-between gap-3 p-3 bg-gradient-to-br from-bg-secondary to-bg-tertiary rounded-lg border border-border-default shadow-sm">
                     <Button
                       onClick={() => {
-                        const absoluteTime = editedStartTime + currentTime
+                        const absoluteTime = currentTime
                         if (editedEndTime - absoluteTime >= 35) {
                           setEditedStartTime(absoluteTime)
                           setHasUnsavedChanges(true)
@@ -1155,7 +1187,7 @@ export function ClipEditModal({
                       }}
                       variant="outline"
                       size="sm"
-                      disabled={editedEndTime - (editedStartTime + currentTime) < 35}
+                      disabled={editedEndTime - currentTime < 35}
                       className="border-green-200 bg-green-50 hover:bg-green-100 text-green-700 hover:text-green-800 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <span className="mr-1.5">◀</span>
@@ -1165,16 +1197,16 @@ export function ClipEditModal({
                     <div className="text-center px-3">
                       <div className="text-xs text-text-muted">Playhead</div>
                       <div className="text-lg font-mono font-bold text-accent-primary">
-                        {formatTime(currentTime)}
+                        {formatPreciseTime(currentTime)}
                       </div>
                       <div className="text-xs text-text-muted">
-                        of {formatTime(editedEndTime - editedStartTime)}
+                        clip-relative {formatPreciseTime(clipRelativeCurrentTime)}
                       </div>
                     </div>
 
                     <Button
                       onClick={() => {
-                        const absoluteTime = editedStartTime + currentTime
+                        const absoluteTime = currentTime
                         if (absoluteTime - editedStartTime >= 35) {
                           setEditedEndTime(absoluteTime)
                           setHasUnsavedChanges(true)
@@ -1184,7 +1216,7 @@ export function ClipEditModal({
                       }}
                       variant="outline"
                       size="sm"
-                      disabled={editedStartTime + currentTime - editedStartTime < 35}
+                      disabled={currentTime - editedStartTime < 35}
                       className="border-red-200 bg-red-50 hover:bg-red-100 text-red-700 hover:text-red-800 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <span className="font-medium">Trim Right</span>
@@ -1202,7 +1234,7 @@ export function ClipEditModal({
                     // Calculate positions relative to extended timeline
                     const clipStartPercent = ((editedStartTime - timelineStart) / timelineExtent) * 100
                     const clipEndPercent = ((editedEndTime - timelineStart) / timelineExtent) * 100
-                    const playheadPercent = ((editedStartTime + currentTime - timelineStart) / timelineExtent) * 100
+                    const playheadPercent = ((currentTime - timelineStart) / timelineExtent) * 100
 
                     return (
                       <div className="space-y-3">
@@ -1216,13 +1248,7 @@ export function ClipEditModal({
                             // Calculate absolute time in episode from extended timeline
                             const absoluteTime = timelineStart + (percentage * timelineExtent)
 
-                            // Convert to clip-relative time
-                            const clipRelativeTime = absoluteTime - editedStartTime
-
-                            // Seek video to this position (clamped to clip bounds)
-                            if (videoRef.current) {
-                              videoRef.current.currentTime = Math.max(0, Math.min(clipRelativeTime, editedEndTime - editedStartTime))
-                            }
+                            seekSourceVideo(absoluteTime)
                           }}
                         >
                           {/* Subtle grid pattern */}
@@ -1324,7 +1350,7 @@ export function ClipEditModal({
                   {/* Live Transcript Preview */}
                   {allEpisodeSegments.length > 0 && (() => {
                     // Calculate absolute playhead position in episode
-                    const absolutePlayheadTime = editedStartTime + currentTime
+                    const absolutePlayheadTime = currentTime
 
                     // Find current, previous, and next segments
                     const currentSegmentIndex = allEpisodeSegments.findIndex((seg: any) =>
@@ -1415,13 +1441,16 @@ export function ClipEditModal({
                   {(editedStartTime !== clipData.startTime || editedEndTime !== clipData.endTime) && (
                     <div className="flex justify-center">
                       <Button
-                        onClick={() => loadClipVideo(true)}
+                        onClick={() => {
+                          seekSourceVideo(editedStartTime)
+                          videoRef.current?.play().catch(error => console.error('Failed to preview trim boundaries:', error))
+                        }}
                         variant="secondary"
                         size="sm"
                         className="flex items-center space-x-2"
                         disabled={loading}
                       >
-                        <span>{loading ? 'Loading...' : '🔄 Preview Changes'}</span>
+                        <span>{loading ? 'Loading...' : '🔄 Preview Boundaries'}</span>
                       </Button>
                     </div>
                   )}
@@ -1432,15 +1461,15 @@ export function ClipEditModal({
                       <div className="flex items-center gap-8">
                         <div className="space-y-1">
                           <div className="text-xs font-medium text-text-muted uppercase tracking-wide">Start</div>
-                          <div className="text-xl font-mono font-bold text-green-600 dark:text-green-500">{formatTime(editedStartTime)}</div>
+                          <div className="text-xl font-mono font-bold text-green-600 dark:text-green-500">{formatPreciseTime(editedStartTime)}</div>
                         </div>
                         <div className="space-y-1">
                           <div className="text-xs font-medium text-text-muted uppercase tracking-wide">End</div>
-                          <div className="text-xl font-mono font-bold text-red-600 dark:text-red-500">{formatTime(editedEndTime)}</div>
+                          <div className="text-xl font-mono font-bold text-red-600 dark:text-red-500">{formatPreciseTime(editedEndTime)}</div>
                         </div>
                         <div className="space-y-1 pl-8 border-l-2 border-border-default">
                           <div className="text-xs font-medium text-text-muted uppercase tracking-wide">Duration</div>
-                          <div className="text-xl font-mono font-bold text-accent-primary">{formatTime(editedEndTime - editedStartTime)}</div>
+                          <div className="text-xl font-mono font-bold text-accent-primary">{formatPreciseTime(editedEndTime - editedStartTime)}</div>
                         </div>
                       </div>
 
@@ -1466,8 +1495,8 @@ export function ClipEditModal({
                             type="number"
                             min={0}
                             max={editedEndTime - 35}
-                            step={0.1}
-                            value={editedStartTime.toFixed(1)}
+                            step={0.01}
+                            value={editedStartTime.toFixed(2)}
                             onChange={(e) => {
                               const newStart = parseFloat(e.target.value)
                               if (newStart >= 0 && editedEndTime - newStart >= 35) {
@@ -1484,8 +1513,8 @@ export function ClipEditModal({
                             type="number"
                             min={editedStartTime + 35}
                             max={episodeDuration || undefined}
-                            step={0.1}
-                            value={editedEndTime.toFixed(1)}
+                            step={0.01}
+                            value={editedEndTime.toFixed(2)}
                             onChange={(e) => {
                               const newEnd = parseFloat(e.target.value)
                               if (newEnd - editedStartTime >= 35) {
@@ -1638,7 +1667,7 @@ export function ClipEditModal({
               maxHeight: '100%'
             }}
           >
-            {/* Loading Overlay - shows even when no clipPath yet */}
+            {/* Loading Overlay - shows even when no media source yet */}
             {loading && (
               <div className="absolute inset-0 flex items-center justify-center text-white bg-black/70 z-10">
                 Loading video...
@@ -1662,14 +1691,14 @@ export function ClipEditModal({
             {/* Hidden audio element for music playback */}
             <audio ref={audioRef} style={{ display: 'none' }} />
 
-              {/* Always render video if we have a clipPath */}
-              {clipPath ? (
+              {/* Always render video if we have a media source */}
+              {mediaSourceUrl ? (
                 <>
                   {/* Blur background layer (only for blur mode) */}
                   {frameSettings?.cropMode === 'blur' && (
                     <video
                       ref={blurVideoRef}
-                      src={clipPath}
+                      src={mediaSourceUrl}
                       className="absolute inset-0 w-full h-full"
                       style={{
                         objectFit: 'cover',
@@ -1685,7 +1714,7 @@ export function ClipEditModal({
 
                   <video
                     ref={videoRef}
-                    src={clipPath}
+                    src={mediaSourceUrl}
                     className="absolute"
                     controls={false}
                     onLoadedMetadata={(e) => {
@@ -1787,7 +1816,7 @@ export function ClipEditModal({
 
                     // Find active segment based on current video time
                     const activeSegment = clipRelativeSegments.find(
-                      (seg: any) => currentTime >= seg.start && currentTime <= seg.end
+                      (seg: any) => clipRelativeCurrentTime >= seg.start && clipRelativeCurrentTime <= seg.end
                     )
 
                     if (!activeSegment) return null
@@ -1803,7 +1832,7 @@ export function ClipEditModal({
                     const renderCaption = () => {
                       const words = activeSegment.text.split(' ')
                       const segmentDuration = activeSegment.end - activeSegment.start
-                      const timeInSegment = currentTime - activeSegment.start
+                      const timeInSegment = clipRelativeCurrentTime - activeSegment.start
 
                       if (captionStyle.highlightStyle === 'word') {
                         // Word-by-word: show N words at a time based on wordsPerCaption setting
@@ -1819,7 +1848,7 @@ export function ClipEditModal({
 
                         // If only showing 1 word, keep it fully highlighted (opacity 1)
                         // If showing 2+ words, use word-by-word highlighting
-                        return wordsToShow.map((word, idx) => {
+                        return wordsToShow.map((word: string, idx: number) => {
                           const isActive = idx === 0 // First word in the slice is always the "current" word
                           const shouldHighlight = wordsPerCaption === 1 || isActive
 
@@ -2009,17 +2038,16 @@ export function ClipEditModal({
                   {!loading && (
                     <div className="absolute bottom-4 left-4 right-4 bg-black/50 rounded-lg p-2" style={{ zIndex: 40 }}>
                       <div className="text-white text-xs mb-1 text-center">
-                        {formatTime(currentTime)} / {formatTime(duration)}
+                        {formatPreciseTime(clipRelativeCurrentTime)} / {formatPreciseTime(editedEndTime - editedStartTime)}
                       </div>
                       <input
                         type="range"
-                        min={0}
-                        max={duration || 0}
-                        value={currentTime}
+                        min={editedStartTime}
+                        max={editedEndTime}
+                        step={0.01}
+                        value={Math.max(editedStartTime, Math.min(currentTime, editedEndTime))}
                         onChange={(e) => {
-                          if (videoRef.current) {
-                            videoRef.current.currentTime = parseFloat(e.target.value)
-                          }
+                          seekSourceVideo(parseFloat(e.target.value))
                         }}
                         className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
                       />

@@ -19,9 +19,13 @@ declare global {
       getProject: (projectId: string) => Promise<any>;
       getEpisode: (episodeId: string) => Promise<any>;
       getEpisodeByProject: (projectId: string) => Promise<any>;
+      getEpisodeMediaSource: (episodeId: string) => Promise<{ mediaUrl: string; filePath: string; duration: number }>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       getClip: (clipId: string) => Promise<any>;
+      getTranscriptSegments: (episodeId: string) => Promise<any[]>;
+      updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) => Promise<any>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;
+      updateClipBoundaries: (clipId: string, startTime: number, endTime: number) => Promise<any>;
       getApprovedClips: (episodeId: string) => Promise<any[]>;
       cleanupDatabase: () => Promise<any>;
       nukeAllProjects: () => Promise<any>;
@@ -44,6 +48,10 @@ declare global {
       getClipDescriptions: (clipId: string) => Promise<any[]>;
       selectClipTitle: (titleId: string, clipId: string) => Promise<any>;
       selectClipDescription: (descriptionId: string, clipId: string) => Promise<any>;
+      getClipEdits: (clipId: string) => Promise<any>;
+      saveClipEdits: (clipId: string, edits: any) => Promise<any>;
+      deleteClipEdits: (clipId: string) => Promise<any>;
+      getClipTranscriptSegments: (clipId: string) => Promise<any[]>;
 
       // Event listeners
       onProcessingUpdate: (callback: (data: ProcessingProgress) => void) => () => void;

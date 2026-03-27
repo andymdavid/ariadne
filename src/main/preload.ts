@@ -26,6 +26,7 @@ const electronAPI = {
   getProject: (projectId: string) => ipcRenderer.invoke('get-project', projectId),
   getEpisode: (episodeId: string) => ipcRenderer.invoke('get-episode', episodeId),
   getEpisodeByProject: (projectId: string) => ipcRenderer.invoke('get-episode-by-project', projectId),
+  getEpisodeMediaSource: (episodeId: string) => ipcRenderer.invoke('get-episode-media-source', episodeId),
   getEpisodeClips: (episodeId: string) => ipcRenderer.invoke('get-episode-clips', episodeId),
   getClip: (clipId: string) => ipcRenderer.invoke('get-clip', clipId),
   getTranscriptSegments: (episodeId: string) => ipcRenderer.invoke('get-transcript-segments', episodeId),
@@ -135,6 +136,7 @@ declare global {
       getProject: (projectId: string) => Promise<any>;
       getEpisode: (episodeId: string) => Promise<any>;
       getEpisodeByProject: (projectId: string) => Promise<any>;
+      getEpisodeMediaSource: (episodeId: string) => Promise<{ mediaUrl: string; filePath: string; duration: number }>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       getClip: (clipId: string) => Promise<any>;
       getTranscriptSegments: (episodeId: string) => Promise<any[]>;
