@@ -65,6 +65,7 @@ class ProcessingPipeline {
       this.sendProgress(window, {
         stage: 'uploading',
         progress: 5,
+        stageProgress: 5,
         message: 'Setting up project...'
       })
       
@@ -76,6 +77,7 @@ class ProcessingPipeline {
       this.sendProgress(window, {
         stage: 'extracting',
         progress: 10,
+        stageProgress: 0,
         message: 'Analyzing media file...'
       })
       
@@ -91,6 +93,7 @@ class ProcessingPipeline {
       this.sendProgress(window, {
         stage: 'extracting',
         progress: 15,
+        stageProgress: 33,
         message: 'Extracting audio for transcription...'
       })
       
@@ -105,6 +108,7 @@ class ProcessingPipeline {
             this.sendProgress(window, {
               stage: 'extracting',
               progress: 15 + (progress * 0.15), // 15-30%
+              stageProgress: progress,
               message: 'Extracting audio...'
             })
           }
@@ -121,6 +125,7 @@ class ProcessingPipeline {
       this.sendProgress(window, {
         stage: 'transcribing',
         progress: 30,
+        stageProgress: 0,
         message: 'Transcribing audio with Whisper...',
         timeRemaining: this.estimateTranscriptionTime(mediaInfo.duration),
         thinkingMessage: 'listening carefully...'
@@ -137,6 +142,7 @@ class ProcessingPipeline {
         this.sendProgress(window, {
           stage: 'transcribing',
           progress: 30,
+          stageProgress: 0,
           message: 'Large file detected, splitting into chunks...',
           thinkingMessage: 'preparing audio segments...'
         });
@@ -160,6 +166,7 @@ class ProcessingPipeline {
             this.sendProgress(window, {
               stage: 'transcribing',
               progress: 30 + (totalProgress * 0.35 / 100), // 30-65%
+              stageProgress: totalProgress,
               message: `Transcribing chunk ${chunkIndex + 1}/${chunks.length}...`,
               timeRemaining,
               thinkingMessage: this.getThinkingMessage('chunked', chunkIndex),
@@ -189,6 +196,7 @@ class ProcessingPipeline {
             this.sendProgress(window, {
               stage: 'transcribing',
               progress: 30 + (progress * 0.35), // 30-65%
+              stageProgress: progress,
               message: 'Transcribing audio...',
               timeRemaining,
               thinkingMessage: this.getThinkingMessage('transcribing'),
@@ -206,6 +214,7 @@ class ProcessingPipeline {
       this.sendProgress(window, {
         stage: 'analyzing',
         progress: 65,
+        stageProgress: 0,
         message: this.aiService
           ? 'Analyzing content for clip suggestions...'
           : 'Transcription completed. Skipping AI clip analysis...'
@@ -219,6 +228,7 @@ class ProcessingPipeline {
         this.sendProgress(window, {
           stage: 'analyzing',
           progress: 90,
+          stageProgress: 100,
           message: 'Transcript saved. Add an OpenRouter key to enable clip suggestions.'
         })
       } else {
@@ -230,6 +240,7 @@ class ProcessingPipeline {
               this.sendProgress(window, {
                 stage: 'analyzing',
                 progress: 65 + (progress * 0.25), // 65-90%
+                stageProgress: progress,
                 message: 'AI analyzing content...'
               })
             }
@@ -246,6 +257,7 @@ class ProcessingPipeline {
           this.sendProgress(window, {
             stage: 'analyzing',
             progress: 90,
+            stageProgress: 100,
             message: 'AI analysis failed - transcript saved successfully'
           })
         }
@@ -259,6 +271,7 @@ class ProcessingPipeline {
         this.sendProgress(window, {
           stage: 'generating',
           progress: 90,
+          stageProgress: 0,
           message: 'Generating titles and descriptions...'
         })
 
@@ -269,6 +282,7 @@ class ProcessingPipeline {
               this.sendProgress(window, {
                 stage: 'generating',
                 progress: 90 + (progress * 0.1), // 90-100%
+                stageProgress: progress,
                 message: 'Generating content packages...'
               })
             }
@@ -282,6 +296,7 @@ class ProcessingPipeline {
         this.sendProgress(window, {
           stage: 'generating',
           progress: 95,
+          stageProgress: 100,
           message: 'Transcript processing completed'
         })
       }
@@ -299,6 +314,7 @@ class ProcessingPipeline {
       this.sendProgress(window, {
         stage: 'completed',
         progress: 100,
+        stageProgress: 100,
         message: `Found ${analysis.potentialClips.length} potential clips!`
       })
       
@@ -325,6 +341,7 @@ class ProcessingPipeline {
       this.sendProgress(window, {
         stage: 'completed',
         progress: 100,
+        stageProgress: 100,
         message: finalMessage
       })
       

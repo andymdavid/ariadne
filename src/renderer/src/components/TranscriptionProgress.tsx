@@ -65,7 +65,7 @@ const stageLabels = {
 }
 
 export function TranscriptionProgress() {
-  const { stage, progress, message, timeRemaining } = useProcessingStore()
+  const { stage, progress, stageProgress, message, timeRemaining } = useProcessingStore()
   
   const [currentThinkingMessage, setCurrentThinkingMessage] = useState('')
   const [messageIndex, setMessageIndex] = useState(0)
@@ -112,11 +112,23 @@ export function TranscriptionProgress() {
     return `${remainingSeconds}s remaining`
   }
 
-  const getProgressLabel = () => {
-    if (stage === 'transcribing' || stage === 'analyzing' || stage === 'generating') {
-      return `${Math.round(progress)}% overall`
+  const resolvedStageProgress = Math.max(0, Math.min(100, stageProgress ?? progress))
+
+  const showDualProgress = stage === 'transcribing' || stage === 'analyzing' || stage === 'generating'
+
+  const getOverallLabel = () => `${Math.round(progress)}% overall`
+
+  const getStageLabel = () => {
+    switch (stage) {
+      case 'transcribing':
+        return `${Math.round(resolvedStageProgress)}% of transcription`
+      case 'analyzing':
+        return `${Math.round(resolvedStageProgress)}% of analysis`
+      case 'generating':
+        return `${Math.round(resolvedStageProgress)}% of generation`
+      default:
+        return `${Math.round(progress)}% complete`
     }
-    return `${Math.round(progress)}% complete`
   }
 
   return (
@@ -139,6 +151,21 @@ export function TranscriptionProgress() {
 
       {/* Progress Bar */}
       <div className="space-y-3">
+        {showDualProgress && (
+          <div className="space-y-2">
+            <div className="flex justify-between items-center text-xs uppercase tracking-[0.12em] text-text-muted">
+              <span>Current Stage</span>
+              <span>{getStageLabel()}</span>
+            </div>
+            <div className="w-full bg-bg-tertiary rounded-full h-2 shadow-inner">
+              <div
+                className="bg-gradient-to-r from-accent-secondary to-accent-primary h-2 rounded-full transition-all duration-500 ease-out shadow-sm"
+                style={{ width: `${Math.max(resolvedStageProgress, 1)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="w-full bg-bg-tertiary rounded-full h-3 shadow-inner">
           <div 
             className="bg-gradient-to-r from-accent-primary to-accent-secondary h-3 rounded-full transition-all duration-500 ease-out shadow-sm"
@@ -147,7 +174,7 @@ export function TranscriptionProgress() {
         </div>
         
         <div className="flex justify-between items-center text-sm text-text-muted">
-          <span>{getProgressLabel()}</span>
+          <span>{showDualProgress ? getOverallLabel() : getStageLabel()}</span>
           {timeRemaining && (
             <span>{formatTimeRemaining(timeRemaining)}</span>
           )}

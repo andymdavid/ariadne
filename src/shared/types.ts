@@ -59,6 +59,7 @@ export interface ContentPackage {
 export interface ProcessingProgress {
   stage: 'uploading' | 'extracting' | 'transcribing' | 'analyzing' | 'generating' | 'completed';
   progress: number;
+  stageProgress?: number;
   message: string;
   timeRemaining?: number;
   thinkingMessage?: string;
