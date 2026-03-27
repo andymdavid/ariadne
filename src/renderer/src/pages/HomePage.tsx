@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProcessingStore } from '../stores/processingStore'
 import { useProjectStore } from '../stores/projectStore'
@@ -8,9 +8,7 @@ import { MainContentPanel } from '../components/MainContentPanel'
 export function HomePage() {
   const [isDragOver, setIsDragOver] = useState(false)
   const navigate = useNavigate()
-  const { isProcessing, setProcessing, updateProgress, reset } = useProcessingStore()
-  const { currentEpisode } = useProjectStore()
-
+  const { isProcessing, setProcessing, updateProgress, reset, setActiveJobId } = useProcessingStore()
   // IPC listeners are now handled by useProcessingUpdates hook in App.tsx
 
 
@@ -28,6 +26,7 @@ export function HomePage() {
   const startProcessing = async (filePath: string) => {
     // Reset store and set initial state
     reset()
+    setActiveJobId(undefined)
     setProcessing(true)
     updateProgress({
       stage: 'uploading',
@@ -54,16 +53,18 @@ export function HomePage() {
           console.log('Processing completed via IPC:', data)
           clearTimeout(timeoutId)
           cleanup?.() // Remove listener
+          errorCleanup?.()
           resolve(data)
         })
         
         // Set up error listener  
         const errorCleanup = window.electronAPI?.onProcessingError?.((error) => {
+          const errorMessage = typeof error === 'string' ? error : error.message
           console.error('Processing failed via IPC:', error)
           clearTimeout(timeoutId)
           cleanup?.()
           errorCleanup?.()
-          reject(new Error(error))
+          reject(new Error(errorMessage))
         })
         
         // Timeout after 20 minutes (AI analysis can take longer for long episodes)
@@ -75,17 +76,17 @@ export function HomePage() {
         }, 20 * 60 * 1000)
       })
       
-      // Start processing (fire-and-forget, result comes via IPC)
-      try {
-        window.electronAPI.processEpisode(filePath, projectName)
-        console.log('Processing started, waiting for IPC completion...')
-      } catch (startError) {
-        console.error('Failed to start processing:', startError)
-        throw startError
-      }
+      const processRequest = window.electronAPI
+        .processEpisode(filePath, projectName)
+        .catch((startError) => {
+          console.error('Failed to start processing:', startError)
+          throw startError
+        })
+
+      console.log('Processing started, waiting for completion...')
       
-      // Wait for completion via IPC events
-      const result = await processingCompletePromise
+      // Wait for completion via IPC events, but still surface immediate IPC invoke failures.
+      const result = await Promise.race([processingCompletePromise, processRequest])
       
       console.log('Processing completed successfully:', result)
       

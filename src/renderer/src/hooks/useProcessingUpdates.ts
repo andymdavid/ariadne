@@ -1,24 +1,27 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useProcessingStore } from '../stores/processingStore'
 import { useProjectStore } from '../stores/projectStore'
+import type { ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload } from '@shared/types'
 
 export function useProcessingUpdates() {
-  const { updateProgress, setProcessing } = useProcessingStore()
+  const { updateProgress, setProcessing, activeJobId, setActiveJobId } = useProcessingStore()
   const { 
     setProcessingStatus, 
     setFullTranscript, 
-    setTranscriptSegments, 
     setClips,
     markScreenCompleted,
     setCurrentEpisode,
-    saveCurrentProject,
-    fileInfo
   } = useProjectStore()
   
   // Singleton episode ID to prevent race conditions
   const episodeIdRef = useRef<string | null>(null)
   const uploadStageUnlockedRef = useRef(false)
   const reviewStageUnlockedRef = useRef(false)
+  const activeJobIdRef = useRef<string | undefined>(activeJobId)
+
+  useEffect(() => {
+    activeJobIdRef.current = activeJobId
+  }, [activeJobId])
 
   // Multi-tier auto-save implementation
   const triggerAutoSave = useCallback((level: 'level1' | 'level2' | 'level3', reason: string) => {
@@ -57,11 +60,12 @@ export function useProcessingUpdates() {
           console.log(`AUTO-SAVE ${level}: Creating new episode with ID ${episodeIdRef.current} because no currentEpisode exists`)
           const basicEpisode = {
             id: episodeIdRef.current,
-            title: state.fileInfo.name.replace(/\.[^/.]+$/, ''),
-            description: `${reason} - ${new Date().toLocaleDateString()}`,
+            projectId: state.currentProject?.id ?? 'local-session',
+            fileName: state.fileInfo.name,
+            filePath: state.fileInfo.path,
             duration: state.fileInfo.duration || 0,
             createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            processingStatus: 'pending' as const
           }
           state.setCurrentEpisode(basicEpisode)
           console.log(`AUTO-SAVE ${level}: Created episode`, episodeIdRef.current, 'for reason:', reason)
@@ -92,7 +96,17 @@ export function useProcessingUpdates() {
 
   useEffect(() => {
     // Set up processing update listener
-    const cleanup = window.electronAPI?.onProcessingUpdate?.((data) => {
+    const cleanup = window.electronAPI?.onProcessingUpdate?.((data: ProcessingProgress) => {
+      if (data.jobId) {
+        if (!activeJobIdRef.current) {
+          activeJobIdRef.current = data.jobId
+          setActiveJobId(data.jobId)
+        } else if (activeJobIdRef.current !== data.jobId) {
+          console.log('Ignoring stale processing update for foreign job:', data.jobId)
+          return
+        }
+      }
+
       console.log('Received processing update:', data)
       
       // Reset episode ID singleton when a new processing session starts
@@ -100,6 +114,10 @@ export function useProcessingUpdates() {
         episodeIdRef.current = null
         uploadStageUnlockedRef.current = false
         reviewStageUnlockedRef.current = false
+        if (data.jobId) {
+          activeJobIdRef.current = data.jobId
+          setActiveJobId(data.jobId)
+        }
         console.log('🔄 PROCESSING START: Reset singleton episode ID for new session')
       }
       
@@ -145,7 +163,12 @@ export function useProcessingUpdates() {
     })
 
     // Set up processing complete listener
-    const cleanupComplete = window.electronAPI?.onProcessingComplete?.(async (data) => {
+    const cleanupComplete = window.electronAPI?.onProcessingComplete?.(async (data: ProcessingResultPayload) => {
+      if (data.jobId && activeJobIdRef.current && data.jobId !== activeJobIdRef.current) {
+        console.log('Ignoring stale processing completion for foreign job:', data.jobId)
+        return
+      }
+
       console.log('Processing complete:', data)
       
       // Enhanced database sync: Load complete project data from multiple sources
@@ -223,7 +246,7 @@ export function useProcessingUpdates() {
         if (!state.fileInfo && data.episodeId) {
           // Try to reconstruct file info from available data
           const reconstructedFileInfo = {
-            name: state.currentEpisode?.title || 'Unknown File',
+            name: state.currentEpisode?.fileName || 'Unknown File',
             path: '', // Path may not be available after processing
             size: 0, // Will be updated if available
             duration: state.currentEpisode?.duration || 0,
@@ -244,6 +267,9 @@ export function useProcessingUpdates() {
       
       // LEVEL 3: Full project with clips completed
       triggerAutoSave('level3', 'Full processing completed with clips')
+      setProcessing(false)
+      setActiveJobId(undefined)
+      activeJobIdRef.current = undefined
       
       // Don't immediately reset processing state - let the main process handle navigation
       updateProgress({ 
@@ -256,9 +282,18 @@ export function useProcessingUpdates() {
     })
 
     // Set up processing error listener
-    const cleanupError = window.electronAPI?.onProcessingError?.((error) => {
-      console.error('Processing error:', error)
+    const cleanupError = window.electronAPI?.onProcessingError?.((error: ProcessingErrorPayload | string) => {
+      const errorPayload = typeof error === 'string' ? { message: error } : error
+
+      if (errorPayload.jobId && activeJobIdRef.current && errorPayload.jobId !== activeJobIdRef.current) {
+        console.log('Ignoring stale processing error for foreign job:', errorPayload.jobId)
+        return
+      }
+
+      console.error('Processing error:', errorPayload.message)
       setProcessing(false)
+      setActiveJobId(undefined)
+      activeJobIdRef.current = undefined
       
       // EMERGENCY ERROR HANDLING: Don't reset everything, preserve what we have
       const state = useProjectStore.getState()
@@ -275,11 +310,12 @@ export function useProcessingUpdates() {
             if (state.fileInfo && !state.currentEpisode) {
               const basicEpisode = {
                 id: Date.now().toString(),
-                title: state.fileInfo.name.replace(/\.[^/.]+$/, ''),
-                description: `Transcription completed (AI analysis failed)`,
+                projectId: state.currentProject?.id ?? 'local-session',
+                fileName: state.fileInfo.name,
+                filePath: state.fileInfo.path,
                 duration: state.fileInfo.duration || 0,
                 createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
+                processingStatus: 'error' as const
               }
               state.setCurrentEpisode(basicEpisode)
             }
@@ -297,7 +333,7 @@ export function useProcessingUpdates() {
       updateProgress({ 
         stage: state.fullTranscript.length > 0 ? 'analyzing' : 'uploading', 
         progress: state.fullTranscript.length > 0 ? 70 : 0, 
-        message: `Processing failed: ${error}. ${state.fullTranscript.length > 0 ? 'Transcript saved - you can review it now.' : 'Please try again.'}` 
+        message: `Processing failed: ${errorPayload.message}. ${state.fullTranscript.length > 0 ? 'Transcript saved - you can review it now.' : 'Please try again.'}` 
       })
     })
 
@@ -307,5 +343,5 @@ export function useProcessingUpdates() {
       cleanupComplete?.()
       cleanupError?.()
     }
-  }, [updateProgress, setProcessing])
+  }, [setActiveJobId, updateProgress, setProcessing])
 }

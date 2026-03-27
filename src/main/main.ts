@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron';
+import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { existsSync, createReadStream } from 'fs';
 import { database } from './database/database';
@@ -11,6 +12,7 @@ import { ffmpegService } from './services/ffmpegService';
 // TODO: Add electron-reload for development
 
 let mainWindow: BrowserWindow | null = null;
+let activeProcessingJob: { jobId: string; filePath: string } | null = null;
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -148,11 +150,22 @@ ipcMain.handle('get-app-version', () => {
 
 // Processing handlers
 ipcMain.handle('process-episode', async (event, filePath: string, projectName?: string) => {
+  if (activeProcessingJob) {
+    throw new Error(`Processing already in progress for job ${activeProcessingJob.jobId}`);
+  }
+
+  const jobId = randomUUID();
+  activeProcessingJob = { jobId, filePath };
+
   try {
-    const result = await processingPipeline.processEpisode(filePath, projectName, mainWindow!);
+    const result = await processingPipeline.processEpisode(filePath, projectName, mainWindow!, jobId);
     return result;
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : 'Processing failed');
+  } finally {
+    if (activeProcessingJob?.jobId === jobId) {
+      activeProcessingJob = null;
+    }
   }
 });
 

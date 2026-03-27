@@ -57,6 +57,7 @@ export interface ContentPackage {
 }
 
 export interface ProcessingProgress {
+  jobId?: string;
   stage: 'uploading' | 'extracting' | 'transcribing' | 'analyzing' | 'generating' | 'completed';
   progress: number;
   stageProgress?: number;
@@ -66,6 +67,21 @@ export interface ProcessingProgress {
   estimatedTimeRemaining?: number;
   partialTranscript?: string;
   recentTranscriptLines?: string[];
+}
+
+export interface ProcessingResultPayload {
+  jobId?: string;
+  projectId: string;
+  episodeId: string;
+  clipsFound: number;
+  processingTime: number;
+  aiAnalysisSucceeded?: boolean;
+  hasTranscript?: boolean;
+}
+
+export interface ProcessingErrorPayload {
+  jobId?: string;
+  message: string;
 }
 
 export interface APIConfig {

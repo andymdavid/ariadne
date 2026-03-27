@@ -1,3 +1,5 @@
+import type { ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload } from '@shared/types'
+
 // Electron API types for renderer process
 
 declare global {
@@ -44,9 +46,9 @@ declare global {
       selectClipDescription: (descriptionId: string, clipId: string) => Promise<any>;
 
       // Event listeners
-      onProcessingUpdate: (callback: (data: any) => void) => () => void;
-      onProcessingComplete: (callback: (data: any) => void) => () => void;
-      onProcessingError: (callback: (error: string) => void) => () => void;
+      onProcessingUpdate: (callback: (data: ProcessingProgress) => void) => () => void;
+      onProcessingComplete: (callback: (data: ProcessingResultPayload) => void) => () => void;
+      onProcessingError: (callback: (error: ProcessingErrorPayload | string) => void) => () => void;
       onClipExtractionProgress: (callback: (data: any) => void) => () => void;
       onExportProgress: (callback: (job: any) => void) => () => void;
       onDatabaseCleaned: (callback: (result: any) => void) => () => void;

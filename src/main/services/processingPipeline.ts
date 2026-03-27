@@ -6,7 +6,11 @@ import { ffmpegService } from './ffmpegService'
 import AIService from './aiService'
 import LocalWhisperService from './localWhisperService'
 import { configService } from './configService'
-import type { ProcessingProgress } from '@shared/types'
+import type {
+  ProcessingErrorPayload,
+  ProcessingProgress,
+  ProcessingResultPayload
+} from '@shared/types'
 import type { AudioChunk } from './clipSelectionTypes'
 
 export interface ProcessingResult {
@@ -46,7 +50,8 @@ class ProcessingPipeline {
   async processEpisode(
     filePath: string,
     projectName?: string,
-    window?: BrowserWindow
+    window?: BrowserWindow,
+    jobId?: string
   ): Promise<ProcessingResult> {
     console.log('Starting processEpisode with file:', filePath)
     const startTime = Date.now()
@@ -63,6 +68,7 @@ class ProcessingPipeline {
       
       // Step 1: Create project and episode records
       this.sendProgress(window, {
+        jobId,
         stage: 'uploading',
         progress: 5,
         stageProgress: 5,
@@ -75,6 +81,7 @@ class ProcessingPipeline {
       // Step 2: Extract audio and get media info
       console.log('Starting media info extraction for:', filePath)
       this.sendProgress(window, {
+        jobId,
         stage: 'extracting',
         progress: 10,
         stageProgress: 0,
@@ -91,6 +98,7 @@ class ProcessingPipeline {
       }
       
       this.sendProgress(window, {
+        jobId,
         stage: 'extracting',
         progress: 15,
         stageProgress: 33,
@@ -106,6 +114,7 @@ class ProcessingPipeline {
           undefined,
           (progress) => {
             this.sendProgress(window, {
+              jobId,
               stage: 'extracting',
               progress: 15 + (progress * 0.15), // 15-30%
               stageProgress: progress,
@@ -123,6 +132,7 @@ class ProcessingPipeline {
       console.log('Starting transcription stage...')
       const transcriptionStartedAt = Date.now()
       this.sendProgress(window, {
+        jobId,
         stage: 'transcribing',
         progress: 30,
         stageProgress: 0,
@@ -140,6 +150,7 @@ class ProcessingPipeline {
         // Split large audio file into chunks
         console.log('Large file detected, will split into chunks')
         this.sendProgress(window, {
+          jobId,
           stage: 'transcribing',
           progress: 30,
           stageProgress: 0,
@@ -164,6 +175,7 @@ class ProcessingPipeline {
               mediaInfo.duration
             )
             this.sendProgress(window, {
+              jobId,
               stage: 'transcribing',
               progress: 30 + (totalProgress * 0.35 / 100), // 30-65%
               stageProgress: totalProgress,
@@ -194,6 +206,7 @@ class ProcessingPipeline {
               mediaInfo.duration
             )
             this.sendProgress(window, {
+              jobId,
               stage: 'transcribing',
               progress: 30 + (progress * 0.35), // 30-65%
               stageProgress: progress,
@@ -212,6 +225,7 @@ class ProcessingPipeline {
       
       // Step 5: AI content analysis with graceful degradation
       this.sendProgress(window, {
+        jobId,
         stage: 'analyzing',
         progress: 65,
         stageProgress: 0,
@@ -226,6 +240,7 @@ class ProcessingPipeline {
       if (!this.aiService) {
         analysis = { potentialClips: [] }
         this.sendProgress(window, {
+          jobId,
           stage: 'analyzing',
           progress: 90,
           stageProgress: 100,
@@ -238,6 +253,7 @@ class ProcessingPipeline {
             mediaInfo.duration,
             (progress) => {
               this.sendProgress(window, {
+                jobId,
                 stage: 'analyzing',
                 progress: 65 + (progress * 0.25), // 65-90%
                 stageProgress: progress,
@@ -255,6 +271,7 @@ class ProcessingPipeline {
           aiAnalysisSucceeded = false
           
           this.sendProgress(window, {
+            jobId,
             stage: 'analyzing',
             progress: 90,
             stageProgress: 100,
@@ -269,6 +286,7 @@ class ProcessingPipeline {
       // Step 7: Generate content packages (only if we have clips)
       if (aiAnalysisSucceeded && storedClips.length > 0) {
         this.sendProgress(window, {
+          jobId,
           stage: 'generating',
           progress: 90,
           stageProgress: 0,
@@ -280,6 +298,7 @@ class ProcessingPipeline {
             storedClips.slice(0, 10), // Top 10 clips with IDs
             (progress) => {
               this.sendProgress(window, {
+                jobId,
                 stage: 'generating',
                 progress: 90 + (progress * 0.1), // 90-100%
                 stageProgress: progress,
@@ -294,6 +313,7 @@ class ProcessingPipeline {
       } else {
         console.log('Skipping content generation - no clips available')
         this.sendProgress(window, {
+          jobId,
           stage: 'generating',
           progress: 95,
           stageProgress: 100,
@@ -312,6 +332,7 @@ class ProcessingPipeline {
       })
       
       this.sendProgress(window, {
+        jobId,
         stage: 'completed',
         progress: 100,
         stageProgress: 100,
@@ -320,7 +341,8 @@ class ProcessingPipeline {
       
       const processingTime = (Date.now() - startTime) / 1000
       
-      const result = {
+      const result: ProcessingResultPayload = {
+        jobId,
         projectId,
         episodeId,
         clipsFound: analysis.potentialClips.length,
@@ -339,6 +361,7 @@ class ProcessingPipeline {
         : `Transcription completed! AI analysis failed but transcript is saved.`
         
       this.sendProgress(window, {
+        jobId,
         stage: 'completed',
         progress: 100,
         stageProgress: 100,
@@ -355,9 +378,12 @@ class ProcessingPipeline {
         database.updateEpisodeStatus(episodeId, 'error')
       }
       
-      window?.webContents.send('processing-error', 
-        error instanceof Error ? error.message : 'Unknown processing error'
-      )
+      const errorPayload: ProcessingErrorPayload = {
+        jobId,
+        message: error instanceof Error ? error.message : 'Unknown processing error'
+      }
+
+      window?.webContents.send('processing-error', errorPayload)
       
       throw error
     }

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload } from '@shared/types';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -76,20 +77,23 @@ const electronAPI = {
   listMusic: () => ipcRenderer.invoke('list-music'),
 
   // Event listeners for IPC
-  onProcessingUpdate: (callback: (data: any) => void) => {
-    ipcRenderer.on('processing-update', (_, data) => callback(data));
+  onProcessingUpdate: (callback: (data: ProcessingProgress) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, data: ProcessingProgress) => callback(data);
+    ipcRenderer.on('processing-update', listener);
     // Return cleanup function
-    return () => ipcRenderer.removeAllListeners('processing-update');
+    return () => ipcRenderer.removeListener('processing-update', listener);
   },
   
-  onProcessingComplete: (callback: (data: any) => void) => {
-    ipcRenderer.on('processing-complete', (_, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('processing-complete');
+  onProcessingComplete: (callback: (data: ProcessingResultPayload) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, data: ProcessingResultPayload) => callback(data);
+    ipcRenderer.on('processing-complete', listener);
+    return () => ipcRenderer.removeListener('processing-complete', listener);
   },
   
-  onProcessingError: (callback: (error: string) => void) => {
-    ipcRenderer.on('processing-error', (_, error) => callback(error));
-    return () => ipcRenderer.removeAllListeners('processing-error');
+  onProcessingError: (callback: (error: ProcessingErrorPayload | string) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, error: ProcessingErrorPayload | string) => callback(error);
+    ipcRenderer.on('processing-error', listener);
+    return () => ipcRenderer.removeListener('processing-error', listener);
   },
   
   onClipExtractionProgress: (callback: (data: any) => void) => {
@@ -163,9 +167,9 @@ declare global {
       listMusic: () => Promise<string[]>;
 
       // Event listeners
-      onProcessingUpdate: (callback: (data: any) => void) => () => void;
-      onProcessingComplete: (callback: (data: any) => void) => () => void;
-      onProcessingError: (callback: (error: string) => void) => () => void;
+      onProcessingUpdate: (callback: (data: ProcessingProgress) => void) => () => void;
+      onProcessingComplete: (callback: (data: ProcessingResultPayload) => void) => () => void;
+      onProcessingError: (callback: (error: ProcessingErrorPayload | string) => void) => () => void;
       onClipExtractionProgress: (callback: (data: any) => void) => () => void;
       onDatabaseCleaned: (callback: (result: any) => void) => () => void;
     };

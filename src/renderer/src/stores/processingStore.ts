@@ -3,7 +3,9 @@ import type { ProcessingProgress } from '@shared/types'
 
 interface ProcessingStore extends ProcessingProgress {
   isProcessing: boolean
+  activeJobId?: string
   setProcessing: (processing: boolean) => void
+  setActiveJobId: (jobId?: string) => void
   updateProgress: (update: Partial<ProcessingProgress>) => void
   reset: () => void
 }
@@ -19,8 +21,11 @@ const initialState: ProcessingProgress = {
 export const useProcessingStore = create<ProcessingStore>((set) => ({
   ...initialState,
   isProcessing: false,
+  activeJobId: undefined,
   
   setProcessing: (processing) => set({ isProcessing: processing }),
+
+  setActiveJobId: (jobId) => set({ activeJobId: jobId }),
   
   updateProgress: (update) => set((state) => ({
     ...state,
@@ -30,5 +35,6 @@ export const useProcessingStore = create<ProcessingStore>((set) => ({
   reset: () => set({
     ...initialState,
     isProcessing: false,
+    activeJobId: undefined,
   }),
 }))
