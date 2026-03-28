@@ -19,7 +19,7 @@ declare global {
       getProject: (projectId: string) => Promise<any>;
       getEpisode: (episodeId: string) => Promise<any>;
       getEpisodeByProject: (projectId: string) => Promise<any>;
-      getEpisodeMediaSource: (episodeId: string) => Promise<{ mediaUrl: string; filePath: string; duration: number }>;
+      getEpisodeMediaSource: (episodeId: string) => Promise<{ mediaUrl: string; filePath: string; duration: number; frameRate: number | null }>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       getClip: (clipId: string) => Promise<any>;
       getClipTrimState: (clipId: string) => Promise<ClipTrimState | undefined>;

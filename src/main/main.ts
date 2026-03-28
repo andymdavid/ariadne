@@ -56,6 +56,43 @@ async function backfillClipDimensions(batchSize = 25) {
   }
 }
 
+async function backfillEpisodeFrameRates(batchSize = 25) {
+  try {
+    let pending = database.getEpisodesMissingFrameRate(batchSize) as Array<{ id: string; file_path: string }>
+    if (!pending.length) {
+      console.log('[FrameRate] All episodes already have stored frame rate metadata')
+      return
+    }
+
+    console.log(`[FrameRate] Backfilling frame rate for ${pending.length} episode(s)`)
+
+    while (pending.length) {
+      for (const episode of pending) {
+        try {
+          const mediaInfo = await ffmpegService.getMediaInfo(episode.file_path)
+          if (mediaInfo.frameRate && Number.isFinite(mediaInfo.frameRate)) {
+            database.updateEpisodeFrameRate(episode.id, mediaInfo.frameRate)
+            console.log(`[FrameRate] Stored ${mediaInfo.frameRate.toFixed(3)} fps for episode ${episode.id}`)
+          } else {
+            console.warn(`[FrameRate] No frame rate available for episode ${episode.id} (${episode.file_path})`)
+          }
+        } catch (error) {
+          console.error(`[FrameRate] Failed to backfill episode ${episode.id}:`, error)
+        }
+      }
+
+      pending = database.getEpisodesMissingFrameRate(batchSize) as Array<{ id: string; file_path: string }>
+      if (pending.length) {
+        console.log(`[FrameRate] Continuing backfill, ${pending.length} episode(s) remaining`)
+      }
+    }
+
+    console.log('[FrameRate] Backfill completed')
+  } catch (error) {
+    console.error('[FrameRate] Backfill failed:', error)
+  }
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -119,6 +156,10 @@ app.whenReady().then(() => {
 
   backfillClipDimensions().catch((error) => {
     console.error('[ClipDimensions] Backfill task error:', error)
+  })
+
+  backfillEpisodeFrameRates().catch((error) => {
+    console.error('[FrameRate] Backfill task error:', error)
   })
 
   app.on('activate', () => {
@@ -252,6 +293,7 @@ ipcMain.handle('get-episode-media-source', (event, episodeId: string) => {
     mediaUrl: `app-file://${episode.file_path}`,
     filePath: episode.file_path,
     duration: episode.duration || 0,
+    frameRate: episode.frame_rate ?? null,
   };
 });
 

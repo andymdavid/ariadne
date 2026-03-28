@@ -370,6 +370,19 @@ class DatabaseManager {
         this.db.pragma('user_version = 16')
       }
     }
+
+    if (preVersion <= 16) {
+      try {
+        this.db.exec(`
+          ALTER TABLE episodes ADD COLUMN frame_rate REAL;
+        `)
+        console.log('✅ Added episode frame rate column (v17)')
+        this.db.pragma('user_version = 17')
+      } catch (error) {
+        console.log('Episode frame rate column migration skipped (may already exist)')
+        this.db.pragma('user_version = 17')
+      }
+    }
   }
   
   private initializeSchema() {
@@ -565,6 +578,15 @@ class DatabaseManager {
     `)
     return stmt.run(status, id)
   }
+
+  updateEpisodeFrameRate(id: string, frameRate: number) {
+    const stmt = this.db.prepare(`
+      UPDATE episodes
+      SET frame_rate = ?
+      WHERE id = ?
+    `)
+    return stmt.run(frameRate, id)
+  }
   
   getEpisode(id: string) {
     const stmt = this.db.prepare('SELECT * FROM episodes WHERE id = ?')
@@ -574,6 +596,16 @@ class DatabaseManager {
   getAllEpisodes() {
     const stmt = this.db.prepare('SELECT id, file_name FROM episodes')
     return stmt.all()
+  }
+
+  getEpisodesMissingFrameRate(limit = 50) {
+    const stmt = this.db.prepare(`
+      SELECT id, file_path
+      FROM episodes
+      WHERE frame_rate IS NULL
+      LIMIT ?
+    `)
+    return stmt.all(limit)
   }
   
   // Transcript operations

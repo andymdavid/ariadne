@@ -11,6 +11,7 @@ export interface MediaInfo {
   videoCodec?: string
   audioCodec?: string
   resolution?: { width: number; height: number }
+  frameRate?: number
   bitrate?: number
 }
 
@@ -76,6 +77,14 @@ class FFmpegService {
           info.resolution = {
             width: videoStream.width,
             height: videoStream.height,
+          }
+        }
+
+        const rateValue = videoStream?.avg_frame_rate || videoStream?.r_frame_rate
+        if (typeof rateValue === 'string' && rateValue !== '0/0') {
+          const [numerator, denominator] = rateValue.split('/').map(Number)
+          if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0) {
+            info.frameRate = numerator / denominator
           }
         }
         

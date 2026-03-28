@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     file_name TEXT NOT NULL,
     file_path TEXT NOT NULL,
     duration REAL NOT NULL DEFAULT 0,
+    frame_rate REAL,
     processing_status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE

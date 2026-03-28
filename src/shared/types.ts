@@ -11,6 +11,7 @@ export interface Episode {
   fileName: string;
   filePath: string;
   duration: number;
+  frameRate?: number | null;
   createdAt: string;
   processingStatus: 'pending' | 'transcribing' | 'analyzing' | 'completed' | 'error';
 }

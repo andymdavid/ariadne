@@ -70,6 +70,7 @@ export function ClipEditModal({
   const [editedStartTime, setEditedStartTime] = useState(clipData.startTime)
   const [editedEndTime, setEditedEndTime] = useState(clipData.endTime)
   const [episodeDuration, setEpisodeDuration] = useState<number | null>(null)
+  const [frameRate, setFrameRate] = useState<number | null>(null)
   const [showManualInputs, setShowManualInputs] = useState(false)
   const [allEpisodeSegments, setAllEpisodeSegments] = useState<any[]>([])
   const [selectedTrimWordId, setSelectedTrimWordId] = useState<string | null>(null)
@@ -638,6 +639,7 @@ export function ClipEditModal({
         if (result.duration) {
           setEpisodeDuration(result.duration)
         }
+        setFrameRate(result.frameRate ?? null)
       } else {
         console.warn('No mediaUrl in result, stopping loading')
         setLoading(false)
@@ -1223,14 +1225,110 @@ export function ClipEditModal({
     seekSourceVideo(Math.min(wordEnd, editedEndTime))
   }
 
+  const moveBoundaryBy = (deltaSeconds: number) => {
+    if (selectedBoundary === 'in') {
+      const nextStart = Math.max(0, Math.min(editedStartTime + deltaSeconds, editedEndTime - 35))
+      updateStartBoundary(nextStart, {
+        type: frameRate ? 'frame' : 'free',
+        time: nextStart
+      })
+      seekSourceVideo(nextStart)
+      return
+    }
+
+    const maxEnd = episodeDuration ?? duration ?? editedEndTime
+    const nextEnd = Math.max(editedStartTime + 35, Math.min(editedEndTime + deltaSeconds, maxEnd))
+    updateEndBoundary(nextEnd, {
+      type: frameRate ? 'frame' : 'free',
+      time: nextEnd
+    })
+    seekSourceVideo(nextEnd)
+  }
+
+  const moveBoundaryToAdjacentWord = (direction: -1 | 1) => {
+    if (!visibleTrimWords.length) return
+
+    const comparisonTime = selectedBoundary === 'in' ? editedStartTime : editedEndTime
+    const candidates = visibleTrimWords
+      .map((word) => ({
+        time: selectedBoundary === 'in' ? word.start : word.end,
+        word
+      }))
+      .filter(({ time }) => direction < 0 ? time < comparisonTime : time > comparisonTime)
+      .sort((a, b) => direction < 0 ? b.time - a.time : a.time - b.time)
+
+    const nextCandidate = candidates[0]
+    if (!nextCandidate) return
+
+    setSelectedTrimWordId(nextCandidate.word.id)
+    if (selectedBoundary === 'in') {
+      if (editedEndTime - nextCandidate.time < 35) return
+      updateStartBoundary(nextCandidate.time, {
+        type: 'word_start',
+        time: nextCandidate.time,
+        sourceId: nextCandidate.word.id,
+        label: nextCandidate.word.text
+      })
+    } else {
+      if (nextCandidate.time - editedStartTime < 35) return
+      updateEndBoundary(nextCandidate.time, {
+        type: 'word_end',
+        time: nextCandidate.time,
+        sourceId: nextCandidate.word.id,
+        label: nextCandidate.word.text
+      })
+    }
+    seekSourceVideo(nextCandidate.time)
+  }
+
   const activeBoundaryAnchor = selectedBoundary === 'in' ? startAnchor : endAnchor
   const activeBoundaryTime = selectedBoundary === 'in' ? editedStartTime : editedEndTime
+  const frameStep = frameRate && frameRate > 0 ? 1 / frameRate : 0.01
+  const coarseFrameStep = frameStep * 5
   const nearestWordDelta = selectedTrimWord
     ? Math.min(
         Math.abs(activeBoundaryTime - selectedTrimWord.start),
         Math.abs(activeBoundaryTime - selectedTrimWord.end)
       )
     : null
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'duration') return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+
+      event.preventDefault()
+
+      if (event.altKey) {
+        moveBoundaryToAdjacentWord(event.key === 'ArrowLeft' ? -1 : 1)
+        return
+      }
+
+      const baseStep = event.shiftKey ? coarseFrameStep : frameStep
+      const direction = event.key === 'ArrowLeft' ? -1 : 1
+      moveBoundaryBy(baseStep * direction)
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [
+    activeTab,
+    coarseFrameStep,
+    duration,
+    editedEndTime,
+    editedStartTime,
+    episodeDuration,
+    frameRate,
+    frameStep,
+    isOpen,
+    selectedBoundary,
+    visibleTrimWords
+  ])
 
   if (!isOpen) return null
 
@@ -1320,6 +1418,9 @@ export function ClipEditModal({
                       </div>
                       <div className="text-xs text-text-muted">
                         clip-relative {formatPreciseTime(clipRelativeCurrentTime)}
+                      </div>
+                      <div className="text-xs text-text-muted">
+                        {frameRate ? `${frameRate.toFixed(3)} fps` : '10ms nudge fallback'}
                       </div>
                     </div>
 
@@ -1796,6 +1897,18 @@ export function ClipEditModal({
                         <div className="text-xs uppercase tracking-wide text-text-muted">Nearest Word Delta</div>
                         <div className="mt-1 font-mono text-base text-text-primary">
                           {nearestWordDelta !== null ? `${nearestWordDelta.toFixed(3)}s` : 'Unavailable'}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                        <div className="text-xs uppercase tracking-wide text-text-muted">Nudge</div>
+                        <div className="mt-1 font-mono text-base text-text-primary">
+                          {frameRate ? `${frameStep.toFixed(4)}s / frame` : '0.0100s fallback'}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3 col-span-2">
+                        <div className="text-xs uppercase tracking-wide text-text-muted">Keyboard</div>
+                        <div className="mt-1 text-sm text-text-primary">
+                          Left/Right: 1 frame. Shift+Left/Right: 5 frames. Alt+Left/Right: previous/next word boundary.
                         </div>
                       </div>
                     </div>
