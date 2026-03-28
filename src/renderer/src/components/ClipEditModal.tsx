@@ -75,6 +75,7 @@ export function ClipEditModal({
   const [allEpisodeSegments, setAllEpisodeSegments] = useState<any[]>([])
   const [selectedTrimWordId, setSelectedTrimWordId] = useState<string | null>(null)
   const [selectedBoundary, setSelectedBoundary] = useState<TrimBoundarySide>('out')
+  const [isLoopPreviewEnabled, setIsLoopPreviewEnabled] = useState(false)
   const [startAnchor, setStartAnchor] = useState<TrimBoundaryAnchor | null>(null)
   const [endAnchor, setEndAnchor] = useState<TrimBoundaryAnchor | null>(null)
   const pendingSeekTimeRef = useRef<number | null>(null)
@@ -127,6 +128,7 @@ export function ClipEditModal({
     setEndAnchor(null)
     setSelectedBoundary('out')
     setSelectedTrimWordId(null)
+    setIsLoopPreviewEnabled(false)
   }, [clipData.endTime, clipData.startTime, isOpen])
 
   // Load logo settings
@@ -557,10 +559,25 @@ export function ClipEditModal({
   useEffect(() => {
     const video = videoRef.current
     if (!video || !mediaSourceUrl) return
+    const boundaryTime = selectedBoundary === 'in' ? editedStartTime : editedEndTime
+    const loopStart = Math.max(0, boundaryTime - 0.75)
+    const loopEnd = Math.min(
+      episodeDuration ?? duration ?? boundaryTime + 0.75,
+      boundaryTime + 0.75
+    )
 
     const handleTimeUpdate = () => {
       const absoluteTime = video.currentTime
       setCurrentTime(absoluteTime)
+
+      if (isLoopPreviewEnabled && absoluteTime >= loopEnd) {
+        video.currentTime = loopStart
+        setCurrentTime(loopStart)
+        if (video.paused) {
+          video.play().catch(error => console.error('Failed to continue loop preview:', error))
+        }
+        return
+      }
 
       if (absoluteTime >= editedEndTime) {
         video.pause()
@@ -611,7 +628,7 @@ export function ClipEditModal({
       video.removeEventListener('error', handleError)
       video.removeEventListener('canplay', handleCanPlay)
     }
-  }, [editedEndTime, editedStartTime, mediaSourceUrl])
+  }, [duration, editedEndTime, editedStartTime, episodeDuration, isLoopPreviewEnabled, mediaSourceUrl, selectedBoundary])
 
   const seekSourceVideo = (absoluteTime: number) => {
     const maxTime = episodeDuration ?? duration ?? absoluteTime
@@ -1285,6 +1302,12 @@ export function ClipEditModal({
   const activeBoundaryTime = selectedBoundary === 'in' ? editedStartTime : editedEndTime
   const frameStep = frameRate && frameRate > 0 ? 1 / frameRate : 0.01
   const coarseFrameStep = frameStep * 5
+  const loopPreviewHalfWindow = 0.75
+  const loopPreviewStart = Math.max(0, activeBoundaryTime - loopPreviewHalfWindow)
+  const loopPreviewEnd = Math.min(
+    episodeDuration ?? duration ?? activeBoundaryTime + loopPreviewHalfWindow,
+    activeBoundaryTime + loopPreviewHalfWindow
+  )
   const nearestWordDelta = selectedTrimWord
     ? Math.min(
         Math.abs(activeBoundaryTime - selectedTrimWord.start),
@@ -1754,18 +1777,35 @@ export function ClipEditModal({
                   {/* Preview Changes Button */}
                   {(editedStartTime !== clipData.startTime || editedEndTime !== clipData.endTime) && (
                     <div className="flex justify-center">
-                      <Button
-                        onClick={() => {
-                          seekSourceVideo(editedStartTime)
-                          videoRef.current?.play().catch(error => console.error('Failed to preview trim boundaries:', error))
-                        }}
-                        variant="secondary"
-                        size="sm"
-                        className="flex items-center space-x-2"
-                        disabled={loading}
-                      >
-                        <span>{loading ? 'Loading...' : '🔄 Preview Boundaries'}</span>
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => {
+                            setIsLoopPreviewEnabled(false)
+                            seekSourceVideo(editedStartTime)
+                            videoRef.current?.play().catch(error => console.error('Failed to preview trim boundaries:', error))
+                          }}
+                          variant="secondary"
+                          size="sm"
+                          className="flex items-center space-x-2"
+                          disabled={loading}
+                        >
+                          <span>{loading ? 'Loading...' : '🔄 Preview Boundaries'}</span>
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            const nextEnabled = !isLoopPreviewEnabled
+                            setIsLoopPreviewEnabled(nextEnabled)
+                            if (!nextEnabled) return
+                            seekSourceVideo(loopPreviewStart)
+                            videoRef.current?.play().catch(error => console.error('Failed to start loop preview:', error))
+                          }}
+                          variant={isLoopPreviewEnabled ? 'default' : 'outline'}
+                          size="sm"
+                          disabled={loading}
+                        >
+                          {isLoopPreviewEnabled ? 'Loop Preview On' : 'Loop Active Boundary'}
+                        </Button>
+                      </div>
                     </div>
                   )}
 
@@ -1909,6 +1949,14 @@ export function ClipEditModal({
                         <div className="text-xs uppercase tracking-wide text-text-muted">Keyboard</div>
                         <div className="mt-1 text-sm text-text-primary">
                           Left/Right: 1 frame. Shift+Left/Right: 5 frames. Alt+Left/Right: previous/next word boundary.
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3 col-span-2">
+                        <div className="text-xs uppercase tracking-wide text-text-muted">Loop Preview</div>
+                        <div className="mt-1 text-sm text-text-primary">
+                          {isLoopPreviewEnabled
+                            ? `Looping ${formatPreciseTime(loopPreviewStart)} to ${formatPreciseTime(loopPreviewEnd)} around the active boundary.`
+                            : `Preview window ready: ${formatPreciseTime(loopPreviewStart)} to ${formatPreciseTime(loopPreviewEnd)}.`}
                         </div>
                       </div>
                     </div>
