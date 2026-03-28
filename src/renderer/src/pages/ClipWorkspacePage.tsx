@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { IoArrowBack, IoCheckmark, IoClose, IoPlay, IoPause, IoShareOutline } from 'react-icons/io5'
+import { IoArrowBack, IoCheckmark, IoClose, IoCreateOutline, IoPlay, IoPause, IoShareOutline } from 'react-icons/io5'
 import type { Clip } from '@shared/types'
 
 type ClipCardData = Clip & {
@@ -377,6 +377,14 @@ export function ClipWorkspacePage() {
                     >
                       <IoClose size={16} />
                       Reject
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/content/${episodeId}/${clip.id}`)}
+                      className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/8 bg-[#181d24] px-4 py-3 text-sm font-medium text-text-primary transition-colors hover:border-white/12 hover:bg-[#1d232c]"
+                    >
+                      <IoCreateOutline size={16} />
+                      Edit Clip
                     </button>
                     <button
                       type="button"
