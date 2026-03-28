@@ -1,5 +1,5 @@
 import Store from 'electron-store'
-import { APIConfig } from '@shared/types'
+import { APIConfig, BrandTemplate } from '@shared/types'
 
 interface ConfigSchema {
   apiConfig: APIConfig
@@ -22,6 +22,7 @@ interface ConfigSchema {
       style: 'direct' | 'storytelling' | 'question_based'
     }
   }
+  brandTemplate: BrandTemplate
 }
 
 class ConfigService {
@@ -50,6 +51,42 @@ class ConfigService {
             tone: 'conversational',
             style: 'direct'
           }
+        },
+        brandTemplate: {
+          caption: {
+            presetId: 'deep-diver',
+            text: 'One Line',
+            font: 'Inter',
+            position: 'bottom',
+            customX: null,
+            customY: null
+          },
+          logo: {
+            enabled: false,
+            assetPath: null,
+            positionX: 84,
+            positionY: 12,
+            scale: 0.18,
+            opacity: 0.9
+          },
+          music: {
+            enabled: false,
+            assetPath: null,
+            volume: 0.3,
+            duckEnabled: true
+          },
+          frame: {
+            aspectRatio: '9:16',
+            cropMode: 'fit'
+          },
+          ai: {
+            removeFillerWords: false,
+            removePauses: false,
+            keywordHighlighter: false,
+            emojis: true,
+            stockBroll: false
+          },
+          updatedAt: new Date().toISOString()
         }
       },
       encryptionKey: 'ariadne-secure-config' // Basic encryption for API keys
@@ -175,6 +212,42 @@ class ConfigService {
       preferences: { ...brandVoice.preferences, ...preferences }
     })
   }
+
+  getBrandTemplate(): BrandTemplate {
+    return this.store.get('brandTemplate')
+  }
+
+  updateBrandTemplate(template: Partial<BrandTemplate>): BrandTemplate {
+    const current = this.getBrandTemplate()
+    const merged: BrandTemplate = {
+      ...current,
+      ...template,
+      caption: {
+        ...current.caption,
+        ...template.caption
+      },
+      logo: {
+        ...current.logo,
+        ...template.logo
+      },
+      music: {
+        ...current.music,
+        ...template.music
+      },
+      frame: {
+        ...current.frame,
+        ...template.frame
+      },
+      ai: {
+        ...current.ai,
+        ...template.ai
+      },
+      updatedAt: new Date().toISOString()
+    }
+
+    this.store.set('brandTemplate', merged)
+    return merged
+  }
   
   // Validation
   isConfigured(): boolean {
@@ -209,7 +282,8 @@ class ConfigService {
       },
       userPreferences: this.getUserPreferences(),
       recentProjects: [], // Don't export recent projects
-      brandVoice: this.getBrandVoice()
+      brandVoice: this.getBrandVoice(),
+      brandTemplate: this.getBrandTemplate()
     }
   }
   
@@ -220,6 +294,10 @@ class ConfigService {
     
     if (config.brandVoice) {
       this.store.set('brandVoice', config.brandVoice)
+    }
+
+    if (config.brandTemplate) {
+      this.store.set('brandTemplate', config.brandTemplate)
     }
     
     // Don't import API config or recent projects for security

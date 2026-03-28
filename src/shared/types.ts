@@ -130,3 +130,50 @@ export interface APIConfig {
     | 'google-gemini-2.5-flash-lite';
   clipSelectionPlatform: 'youtube_shorts' | 'instagram_reels' | 'tiktok';
 }
+
+export interface BrandTemplateCaptionDefaults {
+  presetId: string;
+  text: string;
+  font: string;
+  position: 'top' | 'center' | 'bottom' | 'custom';
+  customX?: number | null;
+  customY?: number | null;
+}
+
+export interface BrandTemplateLogoDefaults {
+  enabled: boolean;
+  assetPath: string | null;
+  positionX: number;
+  positionY: number;
+  scale: number;
+  opacity: number;
+}
+
+export interface BrandTemplateMusicDefaults {
+  enabled: boolean;
+  assetPath: string | null;
+  volume: number;
+  duckEnabled: boolean;
+}
+
+export interface BrandTemplateFrameDefaults {
+  aspectRatio: '9:16' | '1:1' | '16:9';
+  cropMode: 'fit' | 'center' | 'blur';
+}
+
+export interface BrandTemplateAiDefaults {
+  removeFillerWords: boolean;
+  removePauses: boolean;
+  keywordHighlighter: boolean;
+  emojis: boolean;
+  stockBroll: boolean;
+}
+
+export interface BrandTemplate {
+  caption: BrandTemplateCaptionDefaults;
+  logo: BrandTemplateLogoDefaults;
+  music: BrandTemplateMusicDefaults;
+  frame: BrandTemplateFrameDefaults;
+  ai: BrandTemplateAiDefaults;
+  updatedAt: string;
+}

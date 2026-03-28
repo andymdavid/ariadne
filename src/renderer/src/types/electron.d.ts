@@ -1,4 +1,4 @@
-import type { ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types'
+import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types'
 
 // Electron API types for renderer process
 
@@ -43,6 +43,8 @@ declare global {
       getConfig: () => Promise<any>;
       updateApiConfig: (config: any) => Promise<boolean>;
       updateUserPreferences: (preferences: any) => Promise<boolean>;
+      getBrandTemplate: () => Promise<BrandTemplate>;
+      updateBrandTemplate: (template: Partial<BrandTemplate>) => Promise<BrandTemplate>;
       validateConfig: () => Promise<{ isValid: boolean; errors: string[] }>;
 
       // Export operations

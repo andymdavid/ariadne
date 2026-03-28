@@ -169,14 +169,14 @@ export function ClipEditModal({
           opacity: existingEdits.logo_opacity ?? 0.8
         })
       } else {
-        // Set default logo settings if no edits exist
+        const brandTemplate = await window.electronAPI?.getBrandTemplate?.()
         setLogoSettings({
-          enabled: false,
-          logoPath: null,
-          positionX: 85,
-          positionY: 85,
-          scale: 0.15,
-          opacity: 0.8
+          enabled: brandTemplate?.logo.enabled ?? false,
+          logoPath: brandTemplate?.logo.assetPath ?? null,
+          positionX: brandTemplate?.logo.positionX ?? 85,
+          positionY: brandTemplate?.logo.positionY ?? 85,
+          scale: brandTemplate?.logo.scale ?? 0.15,
+          opacity: brandTemplate?.logo.opacity ?? 0.8
         })
       }
     } catch (error) {
@@ -208,6 +208,18 @@ export function ClipEditModal({
           fadeOut: existingEdits.music_fade_out ?? 1.0,
           loop: existingEdits.music_loop === 1
         })
+      } else {
+        const brandTemplate = await window.electronAPI?.getBrandTemplate?.()
+        setMusicSettings({
+          enabled: brandTemplate?.music.enabled ?? false,
+          musicPath: brandTemplate?.music.assetPath ?? null,
+          volume: brandTemplate?.music.volume ?? 0.3,
+          duckVolume: 0.1,
+          duckEnabled: brandTemplate?.music.duckEnabled ?? true,
+          fadeIn: 1.0,
+          fadeOut: 1.0,
+          loop: true
+        })
       }
     } catch (error) {
       console.error('Failed to load music settings:', error)
@@ -235,9 +247,13 @@ export function ClipEditModal({
         console.log('[ClipEditModal] Loaded frame settings:', settings)
         setFrameSettings(settings)
       } else {
-        // Set default frame settings if no edits exist
-        console.log('[ClipEditModal] No existing edits, using defaults')
-        setFrameSettings({ ...DEFAULT_FRAME_SETTINGS })
+        const brandTemplate = await window.electronAPI?.getBrandTemplate?.()
+        console.log('[ClipEditModal] No existing edits, using brand template defaults')
+        setFrameSettings({
+          ...DEFAULT_FRAME_SETTINGS,
+          aspectRatio: brandTemplate?.frame.aspectRatio ?? DEFAULT_FRAME_SETTINGS.aspectRatio,
+          cropMode: brandTemplate?.frame.cropMode ?? DEFAULT_FRAME_SETTINGS.cropMode
+        })
       }
     } catch (error) {
       console.error('Failed to load frame settings:', error)
@@ -544,16 +560,16 @@ export function ClipEditModal({
         console.log('[ClipEditModal] Setting caption style to:', loadedStyle)
         setCaptionStyle(loadedStyle)
       } else {
-        // Set default caption style
-        console.log('[ClipEditModal] No existing edits, using defaults')
+        const brandTemplate = await window.electronAPI?.getBrandTemplate?.()
+        console.log('[ClipEditModal] No existing edits, using brand template defaults')
         const defaultStyle: CaptionStyle = {
-          enabled: true,
-          font: 'Inter',
+          enabled: brandTemplate?.caption.presetId !== 'none',
+          font: brandTemplate?.caption.font || 'Inter',
           size: 48,
           color: '#FFFFFF',
-          position: 'bottom',
-          customX: undefined,
-          customY: undefined,
+          position: brandTemplate?.caption.position || 'bottom',
+          customX: brandTemplate?.caption.customX ?? undefined,
+          customY: brandTemplate?.caption.customY ?? undefined,
           weight: 700,
           italic: false,
           outline: true,

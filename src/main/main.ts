@@ -8,7 +8,7 @@ import { configService } from './services/configService';
 import { clipService } from './services/clipService';
 import { exportService } from './services/exportService';
 import { ffmpegService } from './services/ffmpegService';
-import type { TrimBoundaryAnchor } from '@shared/types';
+import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
 
 // TODO: Add electron-reload for development
 
@@ -310,6 +310,7 @@ ipcMain.handle('get-config', () => {
   return {
     apiConfig: configService.getApiConfig(),
     userPreferences: configService.getUserPreferences(),
+    brandTemplate: configService.getBrandTemplate(),
     isConfigured: configService.isConfigured()
   };
 });
@@ -327,6 +328,14 @@ ipcMain.handle('update-user-preferences', (event, preferences: any) => {
 ipcMain.handle('validate-config', () => {
   return configService.validateConfig();
 });
+
+ipcMain.handle('get-brand-template', () => {
+  return configService.getBrandTemplate()
+})
+
+ipcMain.handle('update-brand-template', (event, template: Partial<BrandTemplate>) => {
+  return configService.updateBrandTemplate(template)
+})
 
 // Clip playback - extract and play actual clip
 ipcMain.handle('play-clip', async (event, episodeId: string, startTime: number, endTime: number, clipId: string) => {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types';
+import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -49,6 +49,9 @@ const electronAPI = {
   updateApiConfig: (config: any) => ipcRenderer.invoke('update-api-config', config),
   updateUserPreferences: (preferences: any) =>
     ipcRenderer.invoke('update-user-preferences', preferences),
+  getBrandTemplate: () => ipcRenderer.invoke('get-brand-template'),
+  updateBrandTemplate: (template: Partial<BrandTemplate>) =>
+    ipcRenderer.invoke('update-brand-template', template),
   validateConfig: () => ipcRenderer.invoke('validate-config'),
 
   // Export operations
@@ -163,6 +166,8 @@ declare global {
       getConfig: () => Promise<any>;
       updateApiConfig: (config: any) => Promise<boolean>;
       updateUserPreferences: (preferences: any) => Promise<boolean>;
+      getBrandTemplate: () => Promise<BrandTemplate>;
+      updateBrandTemplate: (template: Partial<BrandTemplate>) => Promise<BrandTemplate>;
       validateConfig: () => Promise<{ isValid: boolean; errors: string[] }>;
 
       // Clip edits operations (for Editor screen)
