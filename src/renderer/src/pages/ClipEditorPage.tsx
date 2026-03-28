@@ -276,8 +276,11 @@ export function ClipEditorPage() {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(320px,1.05fr)_minmax(440px,1fr)_88px]">
-        <section className="border-r border-white/8 px-6 py-5">
+      <div
+        className="grid min-h-0 flex-1 overflow-hidden"
+        style={{ gridTemplateColumns: 'minmax(320px, 1.05fr) minmax(440px, 1fr) 88px' }}
+      >
+        <section className="flex min-h-0 flex-col border-r border-white/8 px-6 py-5">
           <div className="mb-4 flex items-center justify-between">
             <label className="inline-flex items-center gap-3 text-sm text-text-secondary">
               <input
@@ -296,7 +299,7 @@ export function ClipEditorPage() {
             </button>
           </div>
 
-          <div ref={transcriptScrollerRef} className="h-[calc(100%-52px)] overflow-y-auto pr-4">
+          <div ref={transcriptScrollerRef} className="min-h-0 flex-1 overflow-y-auto pr-4">
             <div className="space-y-8 text-[15px] leading-9 text-[#d8dbe2]">
               {transcriptLines.map((line) => (
                 <div
@@ -313,7 +316,7 @@ export function ClipEditorPage() {
           </div>
         </section>
 
-        <section className="flex min-h-0 flex-col">
+        <section className="flex min-h-0 flex-col overflow-hidden">
           <div className="flex items-center justify-between px-8 py-5">
             <div className="flex items-center gap-7 text-sm text-text-secondary">
               <span className="inline-flex items-center gap-2">
@@ -328,8 +331,8 @@ export function ClipEditorPage() {
             </div>
           </div>
 
-          <div className="flex flex-1 items-center justify-center px-8 pb-6">
-            <div className="relative aspect-[9/16] h-full max-h-[420px] overflow-hidden rounded-[24px] bg-black">
+          <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-6">
+            <div className="relative aspect-[9/16] h-full max-h-[420px] min-h-0 overflow-hidden rounded-[24px] bg-black">
               {mediaUrl ? (
                 <video
                   ref={videoRef}
@@ -347,8 +350,8 @@ export function ClipEditorPage() {
           </div>
         </section>
 
-        <aside className="border-l border-white/8 px-4 py-5">
-          <div className="flex h-full flex-col items-center gap-4">
+        <aside className="min-h-0 overflow-y-auto border-l border-white/8 px-4 py-5">
+          <div className="flex min-h-full flex-col items-center gap-4">
             {TOOL_ITEMS.map((tool) => {
               const Icon = tool.icon
               const isActive = activeTool === tool.id
@@ -372,7 +375,7 @@ export function ClipEditorPage() {
         </aside>
       </div>
 
-      <footer className="border-t border-white/8 bg-[#090b0f]">
+      <footer className="shrink-0 border-t border-white/8 bg-[#090b0f]">
         <div className="flex items-center justify-between border-b border-white/8 px-6 py-3">
           <div className="flex items-center gap-4 text-sm text-text-secondary">
             <button type="button" className="inline-flex items-center gap-2 hover:text-text-primary">
