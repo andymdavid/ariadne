@@ -532,6 +532,14 @@ class DatabaseManager {
         e.id as episode_id,
         e.file_name,
         e.file_path,
+        (
+          SELECT ct.file_path
+          FROM clip_thumbnails ct
+          INNER JOIN clips clip_thumb ON clip_thumb.id = ct.clip_id
+          WHERE clip_thumb.episode_id = e.id
+          ORDER BY ct.is_selected DESC, ct.timestamp ASC
+          LIMIT 1
+        ) as thumbnail_path,
         e.duration,
         e.processing_status,
         COUNT(c.id) as clip_count,

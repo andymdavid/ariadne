@@ -363,6 +363,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
               transcriptLength: 0,
               processingStatus: ((dbProject.clip_count || 0) > 0 ? 'completed' : 'partial') as 'completed' | 'partial',
               fileSize: 0, // Note: fileSize not stored in DB, populated from store if available
+              thumbnailPath: dbProject.thumbnail_path || dbProject.thumbnailPath || undefined,
               episode: {
                 id: dbProject.episode_id || dbProject.id,
                 projectId: dbProject.id,
@@ -559,7 +560,9 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         
         // Then remove from store
         set((state) => ({
-          savedProjects: state.savedProjects.filter(p => p.id !== projectId)
+          savedProjects: state.savedProjects.filter(
+            (p) => p.id !== projectId && p.episode.projectId !== projectId
+          )
         }))
         get().updateSession()
       },

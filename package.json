@@ -8,7 +8,8 @@
   "private": true,
   "homepage": ".",
   "scripts": {
-    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev": "concurrently \"npm run dev:main\" \"npm run dev:vite\" \"npm run dev:electron-wait\"",
+    "dev:main": "tsc -p tsconfig.main.json --watch",
     "dev:vite": "vite",
     "dev:electron": "sleep 3 && NODE_ENV=development electron .",
     "dev:electron-wait": "wait-on http://localhost:5173 && NODE_ENV=development electron .",

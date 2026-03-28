@@ -1,19 +1,72 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { IoAddCircleOutline, IoCloudUploadOutline, IoLinkOutline } from 'react-icons/io5'
+import { IoAddCircleOutline, IoCloudUploadOutline, IoClose, IoLinkOutline } from 'react-icons/io5'
 import { useProcessingStore } from '../stores/processingStore'
 import { useProjectStore, type SavedProject } from '../stores/projectStore'
 import { TranscriptionProgress } from '../components/TranscriptionProgress'
 import { MainContentPanel } from '../components/MainContentPanel'
 
+function ProjectCardPreview({ project }: { project: SavedProject }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => {
+    if (project.thumbnailPath || !project.episode.filePath || !videoRef.current) {
+      return
+    }
+
+    const video = videoRef.current
+    const handleLoadedMetadata = () => {
+      if (!Number.isFinite(video.duration) || video.duration <= 0) {
+        return
+      }
+      video.currentTime = Math.min(Math.max(video.duration * 0.1, 0.1), 1)
+    }
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata)
+    return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+    }
+  }, [project.episode.filePath, project.thumbnailPath])
+
+  if (project.thumbnailPath) {
+    return (
+      <img
+        src={`app-file://${project.thumbnailPath}`}
+        alt={project.name}
+        className="h-full w-full object-cover"
+      />
+    )
+  }
+
+  if (project.episode.filePath) {
+    return (
+      <video
+        ref={videoRef}
+        src={`app-file://${project.episode.filePath}`}
+        muted
+        playsInline
+        preload="metadata"
+        className="h-full w-full object-cover"
+      />
+    )
+  }
+
+  return (
+    <div className="flex h-full w-full items-end p-3">
+      <div className="text-sm text-text-muted">Demo project</div>
+    </div>
+  )
+}
+
 export function HomePage() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [sourceLink, setSourceLink] = useState('')
   const [sourceError, setSourceError] = useState('')
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
   const [recentProjects, setRecentProjects] = useState<SavedProject[]>([])
   const navigate = useNavigate()
   const { isProcessing, setProcessing, updateProgress, reset, setActiveJobId } = useProcessingStore()
-  const { syncWithDatabase, getSavedProjects } = useProjectStore()
+  const { syncWithDatabase, getSavedProjects, deleteProject } = useProjectStore()
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -119,7 +172,7 @@ export function HomePage() {
   const startSourceProcessing = async (source: string) => {
     const trimmedSource = source.trim()
     if (!trimmedSource) {
-      setSourceError('Paste a direct media or Google Drive link, or use Upload.')
+      setSourceError('Paste a YouTube, Rumble, direct media, or Google Drive link, or use Upload.')
       return
     }
 
@@ -180,6 +233,7 @@ export function HomePage() {
       setProcessing(false)
     } catch (error) {
       console.error('Processing error:', error)
+      setSourceError(error instanceof Error ? error.message : 'Could not process that link.')
       updateProgress({
         stage: 'completed',
         progress: 0,
@@ -217,6 +271,28 @@ export function HomePage() {
     navigate(`/review/${project.id}`)
   }
 
+  const handleDeleteProject = async (event: React.MouseEvent<HTMLButtonElement>, project: SavedProject) => {
+    event.stopPropagation()
+
+    const projectId = project.episode.projectId
+    const confirmed = window.confirm(`Delete "${project.name}"?`)
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setDeletingProjectId(projectId)
+      await deleteProject(projectId)
+      const updatedProjects = getSavedProjects()
+        .slice()
+        .sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime())
+        .slice(0, 6)
+      setRecentProjects(updatedProjects)
+    } finally {
+      setDeletingProjectId(null)
+    }
+  }
+
   const handleGenerate = async () => {
     if (sourceLink.trim()) {
       await startSourceProcessing(sourceLink)
@@ -224,16 +300,6 @@ export function HomePage() {
     }
 
     await handleFileSelect()
-  }
-
-  const handleGoogleDrive = async () => {
-    const promptValue = window.prompt('Paste a Google Drive share link')
-    if (!promptValue) {
-      return
-    }
-
-    setSourceLink(promptValue)
-    await startSourceProcessing(promptValue)
   }
 
   return (
@@ -252,7 +318,13 @@ export function HomePage() {
                   <input
                     value={sourceLink}
                     onChange={(e) => setSourceLink(e.target.value)}
-                    placeholder="Paste a direct media or Google Drive link"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        void handleGenerate()
+                      }
+                    }}
+                    placeholder="Paste a YouTube, Rumble, direct media, or Google Drive link"
                     className="flex-1 bg-transparent text-base text-text-primary outline-none placeholder:text-text-muted"
                   />
                 </div>
@@ -266,13 +338,6 @@ export function HomePage() {
                     <IoCloudUploadOutline size={16} />
                     Upload
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleGoogleDrive}
-                    className="inline-flex items-center gap-2 hover:text-text-primary transition-colors"
-                  >
-                    Google Drive
-                  </button>
                 </div>
 
                 <button
@@ -285,17 +350,16 @@ export function HomePage() {
 
                 {sourceError ? (
                   <div className="mt-3 text-sm text-red-400">{sourceError}</div>
-                ) : null}
+                ) : (
+                  <div className="mt-3 text-sm text-text-muted">
+                    YouTube, Rumble, direct media files, and Google Drive links.
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="flex items-center justify-between pt-4">
               <div className="text-sm text-text-muted">All projects ({recentProjects.length})</div>
-              <div className="flex items-center gap-3 text-sm text-text-muted">
-                <span>0 GB / 100 GB</span>
-                <span className="app-chip !px-3 !py-2">Auto-save</span>
-                <span className="app-chip !px-3 !py-2">Auto-import</span>
-              </div>
             </div>
 
             <div
@@ -321,15 +385,26 @@ export function HomePage() {
                   key={project.id}
                   type="button"
                   onClick={() => handleOpenProject(project)}
-                  className="app-surface p-3 text-left hover:border-white/20 transition-colors"
+                  className="app-surface group relative flex h-full min-h-[320px] flex-col p-3 text-left hover:border-white/20 transition-colors"
                 >
-                  <div className="flex aspect-video items-end rounded-xl bg-[#171b22] p-3">
-                    <div className="text-sm text-text-muted">Demo project</div>
+                  <button
+                    type="button"
+                    onClick={(event) => handleDeleteProject(event, project)}
+                    disabled={deletingProjectId === project.episode.projectId}
+                    className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/55 text-text-secondary opacity-0 transition hover:border-white/20 hover:text-text-primary group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-100"
+                    aria-label={`Delete ${project.name}`}
+                  >
+                    <IoClose size={14} />
+                  </button>
+                  <div className="aspect-video w-full shrink-0 overflow-hidden rounded-xl bg-[#171b22]">
+                    <ProjectCardPreview project={project} />
                   </div>
-                  <div className="mt-4 text-xl font-medium text-text-primary">
+                  <div className="mt-4 line-clamp-2 min-h-[4.5rem] text-xl font-medium leading-tight text-text-primary">
                     {project.name}
                   </div>
-                  <div className="mt-2 text-sm text-text-secondary">{project.filename}</div>
+                  <div className="mt-2 line-clamp-2 min-h-[2.75rem] text-sm leading-relaxed text-text-secondary">
+                    {project.filename}
+                  </div>
                 </button>
               ))}
             </div>

@@ -1,7 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron';
+import { execFile } from 'child_process';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { promisify } from 'util';
 import { database } from './database/database';
 import { processingPipeline } from './services/processingPipeline';
 import { configService } from './services/configService';
@@ -15,6 +17,7 @@ import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
 let mainWindow: BrowserWindow | null = null;
 let activeProcessingJob: { jobId: string; filePath: string } | null = null;
 const allowedMediaPaths = new Set<string>();
+const execFileAsync = promisify(execFile);
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -25,6 +28,46 @@ function looksLikeRemoteUrl(value: string) {
   } catch {
     return false
   }
+}
+
+function needsMediaExtractor(rawUrl: string) {
+  try {
+    const hostname = new URL(rawUrl).hostname.replace(/^www\./, '').toLowerCase()
+    return [
+      'youtube.com',
+      'youtu.be',
+      'rumble.com',
+      'm.youtube.com',
+      'x.com',
+      'twitter.com',
+      'instagram.com',
+      'tiktok.com'
+    ].includes(hostname)
+  } catch {
+    return false
+  }
+}
+
+function resolveMediaExtractorBinary() {
+  const home = process.env.HOME || ''
+  const candidates = [
+    process.env.YT_DLP_PATH,
+    'yt-dlp',
+    'youtube-dl',
+    home ? `${home}/Library/Python/3.9/bin/yt-dlp` : '',
+    home ? `${home}/Library/Python/3.9/bin/youtube-dl` : '',
+    home ? `${home}/.local/bin/yt-dlp` : '',
+    '/opt/homebrew/bin/yt-dlp',
+    '/usr/local/bin/yt-dlp'
+  ].filter(Boolean) as string[]
+
+  for (const candidate of candidates) {
+    if (!candidate.includes('/') || existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  throw new Error('yt-dlp is required for YouTube and webpage links, but it is not installed.')
 }
 
 function normalizeGoogleDriveUrl(rawUrl: string) {
@@ -94,6 +137,19 @@ async function downloadRemoteMedia(sourceUrl: string) {
     }
   }
 
+  const isSupportedMediaType = (contentType?: string) => {
+    const normalized = (contentType || '').split(';')[0].trim().toLowerCase()
+    return [
+      'audio/mpeg',
+      'audio/mp4',
+      'audio/x-m4a',
+      'audio/wav',
+      'audio/x-wav',
+      'video/mp4',
+      'video/quicktime'
+    ].includes(normalized)
+  }
+
   const fileNameFromHeaders = (headers: Record<string, string | string[] | undefined>) => {
     const dispositionHeader = headers['content-disposition']
     const disposition = Array.isArray(dispositionHeader) ? dispositionHeader[0] : dispositionHeader
@@ -138,6 +194,16 @@ async function downloadRemoteMedia(sourceUrl: string) {
 
           const contentTypeHeader = response.headers['content-type']
           const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader
+          if (!isSupportedMediaType(contentType)) {
+            response.resume()
+            reject(
+              new Error(
+                'Unsupported link. Paste a direct media file URL or a Google Drive file link.'
+              )
+            )
+            return
+          }
+
           const headerFileName = fileNameFromHeaders(response.headers)
           const pathnameName = decodeURIComponent(new URL(currentUrl).pathname.split('/').filter(Boolean).pop() || '')
           const rawFileName = headerFileName || pathnameName || `import-${Date.now()}`
@@ -171,6 +237,51 @@ async function downloadRemoteMedia(sourceUrl: string) {
   return download(resolvedUrl)
 }
 
+async function downloadWithMediaExtractor(sourceUrl: string) {
+  const fsPromises = require('fs/promises')
+  const path = require('path')
+  const importsDir = path.join(app.getPath('userData'), 'imports')
+  await fsPromises.mkdir(importsDir, { recursive: true })
+
+  const extractorBinary = resolveMediaExtractorBinary()
+  const metadataArgs = ['--dump-single-json', '--no-playlist', sourceUrl]
+  const { stdout: metadataStdout } = await execFileAsync(extractorBinary, metadataArgs, {
+    maxBuffer: 20 * 1024 * 1024
+  })
+
+  const metadata = JSON.parse(metadataStdout)
+  const downloadArgs = [
+    '--no-playlist',
+    '--restrict-filenames',
+    '-P',
+    importsDir,
+    '-o',
+    '%(title).160B-%(id)s.%(ext)s',
+    '--print',
+    'after_move:filepath',
+    sourceUrl
+  ]
+
+  const { stdout } = await execFileAsync(extractorBinary, downloadArgs, {
+    maxBuffer: 20 * 1024 * 1024
+  })
+
+  const filePath = stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .pop()
+
+  if (!filePath) {
+    throw new Error('Media extractor did not return a downloaded file path.')
+  }
+
+  return {
+    filePath,
+    projectName: sanitizeProjectName(metadata.title || inferProjectNameFromSource(sourceUrl))
+  }
+}
+
 async function runProcessingJob(filePath: string, projectName?: string) {
   if (activeProcessingJob) {
     throw new Error(`Processing already in progress for job ${activeProcessingJob.jobId}`);
@@ -192,6 +303,9 @@ async function runProcessingJob(filePath: string, projectName?: string) {
 
 async function resolveSourceToFile(source: string) {
   if (looksLikeRemoteUrl(source)) {
+    if (needsMediaExtractor(source)) {
+      return downloadWithMediaExtractor(source)
+    }
     return downloadRemoteMedia(source)
   }
 
@@ -394,7 +508,16 @@ ipcMain.handle('process-source', async (event, source: string, projectName?: str
 
 // Database handlers
 ipcMain.handle('get-recent-projects', () => {
-  return database.getRecentProjects();
+  const projects = database.getRecentProjects() as Array<{ file_path?: string | null; thumbnail_path?: string | null }>
+  projects.forEach((project) => {
+    if (project.file_path) {
+      allowedMediaPaths.add(project.file_path)
+    }
+    if (project.thumbnail_path) {
+      allowedMediaPaths.add(project.thumbnail_path)
+    }
+  })
+  return projects
 });
 
 ipcMain.handle('get-project', (event, projectId: string) => {
