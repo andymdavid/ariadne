@@ -132,8 +132,7 @@
     width: calc(100% + (var(--app-page-padding-x) * 2));
     margin-left: calc(var(--app-page-padding-x) * -1);
     margin-right: calc(var(--app-page-padding-x) * -1);
-    padding: 0 var(--app-page-padding-x) 20px;
-    padding-bottom: 20px;
+    padding: 18px var(--app-page-padding-x);
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
