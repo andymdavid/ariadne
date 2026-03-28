@@ -25,6 +25,11 @@ type TranscriptLine = {
   start: number
   end: number
   text: string
+  words?: Array<{
+    word: string
+    start: number
+    end: number
+  }>
 }
 
 type PreviewCaptionState = {
@@ -88,6 +93,43 @@ export function ClipEditorPage() {
   const transcriptScrollerRef = useRef<HTMLDivElement>(null)
   const previewFrameRef = useRef<HTMLDivElement>(null)
 
+  const getPreviewCaptionText = (
+    line: TranscriptLine | undefined,
+    fallbackText: string,
+    presetId?: string | null,
+    playheadTime?: number
+  ) => {
+    if (!line) return fallbackText
+    if (presetId !== 'deep-diver') return line.text || fallbackText
+
+    const words = line.words?.filter((word) => word.word?.trim())
+    if (words && words.length > 0 && playheadTime !== undefined) {
+      const relativeWordIndex = words.findIndex(
+        (word) => playheadTime >= word.start && playheadTime <= word.end
+      )
+
+      const anchorIndex = relativeWordIndex >= 0 ? relativeWordIndex : 0
+      const windowStart = Math.max(0, anchorIndex - 1)
+      const windowEnd = Math.min(words.length, windowStart + 5)
+      const phrase = words
+        .slice(windowStart, windowEnd)
+        .map((word) => word.word.trim())
+        .join(' ')
+        .replace(/\s+([,.!?;:])/g, '$1')
+        .trim()
+
+      if (phrase) return phrase
+    }
+
+    const compactPhrase = line.text
+      .split(/\s+/)
+      .slice(0, 5)
+      .join(' ')
+      .trim()
+
+    return compactPhrase || fallbackText
+  }
+
   useEffect(() => {
     const loadEditor = async () => {
       if (!episodeId || !clipId) {
@@ -131,16 +173,41 @@ export function ClipEditorPage() {
             id: segment.id,
             start: Number(segment.start_time ?? segment.start ?? 0),
             end: Number(segment.end_time ?? segment.end ?? 0),
-            text: segment.text || ''
+            text: segment.text || '',
+            words: Array.isArray(segment.words)
+              ? segment.words.map((word: any) => ({
+                  word: word.word || '',
+                  start: Number(word.start ?? 0),
+                  end: Number(word.end ?? 0)
+                }))
+              : undefined
           }))
         )
         setCurrentTime(mappedClip.startTime)
 
         const template = brandTemplate as BrandTemplate | null
+        const firstLine = (segments || [])[0]
         const activeCaptionText =
-          transcriptLines[0]?.text ||
-          (segments || [])[0]?.text ||
-          mappedClip.keyQuote
+          getPreviewCaptionText(
+            firstLine
+              ? {
+                  id: firstLine.id,
+                  start: Number(firstLine.start_time ?? firstLine.start ?? 0),
+                  end: Number(firstLine.end_time ?? firstLine.end ?? 0),
+                  text: firstLine.text || '',
+                  words: Array.isArray(firstLine.words)
+                    ? firstLine.words.map((word: any) => ({
+                        word: word.word || '',
+                        start: Number(word.start ?? 0),
+                        end: Number(word.end ?? 0)
+                      }))
+                    : undefined
+                }
+              : undefined,
+            mappedClip.keyQuote,
+            template?.caption.presetId,
+            mappedClip.startTime
+          ) || mappedClip.keyQuote
 
         setCaptionPreview({
           presetId: template?.caption.presetId ?? null,
@@ -266,7 +333,7 @@ export function ClipEditorPage() {
       if (!currentCaption) return currentCaption
       return {
         ...currentCaption,
-        text: activeLine?.text || currentCaption.text
+        text: getPreviewCaptionText(activeLine, currentCaption.text, currentCaption.presetId, currentTime)
       }
     })
   }, [currentTime, transcriptLines])
