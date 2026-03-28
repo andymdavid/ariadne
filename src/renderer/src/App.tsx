@@ -278,6 +278,7 @@ function App() {
         icon: generatedClipCount > 0 ? IoCheckmarkCircle : IoAnalytics
       }
       addSessionMessage(completionMessage)
+      setIsCommandMode(false)
       setHasActivatedAriadne(false)
       setPreviousStage('')
       lastAnnouncedStageRef.current = ''
