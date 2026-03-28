@@ -41,6 +41,7 @@ interface ClipEditModalProps {
 
 type EditorTab = 'duration' | 'transcript' | 'captions' | 'logo' | 'music' | 'frame'
 type TrimBoundarySide = 'in' | 'out'
+type TrimSnapMode = 'free' | 'frame' | 'word'
 
 const clampZoom = (value?: number) => Math.max(0.5, Math.min(4, value ?? 1))
 
@@ -75,6 +76,7 @@ export function ClipEditModal({
   const [allEpisodeSegments, setAllEpisodeSegments] = useState<any[]>([])
   const [selectedTrimWordId, setSelectedTrimWordId] = useState<string | null>(null)
   const [selectedBoundary, setSelectedBoundary] = useState<TrimBoundarySide>('out')
+  const [snapMode, setSnapMode] = useState<TrimSnapMode>('word')
   const [isLoopPreviewEnabled, setIsLoopPreviewEnabled] = useState(false)
   const [startAnchor, setStartAnchor] = useState<TrimBoundaryAnchor | null>(null)
   const [endAnchor, setEndAnchor] = useState<TrimBoundaryAnchor | null>(null)
@@ -128,6 +130,7 @@ export function ClipEditModal({
     setEndAnchor(null)
     setSelectedBoundary('out')
     setSelectedTrimWordId(null)
+    setSnapMode('word')
     setIsLoopPreviewEnabled(false)
   }, [clipData.endTime, clipData.startTime, isOpen])
 
@@ -1199,6 +1202,97 @@ export function ClipEditModal({
     setHasUnsavedChanges(true)
   }
 
+  const resolveWordSnapCandidate = (boundary: TrimBoundarySide, time: number) => {
+    if (!visibleTrimWords.length) return null
+
+    const candidates = visibleTrimWords
+      .map((word) => ({
+        time: boundary === 'in' ? word.start : word.end,
+        word,
+        type: boundary === 'in' ? 'word_start' as const : 'word_end' as const
+      }))
+      .sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time))
+
+    return candidates[0] ?? null
+  }
+
+  const applyBoundaryWithSnap = (
+    boundary: TrimBoundarySide,
+    proposedTime: number,
+    options?: {
+      preferredAnchor?: TrimBoundaryAnchor
+      skipSnap?: boolean
+    }
+  ) => {
+    const maxEnd = episodeDuration ?? duration ?? editedEndTime
+    const boundedTime = boundary === 'in'
+      ? Math.max(0, Math.min(proposedTime, editedEndTime - 35))
+      : Math.max(editedStartTime + 35, Math.min(proposedTime, maxEnd))
+
+    const shouldSkipSnap = options?.skipSnap || snapMode === 'free'
+
+    if (!shouldSkipSnap && options?.preferredAnchor) {
+      if (boundary === 'in') {
+        updateStartBoundary(boundedTime, options.preferredAnchor)
+      } else {
+        updateEndBoundary(boundedTime, options.preferredAnchor)
+      }
+      return boundedTime
+    }
+
+    if (!shouldSkipSnap && snapMode === 'word') {
+      const snappedWord = resolveWordSnapCandidate(boundary, boundedTime)
+      if (snappedWord) {
+        const snappedTime = snappedWord.time
+        const isValid = boundary === 'in'
+          ? editedEndTime - snappedTime >= 35
+          : snappedTime - editedStartTime >= 35
+
+        if (isValid) {
+          setSelectedTrimWordId(snappedWord.word.id)
+          const anchor: TrimBoundaryAnchor = {
+            type: snappedWord.type,
+            time: snappedTime,
+            sourceId: snappedWord.word.id,
+            label: snappedWord.word.text
+          }
+          if (boundary === 'in') {
+            updateStartBoundary(snappedTime, anchor)
+          } else {
+            updateEndBoundary(snappedTime, anchor)
+          }
+          return snappedTime
+        }
+      }
+    }
+
+    if (!shouldSkipSnap && snapMode === 'frame' && frameRate) {
+      const snappedTime = Math.round(boundedTime * frameRate) / frameRate
+      const anchor: TrimBoundaryAnchor = {
+        type: 'frame',
+        time: snappedTime,
+        label: `${frameRate.toFixed(3)} fps`
+      }
+      if (boundary === 'in') {
+        updateStartBoundary(snappedTime, anchor)
+      } else {
+        updateEndBoundary(snappedTime, anchor)
+      }
+      return snappedTime
+    }
+
+    const freeAnchor: TrimBoundaryAnchor = {
+      type: 'free',
+      time: boundedTime
+    }
+    if (boundary === 'in') {
+      updateStartBoundary(boundedTime, freeAnchor)
+    } else {
+      updateEndBoundary(boundedTime, freeAnchor)
+    }
+    return boundedTime
+  }
+
   const episodeWords = allEpisodeSegments.flatMap((segment: any, segmentIndex: number) =>
     Array.isArray(segment.words)
       ? segment.words.map((word: any, wordIndex: number) => ({
@@ -1222,43 +1316,38 @@ export function ClipEditModal({
 
   const applyWordStartBoundary = (wordStart: number) => {
     if (editedEndTime - wordStart < 35) return
-    updateStartBoundary(wordStart, {
-      type: 'word_start',
-      time: wordStart,
-      sourceId: selectedTrimWord?.id ?? null,
-      label: selectedTrimWord?.text ?? null
+    const nextTime = applyBoundaryWithSnap('in', wordStart, {
+      preferredAnchor: {
+        type: 'word_start',
+        time: wordStart,
+        sourceId: selectedTrimWord?.id ?? null,
+        label: selectedTrimWord?.text ?? null
+      }
     })
-    seekSourceVideo(wordStart)
+    seekSourceVideo(nextTime)
   }
 
   const applyWordEndBoundary = (wordEnd: number) => {
     if (wordEnd - editedStartTime < 35) return
-    updateEndBoundary(wordEnd, {
-      type: 'word_end',
-      time: wordEnd,
-      sourceId: selectedTrimWord?.id ?? null,
-      label: selectedTrimWord?.text ?? null
+    const nextTime = applyBoundaryWithSnap('out', wordEnd, {
+      preferredAnchor: {
+        type: 'word_end',
+        time: wordEnd,
+        sourceId: selectedTrimWord?.id ?? null,
+        label: selectedTrimWord?.text ?? null
+      }
     })
-    seekSourceVideo(Math.min(wordEnd, editedEndTime))
+    seekSourceVideo(Math.min(nextTime, editedEndTime))
   }
 
-  const moveBoundaryBy = (deltaSeconds: number) => {
+  const moveBoundaryBy = (deltaSeconds: number, skipSnap = false) => {
     if (selectedBoundary === 'in') {
-      const nextStart = Math.max(0, Math.min(editedStartTime + deltaSeconds, editedEndTime - 35))
-      updateStartBoundary(nextStart, {
-        type: frameRate ? 'frame' : 'free',
-        time: nextStart
-      })
+      const nextStart = applyBoundaryWithSnap('in', editedStartTime + deltaSeconds, { skipSnap })
       seekSourceVideo(nextStart)
       return
     }
 
-    const maxEnd = episodeDuration ?? duration ?? editedEndTime
-    const nextEnd = Math.max(editedStartTime + 35, Math.min(editedEndTime + deltaSeconds, maxEnd))
-    updateEndBoundary(nextEnd, {
-      type: frameRate ? 'frame' : 'free',
-      time: nextEnd
-    })
+    const nextEnd = applyBoundaryWithSnap('out', editedEndTime + deltaSeconds, { skipSnap })
     seekSourceVideo(nextEnd)
   }
 
@@ -1278,24 +1367,15 @@ export function ClipEditModal({
     if (!nextCandidate) return
 
     setSelectedTrimWordId(nextCandidate.word.id)
-    if (selectedBoundary === 'in') {
-      if (editedEndTime - nextCandidate.time < 35) return
-      updateStartBoundary(nextCandidate.time, {
-        type: 'word_start',
+    const nextTime = applyBoundaryWithSnap(selectedBoundary, nextCandidate.time, {
+      preferredAnchor: {
+        type: selectedBoundary === 'in' ? 'word_start' : 'word_end',
         time: nextCandidate.time,
         sourceId: nextCandidate.word.id,
         label: nextCandidate.word.text
-      })
-    } else {
-      if (nextCandidate.time - editedStartTime < 35) return
-      updateEndBoundary(nextCandidate.time, {
-        type: 'word_end',
-        time: nextCandidate.time,
-        sourceId: nextCandidate.word.id,
-        label: nextCandidate.word.text
-      })
-    }
-    seekSourceVideo(nextCandidate.time)
+      }
+    })
+    seekSourceVideo(nextTime)
   }
 
   const activeBoundaryAnchor = selectedBoundary === 'in' ? startAnchor : endAnchor
@@ -1326,6 +1406,7 @@ export function ClipEditModal({
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
 
       event.preventDefault()
+      const skipSnap = event.metaKey || event.ctrlKey
 
       if (event.altKey) {
         moveBoundaryToAdjacentWord(event.key === 'ArrowLeft' ? -1 : 1)
@@ -1334,7 +1415,7 @@ export function ClipEditModal({
 
       const baseStep = event.shiftKey ? coarseFrameStep : frameStep
       const direction = event.key === 'ArrowLeft' ? -1 : 1
-      moveBoundaryBy(baseStep * direction)
+      moveBoundaryBy(baseStep * direction, skipSnap)
     }
 
     document.addEventListener('keydown', handleKeyDown)
@@ -1417,10 +1498,7 @@ export function ClipEditModal({
                       onClick={() => {
                         const absoluteTime = currentTime
                         if (editedEndTime - absoluteTime >= 35) {
-                          updateStartBoundary(absoluteTime, {
-                            type: 'free',
-                            time: absoluteTime
-                          })
+                          applyBoundaryWithSnap('in', absoluteTime)
                         } else {
                           alert('Clip must be at least 35 seconds long. Move forward in the video first.')
                         }
@@ -1451,10 +1529,7 @@ export function ClipEditModal({
                       onClick={() => {
                         const absoluteTime = currentTime
                         if (absoluteTime - editedStartTime >= 35) {
-                          updateEndBoundary(absoluteTime, {
-                            type: 'free',
-                            time: absoluteTime
-                          })
+                          applyBoundaryWithSnap('out', absoluteTime)
                         } else {
                           alert('Clip must be at least 35 seconds long. Move backward in the video first.')
                         }
@@ -1854,10 +1929,7 @@ export function ClipEditModal({
                             onChange={(e) => {
                               const newStart = parseFloat(e.target.value)
                               if (newStart >= 0 && editedEndTime - newStart >= 35) {
-                                updateStartBoundary(newStart, {
-                                  type: 'free',
-                                  time: newStart
-                                })
+                                applyBoundaryWithSnap('in', newStart)
                               }
                             }}
                             className="w-full px-3 py-2 bg-bg-primary border border-border-default rounded text-text-primary font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
@@ -1874,10 +1946,7 @@ export function ClipEditModal({
                             onChange={(e) => {
                               const newEnd = parseFloat(e.target.value)
                               if (newEnd - editedStartTime >= 35) {
-                                updateEndBoundary(newEnd, {
-                                  type: 'free',
-                                  time: newEnd
-                                })
+                                applyBoundaryWithSnap('out', newEnd)
                               }
                             }}
                             className="w-full px-3 py-2 bg-bg-primary border border-border-default rounded text-text-primary font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
@@ -1890,7 +1959,7 @@ export function ClipEditModal({
                   <div className="p-4 bg-bg-secondary rounded-xl border border-border-default shadow-sm space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <h4 className="text-sm font-semibold text-text-primary">Boundary Inspector</h4>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2 justify-end">
                         <button
                           type="button"
                           onClick={() => setSelectedBoundary('in')}
@@ -1913,6 +1982,39 @@ export function ClipEditModal({
                         >
                           Inspect End
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setSnapMode('word')}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            snapMode === 'word'
+                              ? 'bg-accent-primary text-white'
+                              : 'bg-bg-primary text-text-secondary border border-border-default'
+                          }`}
+                        >
+                          Word Snap
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSnapMode('frame')}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            snapMode === 'frame'
+                              ? 'bg-accent-primary text-white'
+                              : 'bg-bg-primary text-text-secondary border border-border-default'
+                          }`}
+                        >
+                          Frame Snap
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSnapMode('free')}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            snapMode === 'free'
+                              ? 'bg-accent-primary text-white'
+                              : 'bg-bg-primary text-text-secondary border border-border-default'
+                          }`}
+                        >
+                          Free
+                        </button>
                       </div>
                     </div>
 
@@ -1925,6 +2027,12 @@ export function ClipEditModal({
                         <div className="text-xs uppercase tracking-wide text-text-muted">Anchor Type</div>
                         <div className="mt-1 text-base font-medium text-text-primary">
                           {activeBoundaryAnchor?.type ?? 'free'}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                        <div className="text-xs uppercase tracking-wide text-text-muted">Snap Mode</div>
+                        <div className="mt-1 text-base font-medium text-text-primary">
+                          {snapMode}
                         </div>
                       </div>
                       <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
@@ -1948,7 +2056,7 @@ export function ClipEditModal({
                       <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3 col-span-2">
                         <div className="text-xs uppercase tracking-wide text-text-muted">Keyboard</div>
                         <div className="mt-1 text-sm text-text-primary">
-                          Left/Right: 1 frame. Shift+Left/Right: 5 frames. Alt+Left/Right: previous/next word boundary.
+                          Left/Right: 1 frame. Shift+Left/Right: 5 frames. Alt+Left/Right: previous/next word boundary. Hold Cmd/Ctrl to bypass snapping.
                         </div>
                       </div>
                       <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3 col-span-2">
