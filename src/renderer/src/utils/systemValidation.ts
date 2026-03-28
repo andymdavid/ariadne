@@ -117,9 +117,9 @@ function validateNavigationFlow(errors: string[], warnings: string[]): boolean {
       return false
     }
     
-    // Test emergency navigation bypass
-    if (!projectStore.emergencyNavigationBypass) {
-      warnings.push('Emergency navigation bypass not available')
+    // Test emergency navigation helpers
+    if (typeof projectStore.emergencyUnlockAll !== 'function') {
+      warnings.push('Emergency unlock helper not available')
     }
     
     return true
@@ -230,8 +230,8 @@ function validateDataPersistence(errors: string[], warnings: string[]): boolean 
     
     // Test project store persistence
     const projectStore = useProjectStore.getState()
-    if (!projectStore.projects || !Array.isArray(projectStore.projects)) {
-      warnings.push('Project store may not be properly persisting projects array')
+    if (!projectStore.savedProjects || !Array.isArray(projectStore.savedProjects)) {
+      warnings.push('Project store may not be properly persisting saved projects')
     }
     
     // Test auto-save functionality (this is handled by useProcessingUpdates hook)
@@ -279,8 +279,6 @@ export function runSystemValidation(): ValidationResult {
 export function quickValidation(): boolean {
   try {
     // Only validate basic system components that don't require React context
-    const errors: string[] = []
-    
     // Test 1: Basic API availability
     if (!window.electronAPI) {
       console.warn('Electron API not available during startup validation')

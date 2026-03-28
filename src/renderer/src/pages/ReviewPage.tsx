@@ -6,34 +6,21 @@ import { MainContentPanel } from '../components/MainContentPanel'
 import { useClipsData, useProjectStore } from '../stores/projectStore'
 import type { Clip as ProjectClip } from '@shared/types'
 
-interface Clip {
-  id: string
-  startTime: number
-  endTime: number
-  duration: number
-  contentType: string
-  shareabilityScore: number
-  keyQuote: string
-  reason: string
-  contextNeeded: string
-  status: 'pending' | 'approved' | 'rejected'
-}
-
 export function ReviewPage() {
   const { id: episodeId } = useParams<{ id: string }>()
-  const [clips, setClips] = useState<Clip[]>([])
-  const [selectedClip, setSelectedClip] = useState<Clip | null>(null)
+  const [clips, setClips] = useState<ProjectClip[]>([])
+  const [selectedClip, setSelectedClip] = useState<ProjectClip | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
   // Use project store for persisted clips data
   const { clips: projectClips } = useClipsData()
   const { updateClipStatus: updateProjectClipStatus, markScreenCompleted } = useProjectStore()
-  const [extractingClips, setExtractingClips] = useState<Set<string>>(new Set())
+  const [extractingClips] = useState<Set<string>>(new Set())
   const [extractionProgress, setExtractionProgress] = useState<{[clipId: string]: number}>({})
 
   // State for edit modal
-  const [editingClip, setEditingClip] = useState<Clip | null>(null)
+  const [editingClip, setEditingClip] = useState<ProjectClip | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
   // Fetch clips on component mount
@@ -111,13 +98,17 @@ export function ReviewPage() {
           startTime: clip.startTime,
           endTime: clip.endTime,
           duration: clip.duration,
-          contentType: clip.contentType,
-          shareabilityScore: clip.shareabilityScore,
-          keyQuote: clip.keyQuote,
-          reason: clip.reason,
-          contextNeeded: clip.contextNeeded,
-          status: clip.status
-        }))
+            contentType: clip.contentType,
+            shareabilityScore: clip.shareabilityScore,
+            keyQuote: clip.keyQuote,
+            reason: clip.reason,
+            contextNeeded: clip.contextNeeded,
+            videoWidth: clip.videoWidth ?? null,
+            videoHeight: clip.videoHeight ?? null,
+            status: clip.status,
+            episodeId: clip.episodeId,
+            createdAt: clip.createdAt
+          }))
         setClips(processedClips)
         
         // Mark review screen as available since we have clips
@@ -146,7 +137,9 @@ export function ReviewPage() {
             contextNeeded: clip.context_needed || clip.contextNeeded || 'low',
             videoWidth: clip.video_width ?? clip.videoWidth ?? null,
             videoHeight: clip.video_height ?? clip.videoHeight ?? null,
-            status: clip.status || 'pending'
+            status: (clip.status || 'pending') as ProjectClip['status'],
+            episodeId: clip.episode_id || episodeId || '',
+            createdAt: clip.created_at || new Date().toISOString()
           }
         })
         console.log('Processed clips from database:', processedClips)
@@ -167,15 +160,6 @@ export function ReviewPage() {
   }
 
   // Format time from seconds to MM:SS
-  const formatTime = (seconds: number): string => {
-    if (!seconds || isNaN(seconds) || seconds < 0) {
-      return '0:00'
-    }
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
-
   // Handle clip approval
   const handleApprove = async (clipId: string) => {
     try {
@@ -217,12 +201,12 @@ export function ReviewPage() {
   }
 
   // Handle clip selection without opening modal (for arrow keys)
-  const handleNavigateToClip = (clip: Clip) => {
+  const handleNavigateToClip = (clip: ProjectClip) => {
     setSelectedClip(clip)
   }
 
   // Handle clip selection for preview - opens edit modal
-  const handleSelectClip = (clip: Clip) => {
+  const handleSelectClip = (clip: ProjectClip) => {
     try {
       console.log('Selecting clip for editing:', clip)
       setSelectedClip(clip)
@@ -250,7 +234,7 @@ export function ReviewPage() {
   }
 
   // Handle play clip - now opens edit modal
-  const handlePlayClip = async (clip: Clip) => {
+  const handlePlayClip = async (clip: ProjectClip) => {
     // Close any open modals and open the edit modal
     handleSelectClip(clip)
   }

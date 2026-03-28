@@ -1,17 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-
-interface Clip {
-  id: string
-  startTime: number
-  endTime: number
-  duration: number
-  contentType: string
-  shareabilityScore: number
-  keyQuote: string
-  reason: string
-  contextNeeded: string
-  status: 'pending' | 'approved' | 'rejected'
-}
+import type { Clip } from '@shared/types'
 
 interface ClipCarouselProps {
   clips: Clip[]

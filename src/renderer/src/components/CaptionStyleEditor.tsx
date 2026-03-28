@@ -64,8 +64,7 @@ const defaultStyle: CaptionStyle = {
 }
 
 export function CaptionStyleEditor({
-  clipId,
-  transcriptSegments,
+  transcriptSegments: _transcriptSegments,
   currentStyle,
   onStyleChange
 }: CaptionStyleEditorProps) {
@@ -102,10 +101,6 @@ export function CaptionStyleEditor({
   }
 
   // Get a sample caption for preview
-  const previewText = transcriptSegments && transcriptSegments.length > 0
-    ? transcriptSegments[0].text
-    : 'Apple is a hardware company, but AI is going to become...'
-
   return (
     <div className="space-y-5">
       {/* Header */}

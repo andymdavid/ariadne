@@ -65,7 +65,6 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
   const [editingSegmentIndex, setEditingSegmentIndex] = useState<number | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
-  const captionEditRef = useRef<HTMLDivElement>(null)
 
   // Load existing edits and transcript
   useEffect(() => {
@@ -148,20 +147,20 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
 
       // Set settings (use existing edits or defaults)
       setSettings({
-        enabled: existingEdits?.captions_enabled === 1 ?? defaultSettings.enabled,
+        enabled: existingEdits ? existingEdits.captions_enabled === 1 : defaultSettings.enabled,
         segments,
         font: existingEdits?.caption_font || defaultSettings.font,
         size: existingEdits?.caption_size || defaultSettings.size,
         color: existingEdits?.caption_color || defaultSettings.color,
         position: existingEdits?.caption_position || defaultSettings.position,
-        bold: existingEdits?.caption_bold === 1 ?? defaultSettings.bold,
-        italic: existingEdits?.caption_italic === 1 ?? defaultSettings.italic,
-        outline: existingEdits?.caption_outline === 1 ?? defaultSettings.outline,
+        bold: existingEdits ? existingEdits.caption_bold === 1 : defaultSettings.bold,
+        italic: existingEdits ? existingEdits.caption_italic === 1 : defaultSettings.italic,
+        outline: existingEdits ? existingEdits.caption_outline === 1 : defaultSettings.outline,
         outlineColor: existingEdits?.caption_outline_color || defaultSettings.outlineColor,
         outlineWidth: existingEdits?.caption_outline_width || defaultSettings.outlineWidth,
-        shadow: existingEdits?.caption_shadow === 1 ?? defaultSettings.shadow,
+        shadow: existingEdits ? existingEdits.caption_shadow === 1 : defaultSettings.shadow,
         highlightStyle: existingEdits?.caption_highlight_style || defaultSettings.highlightStyle,
-        background: existingEdits?.caption_background === 1 ?? defaultSettings.background,
+        background: existingEdits ? existingEdits.caption_background === 1 : defaultSettings.background,
         backgroundColor: existingEdits?.caption_background_color || defaultSettings.backgroundColor,
         backgroundOpacity: existingEdits?.caption_background_opacity || defaultSettings.backgroundOpacity
       })

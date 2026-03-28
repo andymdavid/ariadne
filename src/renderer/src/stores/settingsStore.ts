@@ -26,7 +26,7 @@ const initialState: SettingsState = {
 // Create the settings store with persistence
 export const useSettingsStore = create<SettingsState & SettingsActions>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       ...initialState,
 
       setBackgroundImagesEnabled: (enabled) => {

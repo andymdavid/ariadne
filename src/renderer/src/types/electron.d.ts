@@ -1,4 +1,4 @@
-import type { ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload } from '@shared/types'
+import type { ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types'
 
 // Electron API types for renderer process
 
@@ -22,10 +22,18 @@ declare global {
       getEpisodeMediaSource: (episodeId: string) => Promise<{ mediaUrl: string; filePath: string; duration: number }>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       getClip: (clipId: string) => Promise<any>;
+      getClipTrimState: (clipId: string) => Promise<ClipTrimState | undefined>;
       getTranscriptSegments: (episodeId: string) => Promise<any[]>;
       updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) => Promise<any>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;
       updateClipBoundaries: (clipId: string, startTime: number, endTime: number) => Promise<any>;
+      saveClipTrimState: (
+        clipId: string,
+        inPoint: number,
+        outPoint: number,
+        inAnchor?: TrimBoundaryAnchor | null,
+        outAnchor?: TrimBoundaryAnchor | null
+      ) => Promise<any>;
       getApprovedClips: (episodeId: string) => Promise<any[]>;
       cleanupDatabase: () => Promise<any>;
       nukeAllProjects: () => Promise<any>;
@@ -52,6 +60,10 @@ declare global {
       saveClipEdits: (clipId: string, edits: any) => Promise<any>;
       deleteClipEdits: (clipId: string) => Promise<any>;
       getClipTranscriptSegments: (clipId: string) => Promise<any[]>;
+      uploadLogo: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+      listLogos: () => Promise<string[]>;
+      uploadMusic: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+      listMusic: () => Promise<string[]>;
 
       // Event listeners
       onProcessingUpdate: (callback: (data: ProcessingProgress) => void) => () => void;

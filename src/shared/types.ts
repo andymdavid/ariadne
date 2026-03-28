@@ -42,6 +42,39 @@ export interface Clip {
   createdAt: string;
 }
 
+export type TrimBoundaryType =
+  | 'free'
+  | 'frame'
+  | 'word_start'
+  | 'word_end'
+  | 'segment_start'
+  | 'segment_end'
+  | 'silence_start'
+  | 'silence_end';
+
+export interface TrimBoundaryAnchor {
+  type: TrimBoundaryType;
+  sourceId?: string | null;
+  time: number;
+  confidence?: number | null;
+  label?: string | null;
+}
+
+export interface ClipTrimState {
+  clipId: string;
+  inPoint: number;
+  outPoint: number;
+  inAnchorType?: TrimBoundaryType | null;
+  inAnchorSourceId?: string | null;
+  inAnchorLabel?: string | null;
+  inAnchorConfidence?: number | null;
+  outAnchorType?: TrimBoundaryType | null;
+  outAnchorSourceId?: string | null;
+  outAnchorLabel?: string | null;
+  outAnchorConfidence?: number | null;
+  updatedAt: string;
+}
+
 export interface ContentPackage {
   id: string;
   clipId: string;

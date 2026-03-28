@@ -5,6 +5,54 @@ import { existsSync, mkdirSync } from 'fs'
 import { database } from '../database/database'
 import { ffmpegService } from './ffmpegService'
 
+interface ClipEditsRow {
+  captions_enabled?: number
+  caption_segments?: string | null
+  caption_font?: string | null
+  caption_size?: number | null
+  caption_color?: string | null
+  caption_position?: string | null
+  caption_custom_x?: number | null
+  caption_custom_y?: number | null
+  caption_bold?: number | null
+  caption_weight?: number | null
+  caption_italic?: number | null
+  caption_outline?: number | null
+  caption_outline_color?: string | null
+  caption_outline_width?: number | null
+  caption_shadow?: number | null
+  caption_highlight_style?: string | null
+  caption_background?: number | null
+  caption_background_color?: string | null
+  caption_background_opacity?: number | null
+  caption_text_case?: string | null
+  caption_words_per_caption?: number | null
+  caption_max_width?: number | null
+  caption_line_height?: number | null
+  caption_letter_spacing?: number | null
+  logo_enabled?: number | null
+  logo_path?: string | null
+  logo_position_x?: number | null
+  logo_position_y?: number | null
+  logo_scale?: number | null
+  logo_opacity?: number | null
+  music_enabled?: number | null
+  music_path?: string | null
+  music_volume?: number | null
+  music_duck_volume?: number | null
+  music_duck_enabled?: number | null
+  music_fade_in?: number | null
+  music_fade_out?: number | null
+  music_loop?: number | null
+  aspect_ratio?: '9:16' | '1:1' | '16:9' | null
+  crop_mode?: 'center' | 'fit' | 'blur' | 'canvas' | null
+  crop_position_x?: number | null
+  crop_position_y?: number | null
+  zoom_level?: number | null
+  video_offset_x?: number | null
+  video_offset_y?: number | null
+}
+
 export interface ExportOptions {
   aspectRatio?: '9:16' | '1:1' | '16:9'
   includeCaptions?: boolean
@@ -117,7 +165,7 @@ class ExportService {
         console.log(`========================================`)
         console.log(`[ExportService] ⭐ PROCESSING CLIP ${i + 1}/${clips.length}`)
         console.log(`[ExportService] Clip ID: ${clip.id}`)
-        const clipEdits = database.getClipEdits(clip.id)
+        const clipEdits = database.getClipEdits(clip.id) as ClipEditsRow | undefined
         console.log(`[ExportService] Clip edits loaded:`, clipEdits ? 'YES' : 'NO')
         if (clipEdits) {
           console.log(`[ExportService] - Captions enabled: ${clipEdits.captions_enabled}`)
@@ -157,8 +205,8 @@ class ExportService {
           size: clipEdits.caption_size || 48,
           color: clipEdits.caption_color || '#FFFFFF',
           position: clipEdits.caption_position || 'bottom',
-          customX: clipEdits.caption_custom_x,
-          customY: clipEdits.caption_custom_y,
+          customX: clipEdits.caption_custom_x ?? undefined,
+          customY: clipEdits.caption_custom_y ?? undefined,
           weight: clipEdits.caption_weight || (clipEdits.caption_bold === 1 ? 700 : 400), // Use weight, fallback to bold
           italic: clipEdits.caption_italic === 1,
           outline: clipEdits.caption_outline === 1,
@@ -174,29 +222,29 @@ class ExportService {
           maxWidth: clipEdits.caption_max_width ?? 90,
           lineHeight: clipEdits.caption_line_height ?? 1.2,
           letterSpacing: clipEdits.caption_letter_spacing ?? 0
-        } : null
+        } : undefined
 
         // Build logo settings from database
         const logoSettings = clipEdits && clipEdits.logo_enabled ? {
           enabled: true,
-          logoPath: clipEdits.logo_path,
+          logoPath: clipEdits.logo_path ?? null,
           positionX: clipEdits.logo_position_x ?? 85,
           positionY: clipEdits.logo_position_y ?? 85,
           scale: clipEdits.logo_scale ?? 0.15,
           opacity: clipEdits.logo_opacity ?? 0.8
-        } : null
+        } : undefined
 
         // Build music settings from database
         const musicSettings = clipEdits && clipEdits.music_enabled ? {
           enabled: true,
-          musicPath: clipEdits.music_path,
+          musicPath: clipEdits.music_path ?? null,
           volume: clipEdits.music_volume ?? 0.3,
           duckVolume: clipEdits.music_duck_volume ?? 0.1,
           duckEnabled: clipEdits.music_duck_enabled === 1,
           fadeIn: clipEdits.music_fade_in ?? 1.0,
           fadeOut: clipEdits.music_fade_out ?? 1.0,
           loop: clipEdits.music_loop === 1
-        } : null
+        } : undefined
 
         // Build frame settings from database
         const normalizedCropMode = clipEdits?.crop_mode === 'canvas' ? 'fit' : clipEdits?.crop_mode

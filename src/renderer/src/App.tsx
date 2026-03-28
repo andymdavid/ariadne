@@ -16,7 +16,6 @@ import { StatusMessage } from './components/CommandDisplay'
 import { useProcessingStore } from './stores/processingStore'
 import { useProjectStore } from './stores/projectStore'
 import { ErrorBoundary, ProcessingErrorBoundary, NavigationErrorBoundary, LibraryErrorBoundary } from './components/ErrorBoundary'
-import { quickValidation } from './utils/systemValidation'
 import { IoFlash, IoCheckmarkCircle, IoCreate, IoCloudUpload, IoAnalytics } from 'react-icons/io5'
 
 function App() {
@@ -24,9 +23,9 @@ function App() {
   const navigate = useNavigate()
   const { availableHeight } = useViewport()
   const [commandResult, setCommandResult] = useState<string>('')
-  const [sessionData, setSessionData] = useState<{[key: string]: any}>({})
+  const [sessionData] = useState<{[key: string]: any}>({})
   const [isCommandMode, setIsCommandMode] = useState(false)
-  const [commandInput, setCommandInput] = useState('')
+  const [, setCommandInput] = useState('')
   const [sessionMessages, setSessionMessages] = useState<StatusMessage[]>([])
   const [hasActivatedAriadne, setHasActivatedAriadne] = useState(false)
   const messageCounterRef = useRef(0)
@@ -34,13 +33,11 @@ function App() {
   const lastAnnouncedStageRef = useRef('')
   
   // Get processing state from store
-  const { isProcessing, stage, message: processingMessage } = useProcessingStore()
+  const { isProcessing, stage } = useProcessingStore()
   
   // Get project state
   const {
     clips: projectClips,
-    currentEpisode,
-    fileInfo,
     markScreenCompleted,
     setFileInfo,
     validateState,

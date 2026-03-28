@@ -8,6 +8,7 @@ import { configService } from './services/configService';
 import { clipService } from './services/clipService';
 import { exportService } from './services/exportService';
 import { ffmpegService } from './services/ffmpegService';
+import type { TrimBoundaryAnchor } from '@shared/types';
 
 // TODO: Add electron-reload for development
 
@@ -85,7 +86,8 @@ async function createWindow() {
 app.whenReady().then(() => {
   // Register the app-file protocol to serve local files securely
   protocol.registerFileProtocol('app-file', (request, callback) => {
-    const filePath = request.url.replace('app-file://', '')
+    const rawPath = request.url.replace('app-file://', '')
+    const filePath = decodeURIComponent(rawPath)
     console.log('Serving file via app-file protocol:', filePath)
     
     // Security check: ensure the file exists and is in a safe location
@@ -194,6 +196,10 @@ ipcMain.handle('get-clip', (event, clipId: string) => {
   return database.getClip(clipId);
 });
 
+ipcMain.handle('get-clip-trim-state', (event, clipId: string) => {
+  return database.getClipTrimState(clipId);
+});
+
 ipcMain.handle('update-clip-status', (event, clipId: string, status: string) => {
   return database.updateClipStatus(clipId, status);
 });
@@ -201,6 +207,13 @@ ipcMain.handle('update-clip-status', (event, clipId: string, status: string) => 
 ipcMain.handle('update-clip-boundaries', (event, clipId: string, startTime: number, endTime: number) => {
   return database.updateClipBoundaries(clipId, startTime, endTime);
 });
+
+ipcMain.handle(
+  'save-clip-trim-state',
+  (event, clipId: string, inPoint: number, outPoint: number, inAnchor?: TrimBoundaryAnchor | null, outAnchor?: TrimBoundaryAnchor | null) => {
+    return database.saveClipTrimState(clipId, inPoint, outPoint, inAnchor, outAnchor);
+  }
+);
 
 ipcMain.handle('get-approved-clips', (event, episodeId: string) => {
   return database.getApprovedClips(episodeId);

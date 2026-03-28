@@ -6,7 +6,6 @@ import {
   IoCreate, 
   IoCloudUpload, 
   IoLibrary,
-  IoSettings,
   IoSearch 
 } from 'react-icons/io5'
 import { useScreenFlow, useProjectData } from '../stores/projectStore'
@@ -39,14 +38,14 @@ interface NavIcon {
   requiresEpisode?: boolean
 }
 
-export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, isCommandMode = false, episodeId, isProcessing = false, sessionMessages = [], onAddMessage, showStatusMode = false }: NavigationDockProps) {
+export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, isCommandMode = false, episodeId, isProcessing = false, sessionMessages = [], onAddMessage }: NavigationDockProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const [activeScreen, setActiveScreen] = useState<string>('upload')
   const [commandInput, setCommandInput] = useState('')
   const [isExpanding, setIsExpanding] = useState(false)
   const [showSlashCommands, setShowSlashCommands] = useState(false)
-  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [, setSuggestions] = useState<string[]>([])
   const [filteredSlashCommands, setFilteredSlashCommands] = useState<any[]>([])
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
   const [localMessages, setLocalMessages] = useState<StatusMessage[]>([])
@@ -56,7 +55,6 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
   
   // Use project store for screen flow management
   const { 
-    currentScreen,
     completedScreens,
     canAccessScreen, 
     isScreenCompleted, 
@@ -219,15 +217,7 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
   // Check if nav icon is disabled
   const isIconDisabled = (navIcon: NavIcon): boolean => {
     // Disable if workflow requirements aren't met or episode is required but missing
-    return !canAccessScreen(navIcon.id) || (navIcon.requiresEpisode && !activeEpisodeId)
-  }
-
-  // Get context-aware placeholder text
-  const getCommandPlaceholder = (): string => {
-    if (isProcessing) return 'Type "/cancel" to stop processing...'
-    if (commandInput.length > 0) return ''
-    
-    return 'Press / or ⌘K for commands, Space to type...'
+    return !canAccessScreen(navIcon.id) || !!(navIcon.requiresEpisode && !activeEpisodeId)
   }
 
   // Handle command input changes with autocomplete
@@ -238,7 +228,6 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
     // Check if it's a slash command
     if (value.startsWith('/')) {
       setShowSlashCommands(true)
-      setSuggestions([])
       
       const searchTerm = value.slice(1).toLowerCase()
       const allCommands = getSlashCommands()

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, existsSync, mkdirSync, statSync } from 'fs'
+import type { ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
 
 class DatabaseManager {
   private db: Database.Database
@@ -69,6 +70,21 @@ class DatabaseManager {
         timestamp REAL NOT NULL,
         is_selected INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS clip_trim_state (
+        clip_id TEXT PRIMARY KEY,
+        in_point REAL NOT NULL,
+        out_point REAL NOT NULL,
+        in_anchor_type TEXT,
+        in_anchor_source_id TEXT,
+        in_anchor_label TEXT,
+        in_anchor_confidence REAL,
+        out_anchor_type TEXT,
+        out_anchor_source_id TEXT,
+        out_anchor_label TEXT,
+        out_anchor_confidence REAL,
+        updated_at TEXT NOT NULL,
         FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
       );`,
       `CREATE TABLE IF NOT EXISTS clip_edits (
@@ -324,6 +340,34 @@ class DatabaseManager {
       } catch (error) {
         console.log('Clip video dimension columns migration skipped (may already exist)')
         this.db.pragma('user_version = 15')
+      }
+    }
+
+    if (preVersion <= 15) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS clip_trim_state (
+            clip_id TEXT PRIMARY KEY,
+            in_point REAL NOT NULL,
+            out_point REAL NOT NULL,
+            in_anchor_type TEXT,
+            in_anchor_source_id TEXT,
+            in_anchor_label TEXT,
+            in_anchor_confidence REAL,
+            out_anchor_type TEXT,
+            out_anchor_source_id TEXT,
+            out_anchor_label TEXT,
+            out_anchor_confidence REAL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_clip_trim_state_updated_at ON clip_trim_state (updated_at);
+        `)
+        console.log('✅ Added clip trim state table (v16)')
+        this.db.pragma('user_version = 16')
+      } catch (error) {
+        console.log('Clip trim state migration skipped (may already exist)')
+        this.db.pragma('user_version = 16')
       }
     }
   }
@@ -812,6 +856,64 @@ class DatabaseManager {
   getClipEdits(clipId: string) {
     const stmt = this.db.prepare('SELECT * FROM clip_edits WHERE clip_id = ?')
     return stmt.get(clipId)
+  }
+
+  getClipTrimState(clipId: string): ClipTrimState | undefined {
+    const stmt = this.db.prepare('SELECT * FROM clip_trim_state WHERE clip_id = ?')
+    return stmt.get(clipId) as ClipTrimState | undefined
+  }
+
+  saveClipTrimState(
+    clipId: string,
+    inPoint: number,
+    outPoint: number,
+    inAnchor?: TrimBoundaryAnchor | null,
+    outAnchor?: TrimBoundaryAnchor | null
+  ) {
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare(`
+      INSERT INTO clip_trim_state (
+        clip_id,
+        in_point,
+        out_point,
+        in_anchor_type,
+        in_anchor_source_id,
+        in_anchor_label,
+        in_anchor_confidence,
+        out_anchor_type,
+        out_anchor_source_id,
+        out_anchor_label,
+        out_anchor_confidence,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(clip_id) DO UPDATE SET
+        in_point = excluded.in_point,
+        out_point = excluded.out_point,
+        in_anchor_type = excluded.in_anchor_type,
+        in_anchor_source_id = excluded.in_anchor_source_id,
+        in_anchor_label = excluded.in_anchor_label,
+        in_anchor_confidence = excluded.in_anchor_confidence,
+        out_anchor_type = excluded.out_anchor_type,
+        out_anchor_source_id = excluded.out_anchor_source_id,
+        out_anchor_label = excluded.out_anchor_label,
+        out_anchor_confidence = excluded.out_anchor_confidence,
+        updated_at = excluded.updated_at
+    `)
+
+    return stmt.run(
+      clipId,
+      inPoint,
+      outPoint,
+      inAnchor?.type ?? null,
+      inAnchor?.sourceId ?? null,
+      inAnchor?.label ?? null,
+      inAnchor?.confidence ?? null,
+      outAnchor?.type ?? null,
+      outAnchor?.sourceId ?? null,
+      outAnchor?.label ?? null,
+      outAnchor?.confidence ?? null,
+      now
+    )
   }
 
   saveClipEdits(clipId: string, edits: any) {

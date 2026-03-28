@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { IoCheckmarkCircle, IoClose, IoDownload, IoSettings, IoTime, IoVideocam, IoWarning } from 'react-icons/io5'
+import { IoCheckmarkCircle, IoClose, IoDownload, IoVideocam, IoWarning } from 'react-icons/io5'
 import { MainContentPanel } from '../components/MainContentPanel'
 
 interface Clip {
@@ -168,13 +168,6 @@ export function ExportPage() {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
-
-  const getEstimatedDuration = (): string => {
-    const totalDuration = approvedClips.reduce((sum, clip) => sum + clip.duration, 0)
-    // Rough estimate: 2x duration for processing
-    const estimatedMinutes = Math.ceil((totalDuration * 2) / 60)
-    return `~${estimatedMinutes} min`
   }
 
   if (loading) {

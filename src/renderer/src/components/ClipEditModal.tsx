@@ -7,6 +7,7 @@ import { CaptionStyleEditor, CaptionStyle } from './CaptionStyleEditor'
 import { LogoEditor, LogoSettings } from './LogoEditor'
 import { MusicEditor, MusicSettings } from './MusicEditor'
 import { FrameEditor } from './FrameEditor'
+import type { TrimBoundaryAnchor } from '@shared/types'
 import type { FrameSettings } from '@shared/types/frameSettings'
 import { DEFAULT_FRAME_SETTINGS } from '@shared/types/frameSettings'
 
@@ -39,6 +40,7 @@ interface ClipEditModalProps {
 }
 
 type EditorTab = 'duration' | 'transcript' | 'captions' | 'logo' | 'music' | 'frame'
+type TrimBoundarySide = 'in' | 'out'
 
 const clampZoom = (value?: number) => Math.max(0.5, Math.min(4, value ?? 1))
 
@@ -71,6 +73,9 @@ export function ClipEditModal({
   const [showManualInputs, setShowManualInputs] = useState(false)
   const [allEpisodeSegments, setAllEpisodeSegments] = useState<any[]>([])
   const [selectedTrimWordId, setSelectedTrimWordId] = useState<string | null>(null)
+  const [selectedBoundary, setSelectedBoundary] = useState<TrimBoundarySide>('out')
+  const [startAnchor, setStartAnchor] = useState<TrimBoundaryAnchor | null>(null)
+  const [endAnchor, setEndAnchor] = useState<TrimBoundaryAnchor | null>(null)
   const pendingSeekTimeRef = useRef<number | null>(null)
 
   // Transcript tab state
@@ -104,12 +109,24 @@ export function ClipEditModal({
   useEffect(() => {
     if (isOpen && clipId && !saving) {
       loadSourceMedia()
+      loadTrimState()
       loadCaptionStyle()
       loadLogoSettings()
       loadMusicSettings()
       loadFrameSettings()
     }
   }, [isOpen, clipId])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    setEditedStartTime(clipData.startTime)
+    setEditedEndTime(clipData.endTime)
+    setStartAnchor(null)
+    setEndAnchor(null)
+    setSelectedBoundary('out')
+    setSelectedTrimWordId(null)
+  }, [clipData.endTime, clipData.startTime, isOpen])
 
   // Load logo settings
   const loadLogoSettings = async () => {
@@ -631,6 +648,32 @@ export function ClipEditModal({
     }
   }
 
+  const loadTrimState = async () => {
+    try {
+      const trimState = await window.electronAPI?.getClipTrimState?.(clipId)
+      if (!trimState) return
+
+      setEditedStartTime(trimState.inPoint)
+      setEditedEndTime(trimState.outPoint)
+      setStartAnchor(trimState.inAnchorType ? {
+        type: trimState.inAnchorType,
+        sourceId: trimState.inAnchorSourceId,
+        label: trimState.inAnchorLabel,
+        confidence: trimState.inAnchorConfidence,
+        time: trimState.inPoint
+      } : null)
+      setEndAnchor(trimState.outAnchorType ? {
+        type: trimState.outAnchorType,
+        sourceId: trimState.outAnchorSourceId,
+        label: trimState.outAnchorLabel,
+        confidence: trimState.outAnchorConfidence,
+        time: trimState.outPoint
+      } : null)
+    } catch (error) {
+      console.error('Failed to load trim state:', error)
+    }
+  }
+
   // Load episode duration for Duration tab
   useEffect(() => {
     if (isOpen && activeTab === 'duration') {
@@ -1061,6 +1104,14 @@ export function ClipEditModal({
         )
       }
 
+      await window.electronAPI?.saveClipTrimState?.(
+        clipId,
+        editedStartTime,
+        editedEndTime,
+        startAnchor ? { ...startAnchor, time: editedStartTime } : null,
+        endAnchor ? { ...endAnchor, time: editedEndTime } : null
+      )
+
       // Build edits for the current clip
       const allEdits = buildEditsObject(clipId, editedStartTime, editedEndTime)
 
@@ -1115,6 +1166,20 @@ export function ClipEditModal({
   }
 
   const clipRelativeCurrentTime = Math.max(0, currentTime - editedStartTime)
+  const updateStartBoundary = (time: number, anchor: TrimBoundaryAnchor) => {
+    setEditedStartTime(time)
+    setStartAnchor({ ...anchor, time })
+    setSelectedBoundary('in')
+    setHasUnsavedChanges(true)
+  }
+
+  const updateEndBoundary = (time: number, anchor: TrimBoundaryAnchor) => {
+    setEditedEndTime(time)
+    setEndAnchor({ ...anchor, time })
+    setSelectedBoundary('out')
+    setHasUnsavedChanges(true)
+  }
+
   const episodeWords = allEpisodeSegments.flatMap((segment: any, segmentIndex: number) =>
     Array.isArray(segment.words)
       ? segment.words.map((word: any, wordIndex: number) => ({
@@ -1138,17 +1203,34 @@ export function ClipEditModal({
 
   const applyWordStartBoundary = (wordStart: number) => {
     if (editedEndTime - wordStart < 35) return
-    setEditedStartTime(wordStart)
-    setHasUnsavedChanges(true)
+    updateStartBoundary(wordStart, {
+      type: 'word_start',
+      time: wordStart,
+      sourceId: selectedTrimWord?.id ?? null,
+      label: selectedTrimWord?.text ?? null
+    })
     seekSourceVideo(wordStart)
   }
 
   const applyWordEndBoundary = (wordEnd: number) => {
     if (wordEnd - editedStartTime < 35) return
-    setEditedEndTime(wordEnd)
-    setHasUnsavedChanges(true)
+    updateEndBoundary(wordEnd, {
+      type: 'word_end',
+      time: wordEnd,
+      sourceId: selectedTrimWord?.id ?? null,
+      label: selectedTrimWord?.text ?? null
+    })
     seekSourceVideo(Math.min(wordEnd, editedEndTime))
   }
+
+  const activeBoundaryAnchor = selectedBoundary === 'in' ? startAnchor : endAnchor
+  const activeBoundaryTime = selectedBoundary === 'in' ? editedStartTime : editedEndTime
+  const nearestWordDelta = selectedTrimWord
+    ? Math.min(
+        Math.abs(activeBoundaryTime - selectedTrimWord.start),
+        Math.abs(activeBoundaryTime - selectedTrimWord.end)
+      )
+    : null
 
   if (!isOpen) return null
 
@@ -1214,8 +1296,10 @@ export function ClipEditModal({
                       onClick={() => {
                         const absoluteTime = currentTime
                         if (editedEndTime - absoluteTime >= 35) {
-                          setEditedStartTime(absoluteTime)
-                          setHasUnsavedChanges(true)
+                          updateStartBoundary(absoluteTime, {
+                            type: 'free',
+                            time: absoluteTime
+                          })
                         } else {
                           alert('Clip must be at least 35 seconds long. Move forward in the video first.')
                         }
@@ -1243,8 +1327,10 @@ export function ClipEditModal({
                       onClick={() => {
                         const absoluteTime = currentTime
                         if (absoluteTime - editedStartTime >= 35) {
-                          setEditedEndTime(absoluteTime)
-                          setHasUnsavedChanges(true)
+                          updateEndBoundary(absoluteTime, {
+                            type: 'free',
+                            time: absoluteTime
+                          })
                         } else {
                           alert('Clip must be at least 35 seconds long. Move backward in the video first.')
                         }
@@ -1627,8 +1713,10 @@ export function ClipEditModal({
                             onChange={(e) => {
                               const newStart = parseFloat(e.target.value)
                               if (newStart >= 0 && editedEndTime - newStart >= 35) {
-                                setEditedStartTime(newStart)
-                                setHasUnsavedChanges(true)
+                                updateStartBoundary(newStart, {
+                                  type: 'free',
+                                  time: newStart
+                                })
                               }
                             }}
                             className="w-full px-3 py-2 bg-bg-primary border border-border-default rounded text-text-primary font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
@@ -1645,8 +1733,10 @@ export function ClipEditModal({
                             onChange={(e) => {
                               const newEnd = parseFloat(e.target.value)
                               if (newEnd - editedStartTime >= 35) {
-                                setEditedEndTime(newEnd)
-                                setHasUnsavedChanges(true)
+                                updateEndBoundary(newEnd, {
+                                  type: 'free',
+                                  time: newEnd
+                                })
                               }
                             }}
                             className="w-full px-3 py-2 bg-bg-primary border border-border-default rounded text-text-primary font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
@@ -1654,6 +1744,61 @@ export function ClipEditModal({
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  <div className="p-4 bg-bg-secondary rounded-xl border border-border-default shadow-sm space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <h4 className="text-sm font-semibold text-text-primary">Boundary Inspector</h4>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedBoundary('in')}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            selectedBoundary === 'in'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-green-50 text-green-700 border border-green-200'
+                          }`}
+                        >
+                          Inspect Start
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedBoundary('out')}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            selectedBoundary === 'out'
+                              ? 'bg-red-600 text-white'
+                              : 'bg-red-50 text-red-700 border border-red-200'
+                          }`}
+                        >
+                          Inspect End
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                        <div className="text-xs uppercase tracking-wide text-text-muted">Timestamp</div>
+                        <div className="mt-1 font-mono text-base text-text-primary">{formatPreciseTime(activeBoundaryTime)}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                        <div className="text-xs uppercase tracking-wide text-text-muted">Anchor Type</div>
+                        <div className="mt-1 text-base font-medium text-text-primary">
+                          {activeBoundaryAnchor?.type ?? 'free'}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                        <div className="text-xs uppercase tracking-wide text-text-muted">Anchor Label</div>
+                        <div className="mt-1 text-base text-text-primary">
+                          {activeBoundaryAnchor?.label || 'No label'}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                        <div className="text-xs uppercase tracking-wide text-text-muted">Nearest Word Delta</div>
+                        <div className="mt-1 font-mono text-base text-text-primary">
+                          {nearestWordDelta !== null ? `${nearestWordDelta.toFixed(3)}s` : 'Unavailable'}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                 </div>

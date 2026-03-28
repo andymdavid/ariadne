@@ -263,7 +263,7 @@ export function CommandBar({ onCommand, currentScreen = 'review', isProcessing =
           ).map(([category, commands]) => (
             <div key={category} className="command-category">
               <div className="command-category-header">{category}</div>
-              {commands.map((command, index) => {
+              {commands.map((command) => {
                 const globalIndex = filteredCommands.indexOf(command)
                 return (
                   <button

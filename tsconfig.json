@@ -22,5 +22,6 @@
     }
   },
   "include": ["src/renderer/**/*", "src/shared/**/*"],
+  "exclude": ["src/renderer/src/App-backup.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

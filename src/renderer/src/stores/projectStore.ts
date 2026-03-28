@@ -2,6 +2,16 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { Project, Episode, TranscriptSegment, Clip, ProcessingProgress } from '@shared/types'
 
+const buildRecoveredEpisode = (fileInfo: NonNullable<ProjectState['fileInfo']>): Episode => ({
+  id: Date.now().toString(),
+  projectId: `recovered-${Date.now()}`,
+  fileName: fileInfo.name.replace(/\.[^/.]+$/, ''),
+  filePath: fileInfo.path,
+  duration: fileInfo.duration || 0,
+  createdAt: fileInfo.uploadDate || new Date().toISOString(),
+  processingStatus: 'completed'
+})
+
 // Saved project interface for library management
 export interface SavedProject {
   id: string
@@ -818,14 +828,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         if (state.clips.length > 0 && !state.currentEpisode) {
           console.log('State validation: Missing episode with clips, attempting repair...')
           if (state.fileInfo) {
-            const reconstructedEpisode = {
-              id: Date.now().toString(),
-              title: state.fileInfo.name.replace(/\.[^/.]+$/, ''),
-              description: 'Session recovered episode',
-              duration: state.fileInfo.duration || 0,
-              createdAt: state.fileInfo.uploadDate || new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            }
+            const reconstructedEpisode = buildRecoveredEpisode(state.fileInfo)
             set({ currentEpisode: reconstructedEpisode })
             console.log('State validation: Reconstructed episode from file info')
           } else {
@@ -837,14 +840,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         // Check 2: If we have transcript but no episode, try to reconstruct
         if (state.fullTranscript.length > 0 && !state.currentEpisode && state.fileInfo) {
           console.log('State validation: Missing episode with transcript, reconstructing...')
-          const reconstructedEpisode = {
-            id: Date.now().toString(),
-            title: state.fileInfo.name.replace(/\.[^/.]+$/, ''),
-            description: 'Transcript-only session recovery',
-            duration: state.fileInfo.duration || 0,
-            createdAt: state.fileInfo.uploadDate || new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          }
+          const reconstructedEpisode = buildRecoveredEpisode(state.fileInfo)
           set({ currentEpisode: reconstructedEpisode })
           console.log('State validation: Reconstructed episode for transcript')
         }
@@ -878,14 +874,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         
         // Recovery scenario 1: Have file info but lost episode
         if (state.fileInfo && !state.currentEpisode) {
-          const recoveredEpisode = {
-            id: Date.now().toString(),
-            title: state.fileInfo.name.replace(/\.[^/.]+$/, ''),
-            description: 'Recovered session',
-            duration: state.fileInfo.duration || 0,
-            createdAt: state.fileInfo.uploadDate || new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          }
+          const recoveredEpisode = buildRecoveredEpisode(state.fileInfo)
           set({ currentEpisode: recoveredEpisode })
           console.log('Session recovery: Restored episode from file info')
         }
@@ -910,7 +899,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         // Recovery scenario 3: Auto-save recovered project if possible
         if (state.currentEpisode && state.fileInfo && (state.fullTranscript.length > 0 || state.clips.length > 0)) {
           try {
-            const recoveredProject = get().saveCurrentProject(`${state.currentEpisode.title} (Recovered)`)
+            const recoveredProject = get().saveCurrentProject(`${state.currentEpisode.fileName} (Recovered)`)
             console.log('Session recovery: Auto-saved recovered project:', recoveredProject.name)
           } catch (error) {
             console.log('Session recovery: Could not auto-save:', error)
@@ -934,7 +923,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       // EMERGENCY: Force unlock all screens for stuck users
       emergencyUnlockAll: () => {
         console.log('EMERGENCY UNLOCK: Enabling all screen access')
-        set((state) => ({
+        set(() => ({
           completedScreens: new Set(['upload', 'review', 'content', 'export', 'library'])
         }))
       },

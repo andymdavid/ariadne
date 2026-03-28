@@ -734,8 +734,11 @@ class FFmpegService {
       backgroundColor: string
       backgroundOpacity: number
       textCase: string
+      highlightStyle: string
+      wordsPerCaption: number
       maxWidth: number
       lineHeight: number
+      letterSpacing: number
     },
     resolution: { width: number; height: number }
   ): Promise<string> {

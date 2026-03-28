@@ -1,5 +1,64 @@
 # Ariadne Trim System Plan
 
+## Execution Checklist
+
+Status key:
+
+- [x] done
+- [~] in progress
+- [ ] not started
+
+### Foundation
+
+- [x] Replace clip-relative playback with source-relative playback
+- [~] Introduce dedicated trim state persistence
+- [~] Persist trim anchor metadata alongside in/out points
+- [ ] Add central trim serialization and rounding rules
+- [ ] Add frame-rate metadata retrieval and storage
+
+### Editor Core
+
+- [ ] Introduce explicit editor trim state:
+  - selected boundary
+  - snap mode
+  - zoom range
+  - loop preview range
+- [x] Show precise absolute timestamps with millisecond precision
+- [~] Add a boundary inspector
+- [ ] Add keyboard trim controls for frame and word movement
+- [ ] Add snap indicators and snap enable/disable UX
+
+### Word-Aware Editing
+
+- [x] Expose word timestamps to the renderer from stored transcript data
+- [x] Add click-to-select word trimming controls
+- [~] Save start/end word anchor metadata
+- [ ] Highlight active word consistently during playback
+- [ ] Add previous/next word keyboard stepping
+
+### Precision Timeline
+
+- [x] Add an overview timeline with surrounding context
+- [ ] Build a dedicated precision timeline component
+- [ ] Add zoom controls around the active boundary
+- [ ] Add frame ticks where FPS is known
+
+### Audio Structure
+
+- [ ] Generate waveform peaks and cache them
+- [ ] Render waveform peaks in the precision timeline
+- [ ] Generate silence markers
+- [ ] Add snap-to-silence controls
+- [ ] Add loop-preview around the active boundary
+
+### Consistency And Verification
+
+- [x] Ensure editor playback uses source media
+- [x] Ensure export cuts from source media using saved boundaries
+- [ ] Ensure preview/export use the same trim serialization rules
+- [ ] Add regression tests for trim save/reopen/export consistency
+- [ ] Add unit tests for anchor resolution and snapping
+
 ## Purpose
 
 Replace the current clip boundary editing flow with a precise, non-destructive trim system that is:

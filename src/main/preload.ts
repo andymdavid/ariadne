@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload } from '@shared/types';
+import type { ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -29,6 +29,7 @@ const electronAPI = {
   getEpisodeMediaSource: (episodeId: string) => ipcRenderer.invoke('get-episode-media-source', episodeId),
   getEpisodeClips: (episodeId: string) => ipcRenderer.invoke('get-episode-clips', episodeId),
   getClip: (clipId: string) => ipcRenderer.invoke('get-clip', clipId),
+  getClipTrimState: (clipId: string) => ipcRenderer.invoke('get-clip-trim-state', clipId),
   getTranscriptSegments: (episodeId: string) => ipcRenderer.invoke('get-transcript-segments', episodeId),
   updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) =>
     ipcRenderer.invoke('update-transcript-segment', episodeId, segmentIndex, text),
@@ -36,6 +37,8 @@ const electronAPI = {
     ipcRenderer.invoke('update-clip-status', clipId, status),
   updateClipBoundaries: (clipId: string, startTime: number, endTime: number) =>
     ipcRenderer.invoke('update-clip-boundaries', clipId, startTime, endTime),
+  saveClipTrimState: (clipId: string, inPoint: number, outPoint: number, inAnchor?: TrimBoundaryAnchor | null, outAnchor?: TrimBoundaryAnchor | null) =>
+    ipcRenderer.invoke('save-clip-trim-state', clipId, inPoint, outPoint, inAnchor, outAnchor),
   getApprovedClips: (episodeId: string) => ipcRenderer.invoke('get-approved-clips', episodeId),
   cleanupDatabase: () => ipcRenderer.invoke('cleanup-database'),
   nukeAllProjects: () => ipcRenderer.invoke('nuke-all-projects'),
@@ -139,10 +142,18 @@ declare global {
       getEpisodeMediaSource: (episodeId: string) => Promise<{ mediaUrl: string; filePath: string; duration: number }>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       getClip: (clipId: string) => Promise<any>;
+      getClipTrimState: (clipId: string) => Promise<ClipTrimState | undefined>;
       getTranscriptSegments: (episodeId: string) => Promise<any[]>;
       updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) => Promise<any>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;
       updateClipBoundaries: (clipId: string, startTime: number, endTime: number) => Promise<any>;
+      saveClipTrimState: (
+        clipId: string,
+        inPoint: number,
+        outPoint: number,
+        inAnchor?: TrimBoundaryAnchor | null,
+        outAnchor?: TrimBoundaryAnchor | null
+      ) => Promise<any>;
       getApprovedClips: (episodeId: string) => Promise<any[]>;
       cleanupDatabase: () => Promise<any>;
       nukeAllProjects: () => Promise<any>;

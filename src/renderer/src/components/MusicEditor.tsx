@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { IoCloudUploadOutline, IoMusicalNotesOutline } from 'react-icons/io5'
+import { IoMusicalNotesOutline } from 'react-icons/io5'
 
 export interface MusicSettings {
   enabled: boolean
