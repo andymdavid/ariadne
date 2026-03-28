@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { IoClose, IoSaveOutline, IoCopyOutline, IoMusicalNotesOutline, IoCropOutline, IoCheckmarkCircle } from 'react-icons/io5'
+import { IoArrowBack, IoClose, IoSaveOutline, IoCopyOutline, IoMusicalNotesOutline, IoCropOutline, IoCheckmarkCircle } from 'react-icons/io5'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs'
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
@@ -26,6 +26,7 @@ interface ClipEditModalProps {
   isOpen: boolean
   clipId: string
   episodeId: string
+  presentation?: 'modal' | 'page'
   clipData: {
     id: string
     keyQuote: string
@@ -37,6 +38,7 @@ interface ClipEditModalProps {
   }
   onClose: () => void
   onSave: () => void
+  onBack?: () => void
 }
 
 type EditorTab = 'duration' | 'transcript' | 'captions' | 'logo' | 'music' | 'frame'
@@ -49,9 +51,11 @@ export function ClipEditModal({
   isOpen,
   clipId,
   episodeId,
+  presentation = 'modal',
   clipData,
   onClose,
-  onSave
+  onSave,
+  onBack
 }: ClipEditModalProps) {
   const [activeTab, setActiveTab] = useState<EditorTab>('duration')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
@@ -1436,9 +1440,14 @@ export function ClipEditModal({
 
   if (!isOpen) return null
 
+  const isPagePresentation = presentation === 'page'
+  const containerClassName = isPagePresentation
+    ? 'h-full w-full bg-bg-primary border border-border-default overflow-hidden flex flex-col'
+    : 'absolute inset-0 bg-bg-primary rounded-xl border border-border-default shadow-2xl overflow-hidden flex flex-col z-[60]'
+
   return (
     <div
-      className="absolute inset-0 bg-bg-primary rounded-xl border border-border-default shadow-2xl overflow-hidden flex flex-col z-[60]"
+      className={containerClassName}
       style={{
         width: '100%',
         height: '100%'
@@ -1446,10 +1455,29 @@ export function ClipEditModal({
     >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-default flex-shrink-0 w-full">
-          <h2 className="text-lg font-semibold text-text-primary">Edit Clip</h2>
+          <div className="flex items-center gap-3">
+            {isPagePresentation && onBack && (
+              <button
+                onClick={onBack}
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-border-default bg-bg-secondary px-3 text-sm text-text-secondary hover:bg-hover-bg hover:text-text-primary transition-colors"
+              >
+                <IoArrowBack className="text-base" />
+                Back to Review
+              </button>
+            )}
+            <div>
+              <h2 className="text-lg font-semibold text-text-primary">Edit Clip</h2>
+              {isPagePresentation && (
+                <p className="text-xs text-text-muted">
+                  Full editor workspace for trim, transcript, captions, music, and framing.
+                </p>
+              )}
+            </div>
+          </div>
           <button
             onClick={handleClose}
             className="w-8 h-8 rounded-full bg-bg-tertiary hover:bg-hover-bg flex items-center justify-center text-text-muted hover:text-text-primary transition-colors"
+            aria-label={isPagePresentation ? 'Close editor' : 'Close modal'}
           >
             <IoClose className="text-xl" />
           </button>

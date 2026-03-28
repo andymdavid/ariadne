@@ -1,12 +1,12 @@
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { ClipEditModal } from '../components/ClipEditModal'
 import { ClipCarousel } from '../components/ClipCarousel'
 import { MainContentPanel } from '../components/MainContentPanel'
 import { useClipsData, useProjectStore } from '../stores/projectStore'
 import type { Clip as ProjectClip } from '@shared/types'
 
 export function ReviewPage() {
+  const navigate = useNavigate()
   const { id: episodeId } = useParams<{ id: string }>()
   const [clips, setClips] = useState<ProjectClip[]>([])
   const [selectedClip, setSelectedClip] = useState<ProjectClip | null>(null)
@@ -18,10 +18,6 @@ export function ReviewPage() {
   const { updateClipStatus: updateProjectClipStatus, markScreenCompleted } = useProjectStore()
   const [extractingClips] = useState<Set<string>>(new Set())
   const [extractionProgress, setExtractionProgress] = useState<{[clipId: string]: number}>({})
-
-  // State for edit modal
-  const [editingClip, setEditingClip] = useState<ProjectClip | null>(null)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
   // Fetch clips on component mount
   useEffect(() => {
@@ -208,34 +204,16 @@ export function ReviewPage() {
   // Handle clip selection for preview - opens edit modal
   const handleSelectClip = (clip: ProjectClip) => {
     try {
-      console.log('Selecting clip for editing:', clip)
       setSelectedClip(clip)
-      setEditingClip(clip)
-      setIsEditModalOpen(true)
-      console.log('Opened edit modal for clip')
+      if (!episodeId) return
+      navigate(`/content/${episodeId}/${clip.id}`)
     } catch (error) {
       console.error('Error selecting clip:', error)
     }
   }
 
-  // Handle closing edit modal
-  const handleCloseEditModal = () => {
-    setIsEditModalOpen(false)
-    setEditingClip(null)
-    // Refresh clips to show any updates
-    loadClips()
-  }
-
-  // Handle saving clip edits
-  const handleSaveClipEdits = async () => {
-    console.log('Clip edits saved successfully')
-    // Refresh clips list to show updated status
-    await loadClips()
-  }
-
   // Handle play clip - now opens edit modal
   const handlePlayClip = async (clip: ProjectClip) => {
-    // Close any open modals and open the edit modal
     handleSelectClip(clip)
   }
 
@@ -280,28 +258,8 @@ export function ReviewPage() {
         onRejectClip={handleReject}
         extractingClips={extractingClips}
         extractionProgress={extractionProgress}
-        isModalOpen={isEditModalOpen}
+        isModalOpen={false}
       />
-
-      {/* Edit Modal (for both Play button and clicking on clip card) */}
-      {isEditModalOpen && editingClip && episodeId && (
-        <ClipEditModal
-          isOpen={isEditModalOpen}
-          clipId={editingClip.id}
-          episodeId={episodeId}
-          clipData={{
-            id: editingClip.id,
-            keyQuote: editingClip.keyQuote,
-            startTime: editingClip.startTime,
-            endTime: editingClip.endTime,
-            duration: editingClip.duration,
-            videoWidth: editingClip.videoWidth ?? null,
-            videoHeight: editingClip.videoHeight ?? null
-          }}
-          onClose={handleCloseEditModal}
-          onSave={handleSaveClipEdits}
-        />
-      )}
     </MainContentPanel>
   )
 }

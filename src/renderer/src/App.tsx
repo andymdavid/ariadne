@@ -5,6 +5,7 @@ import { NavigationDock } from './components/NavigationDock'
 import { HomePage } from './pages/HomePage'
 import { ReviewPage } from './pages/ReviewPage'
 import { ContentPage } from './pages/EditorPage'
+import { ClipEditorPage } from './pages/ClipEditorPage'
 import { ExportPage } from './pages/ExportPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -595,6 +596,7 @@ function App() {
               } />
               <Route path="/review/:id" element={<ReviewPage />} />
               <Route path="/content/:id" element={<ContentPage />} />
+              <Route path="/content/:id/:clipId" element={<ClipEditorPage />} />
               <Route path="/export/:id" element={<ExportPage />} />
               <Route path="/library" element={
                 <LibraryErrorBoundary>
