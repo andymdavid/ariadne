@@ -130,9 +130,14 @@ export function AssetLibraryPage() {
       <div className="app-page">
         <div className="flex h-full flex-col gap-8">
           <div className="app-page-header">
-            <div className="app-page-title">Asset Library</div>
-            <div className="app-page-subtitle">
-              Upload logos and music, then choose the default caption font that Brand Template will use.
+            <div className="mx-auto w-full max-w-6xl">
+              <div className="app-page-header-content">
+                <div className="app-page-title">Asset Library</div>
+                <div className="app-page-separator">|</div>
+                <div className="app-page-subtitle">
+                  Upload logos and music, then choose the default caption font that Brand Template will use.
+                </div>
+              </div>
             </div>
           </div>
 

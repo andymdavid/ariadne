@@ -162,9 +162,14 @@ export function HomePage() {
         ) : (
           <div className="flex h-full flex-col gap-10">
             <div className="app-page-header">
-              <div className="app-page-title">Home</div>
-              <div className="app-page-subtitle">
-                Generate reels from a link or local file.
+              <div className="mx-auto w-full max-w-6xl">
+                <div className="app-page-header-content">
+                  <div className="app-page-title">Home</div>
+                  <div className="app-page-separator">|</div>
+                  <div className="app-page-subtitle">
+                    Generate reels from a link or local file.
+                  </div>
+                </div>
               </div>
             </div>
 

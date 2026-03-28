@@ -291,9 +291,14 @@ export function BrandTemplatePage() {
       <div className="app-page">
         <div className="flex h-full flex-col gap-6">
           <div className="app-page-header">
-            <div className="app-page-title">Brand Template</div>
-            <div className="app-page-subtitle">
-              Set the default look and behavior each clip should start with.
+            <div className="mx-auto w-full max-w-6xl">
+              <div className="app-page-header-content">
+                <div className="app-page-title">Brand Template</div>
+                <div className="app-page-separator">|</div>
+                <div className="app-page-subtitle">
+                  Set the default look and behavior each clip should start with.
+                </div>
+              </div>
             </div>
           </div>
 

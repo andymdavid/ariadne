@@ -13,9 +13,14 @@ export function AnalyticsPage() {
       <div className="app-page">
         <div className="flex h-full flex-col gap-8">
           <div className="app-page-header">
-            <div className="app-page-title">Analytics</div>
-            <div className="app-page-subtitle">
-              Track output, approvals, and what performs best.
+            <div className="mx-auto w-full max-w-6xl">
+              <div className="app-page-header-content">
+                <div className="app-page-title">Analytics</div>
+                <div className="app-page-separator">|</div>
+                <div className="app-page-subtitle">
+                  Track output, approvals, and what performs best.
+                </div>
+              </div>
             </div>
           </div>
 

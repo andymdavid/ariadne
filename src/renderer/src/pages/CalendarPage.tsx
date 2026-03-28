@@ -15,8 +15,13 @@ export function CalendarPage() {
       <div className="app-page">
         <div className="flex h-full flex-col gap-6">
           <div className="app-page-header">
-            <div className="app-page-title">Calendar</div>
-            <div className="app-page-subtitle">Schedule and review upcoming posts.</div>
+            <div className="mx-auto w-full max-w-6xl">
+              <div className="app-page-header-content">
+                <div className="app-page-title">Calendar</div>
+                <div className="app-page-separator">|</div>
+                <div className="app-page-subtitle">Schedule and review upcoming posts.</div>
+              </div>
+            </div>
           </div>
 
           <div className="mx-auto flex w-full max-w-6xl items-center justify-end gap-3">
