@@ -6,16 +6,6 @@ import { useProjectStore, type SavedProject } from '../stores/projectStore'
 import { TranscriptionProgress } from '../components/TranscriptionProgress'
 import { MainContentPanel } from '../components/MainContentPanel'
 
-const featureShortcuts = [
-  'Long to shorts',
-  'AI Captions',
-  'Video editor',
-  'Enhance speech',
-  'AI Reframe',
-  'AI B-Roll',
-  'AI hook'
-]
-
 export function HomePage() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [sourceLink, setSourceLink] = useState('')
@@ -160,25 +150,8 @@ export function HomePage() {
             <TranscriptionProgress />
           </div>
         ) : (
-          <div className="flex h-full flex-col gap-10">
-            <div className="app-page-header">
-              <div className="mx-auto w-full max-w-6xl">
-                <div className="app-page-header-content">
-                  <div className="app-page-title">Home</div>
-                  <div className="app-page-separator">|</div>
-                  <div className="app-page-subtitle">
-                    Generate reels from a link or local file.
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mx-auto flex w-full max-w-6xl justify-end">
-              <button className="app-chip">Free Trial</button>
-            </div>
-
-            <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-10">
-            <div className="mx-auto w-full max-w-xl">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-10">
+            <div className="mx-auto w-full max-w-xl pt-8">
               <div className="app-surface p-5">
                 <div className="app-surface-muted flex items-center gap-3 px-4 py-3">
                   <IoLinkOutline className="text-text-muted" size={18} />
@@ -206,17 +179,6 @@ export function HomePage() {
                   Click here to try a sample project
                 </button>
               </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-10 pt-2">
-              {featureShortcuts.map((feature) => (
-                <div key={feature} className="flex flex-col items-center gap-3">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border-default bg-[#12151b] text-sm text-text-primary">
-                    ✦
-                  </div>
-                  <div className="text-sm text-text-secondary">{feature}</div>
-                </div>
-              ))}
             </div>
 
             <div className="flex items-center justify-between pt-4">
@@ -262,7 +224,6 @@ export function HomePage() {
                   <div className="mt-2 text-sm text-text-secondary">{project.filename}</div>
                 </button>
               ))}
-            </div>
             </div>
           </div>
         )}
