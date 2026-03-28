@@ -107,16 +107,32 @@ class ClipCandidateService {
   private diversifyCandidates(candidates: ClipCandidate[]): ClipCandidate[] {
     const selected: ClipCandidate[] = []
 
-    for (const candidate of candidates) {
-      if (!candidate.naturalStart || !candidate.naturalEnd) {
-        continue
-      }
+    const pickCandidate = (candidate: ClipCandidate) => {
       const overlapsTooMuch = selected.some(existing => this.overlapRatio(existing, candidate) > 0.65)
       if (!overlapsTooMuch) {
         selected.push(candidate)
       }
+    }
+
+    for (const candidate of candidates) {
+      if (!candidate.naturalStart || !candidate.naturalEnd) {
+        continue
+      }
+      pickCandidate(candidate)
       if (selected.length >= this.maxCandidates) {
         break
+      }
+    }
+
+    // Fallback for rough Whisper transcripts with weak punctuation/casing.
+    // If the strict natural-boundary pass yields nothing, keep the best
+    // non-overlapping candidates instead of returning an empty set.
+    if (selected.length === 0) {
+      for (const candidate of candidates) {
+        pickCandidate(candidate)
+        if (selected.length >= Math.min(this.maxCandidates, 24)) {
+          break
+        }
       }
     }
 
@@ -159,7 +175,11 @@ class ClipCandidateService {
 
   private looksLikeSentenceStart(text: string): boolean {
     const trimmed = text.trim()
-    return /^[A-Z0-9"'(]/.test(trimmed) && !/^(and|but|so|because|then)\b/i.test(trimmed)
+    if (!trimmed) {
+      return false
+    }
+
+    return !/^(and|but|so|because|then)\b/i.test(trimmed)
   }
 }
 
