@@ -10,14 +10,13 @@ const analyticsCards = [
 export function AnalyticsPage() {
   return (
     <MainContentPanel>
-      <div className="h-full overflow-y-auto p-8">
-        <div className="max-w-6xl space-y-8">
-          <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-text-muted">Analytics</div>
-            <h1 className="mt-2 text-3xl font-semibold text-text-primary">Performance</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-secondary">
-              This surface should eventually close the loop between generated clips, scheduled posts, and what actually performs.
-            </p>
+      <div className="app-page">
+        <div className="mx-auto flex h-full max-w-6xl flex-col gap-8">
+          <div className="max-w-3xl">
+            <div className="app-page-title">Analytics</div>
+            <div className="app-page-subtitle">
+              Track output, approvals, and what performs best.
+            </div>
           </div>
 
           <div className="grid grid-cols-4 gap-5">

@@ -163,11 +163,9 @@ export function HomePage() {
           <div className="mx-auto flex h-full max-w-6xl flex-col gap-10">
             <div className="flex items-start justify-between gap-6">
               <div className="max-w-2xl">
-                <div className="text-[11px] uppercase tracking-[0.24em] text-text-muted">Home</div>
-                <div className="mt-3 app-page-title">Generate reels in 1 click</div>
+                <div className="app-page-title">Home</div>
                 <div className="app-page-subtitle">
-                  Paste a source link or upload a local file. Ariadne should handle clipping, branding defaults,
-                  and project creation from here.
+                  Generate reels from a link or local file.
                 </div>
               </div>
 

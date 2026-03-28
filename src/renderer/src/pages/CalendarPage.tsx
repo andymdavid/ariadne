@@ -12,12 +12,12 @@ const weeks = [
 export function CalendarPage() {
   return (
     <MainContentPanel>
-      <div className="h-full overflow-y-auto p-8">
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs uppercase tracking-[0.2em] text-text-muted">Calendar</div>
-              <h1 className="mt-2 text-3xl font-semibold text-text-primary">Schedule</h1>
+      <div className="app-page">
+        <div className="mx-auto flex h-full max-w-6xl flex-col gap-6">
+          <div className="flex items-start justify-between gap-6">
+            <div className="max-w-3xl">
+              <div className="app-page-title">Calendar</div>
+              <div className="app-page-subtitle">Schedule and review upcoming posts.</div>
             </div>
             <div className="flex items-center gap-3">
               <button className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black">Schedule post</button>

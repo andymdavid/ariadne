@@ -128,12 +128,11 @@ export function AssetLibraryPage() {
   return (
     <MainContentPanel>
       <div className="app-page">
-        <div className="mx-auto flex h-full max-w-7xl flex-col gap-8">
+        <div className="mx-auto flex h-full max-w-6xl flex-col gap-8">
           <div className="max-w-3xl">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-text-muted">Asset Library</div>
-            <div className="mt-3 app-page-title">Reusable Brand Assets</div>
+            <div className="app-page-title">Asset Library</div>
             <div className="app-page-subtitle">
-              Only real, reusable inputs should live here. Upload logos and music, then choose the default caption font that Brand Template will use.
+              Upload logos and music, then choose the default caption font that Brand Template will use.
             </div>
           </div>
 

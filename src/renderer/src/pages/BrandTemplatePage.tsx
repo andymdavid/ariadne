@@ -289,13 +289,12 @@ export function BrandTemplatePage() {
   return (
     <MainContentPanel>
       <div className="app-page">
-        <div className="mx-auto flex h-full max-w-7xl flex-col gap-6">
+        <div className="mx-auto flex h-full max-w-6xl flex-col gap-6">
           <div className="app-page-header">
             <div className="max-w-3xl">
-              <div className="text-[11px] uppercase tracking-[0.24em] text-text-muted">Brand Template</div>
-              <div className="mt-3 app-page-title">Template defaults</div>
+              <div className="app-page-title">Brand Template</div>
               <div className="app-page-subtitle">
-                This should be the source of truth for branding. Upload assets in the library, choose them here, then only override per clip when necessary.
+                Set the default look and behavior each clip should start with.
               </div>
             </div>
 

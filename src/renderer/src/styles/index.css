@@ -137,11 +137,11 @@
   }
 
   .app-page-title {
-    font-size: 34px;
-    line-height: 1.05;
+    font-size: 1.875rem;
+    line-height: 1.2;
     font-weight: 600;
     color: #f3f5f7;
-    letter-spacing: -0.04em;
+    letter-spacing: -0.03em;
   }
 
   .app-page-subtitle {
