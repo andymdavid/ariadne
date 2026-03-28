@@ -4,11 +4,13 @@ import {
   IoArrowBack,
   IoCheckmarkCircleOutline,
   IoExpandOutline,
+  IoMusicalNotesOutline,
   IoPlay,
   IoPause,
   IoResizeOutline,
   IoSaveOutline
 } from 'react-icons/io5'
+import type { BrandTemplate } from '@shared/types'
 
 type ClipRecord = {
   id: string
@@ -23,6 +25,28 @@ type TranscriptLine = {
   start: number
   end: number
   text: string
+}
+
+type PreviewCaptionState = {
+  text: string
+  font: string
+  position: 'top' | 'center' | 'bottom' | 'custom'
+  customX?: number | null
+  customY?: number | null
+}
+
+type PreviewLogoState = {
+  enabled: boolean
+  assetPath: string | null
+  positionX: number
+  positionY: number
+  scale: number
+  opacity: number
+}
+
+type PreviewFrameState = {
+  aspectRatio: '9:16' | '1:1' | '16:9'
+  cropMode: 'fit' | 'center' | 'blur'
 }
 
 const formatClockTime = (seconds: number) => {
@@ -50,6 +74,10 @@ export function ClipEditorPage() {
   const [isTranscriptOnly, setIsTranscriptOnly] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
+  const [captionPreview, setCaptionPreview] = useState<PreviewCaptionState | null>(null)
+  const [logoPreview, setLogoPreview] = useState<PreviewLogoState | null>(null)
+  const [framePreview, setFramePreview] = useState<PreviewFrameState | null>(null)
+  const [musicEnabled, setMusicEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -68,11 +96,13 @@ export function ClipEditorPage() {
         setLoading(true)
         setError(null)
 
-        const [rawClip, mediaSource, titles, segments] = await Promise.all([
+        const [rawClip, mediaSource, titles, segments, brandTemplate, clipEdits] = await Promise.all([
           window.electronAPI?.getClip?.(clipId),
           window.electronAPI?.getEpisodeMediaSource?.(episodeId),
           window.electronAPI?.getClipTitles?.(clipId).catch(() => []),
-          window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => [])
+          window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => []),
+          window.electronAPI?.getBrandTemplate?.().catch(() => null),
+          window.electronAPI?.getClipEdits?.(clipId).catch(() => null)
         ])
 
         if (!rawClip) {
@@ -101,6 +131,36 @@ export function ClipEditorPage() {
           }))
         )
         setCurrentTime(mappedClip.startTime)
+
+        const template = brandTemplate as BrandTemplate | null
+        const activeCaptionText =
+          transcriptLines[0]?.text ||
+          (segments || [])[0]?.text ||
+          mappedClip.keyQuote
+
+        setCaptionPreview({
+          text: activeCaptionText,
+          font: clipEdits?.caption_font || template?.caption.font || 'Inter',
+          position: (clipEdits?.caption_position || template?.caption.position || 'bottom') as PreviewCaptionState['position'],
+          customX: clipEdits?.caption_custom_x ?? template?.caption.customX ?? null,
+          customY: clipEdits?.caption_custom_y ?? template?.caption.customY ?? null
+        })
+
+        setLogoPreview({
+          enabled: clipEdits ? clipEdits.logo_enabled === 1 : template?.logo.enabled ?? false,
+          assetPath: clipEdits?.logo_path || template?.logo.assetPath || null,
+          positionX: clipEdits?.logo_position_x ?? template?.logo.positionX ?? 85,
+          positionY: clipEdits?.logo_position_y ?? template?.logo.positionY ?? 85,
+          scale: clipEdits?.logo_scale ?? template?.logo.scale ?? 0.15,
+          opacity: clipEdits?.logo_opacity ?? template?.logo.opacity ?? 0.8
+        })
+
+        setFramePreview({
+          aspectRatio: (clipEdits?.aspect_ratio || template?.frame.aspectRatio || '9:16') as PreviewFrameState['aspectRatio'],
+          cropMode: (clipEdits?.crop_mode === 'canvas' ? 'fit' : (clipEdits?.crop_mode || template?.frame.cropMode || 'fit')) as PreviewFrameState['cropMode']
+        })
+
+        setMusicEnabled(clipEdits ? clipEdits.music_enabled === 1 : template?.music.enabled ?? false)
       } catch (loadError) {
         console.error('Failed to load clip editor:', loadError)
         setError('Failed to load clip editor')
@@ -190,6 +250,19 @@ export function ClipEditorPage() {
     if (!clip || clip.duration <= 0) return 0
     return ((currentTime - clip.startTime) / clip.duration) * 100
   }, [clip, currentTime])
+
+  useEffect(() => {
+    if (!transcriptLines.length) return
+
+    const activeLine = transcriptLines.find((line) => currentTime >= line.start && currentTime <= line.end) || transcriptLines[0]
+    setCaptionPreview((currentCaption) => {
+      if (!currentCaption) return currentCaption
+      return {
+        ...currentCaption,
+        text: activeLine?.text || currentCaption.text
+      }
+    })
+  }, [currentTime, transcriptLines])
 
   if (loading) {
     return (
@@ -301,11 +374,11 @@ export function ClipEditorPage() {
             <div className="flex items-center gap-7 text-sm text-text-secondary">
               <span className="inline-flex items-center gap-2">
                 <IoResizeOutline size={15} />
-                9:16
+                {framePreview?.aspectRatio || '9:16'}
               </span>
               <span className="inline-flex items-center gap-2">
                 <IoExpandOutline size={15} />
-                Layout: Fill
+                Layout: {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center Crop' : 'Fill'}
               </span>
               <span>Tracker: OFF</span>
             </div>
@@ -326,6 +399,60 @@ export function ClipEditorPage() {
               <div className="absolute left-5 top-5 rounded-full bg-black/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
                 Preview
               </div>
+              {logoPreview?.enabled && logoPreview.assetPath ? (
+                <img
+                  src={`app-file://${logoPreview.assetPath}`}
+                  alt="Brand logo"
+                  className="absolute"
+                  style={{
+                    left: `${logoPreview.positionX}%`,
+                    top: `${logoPreview.positionY}%`,
+                    transform: 'translate(-50%, -50%)',
+                    width: `${logoPreview.scale * 100}%`,
+                    opacity: logoPreview.opacity,
+                    zIndex: 20
+                  }}
+                />
+              ) : null}
+              {captionPreview?.text ? (
+                <div
+                  className="absolute left-1/2 max-w-[72%] -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center text-[18px] font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                  style={{
+                    fontFamily: captionPreview.font,
+                    top:
+                      captionPreview.position === 'top'
+                        ? '12%'
+                        : captionPreview.position === 'center'
+                          ? '50%'
+                          : captionPreview.position === 'custom' && captionPreview.customY != null
+                            ? `${captionPreview.customY}%`
+                            : undefined,
+                    bottom:
+                      captionPreview.position === 'bottom'
+                        ? '12%'
+                        : captionPreview.position === 'custom' && captionPreview.customY == null
+                          ? '12%'
+                          : undefined,
+                    left:
+                      captionPreview.position === 'custom' && captionPreview.customX != null
+                        ? `${captionPreview.customX}%`
+                        : '50%',
+                    transform:
+                      captionPreview.position === 'center'
+                        ? 'translate(-50%, -50%)'
+                        : 'translateX(-50%)',
+                    zIndex: 25
+                  }}
+                >
+                  {captionPreview.text}
+                </div>
+              ) : null}
+              {musicEnabled ? (
+                <div className="absolute bottom-5 left-5 inline-flex items-center gap-2 rounded-full bg-black/55 px-3 py-2 text-xs text-white/85">
+                  <IoMusicalNotesOutline size={14} />
+                  Music on
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
