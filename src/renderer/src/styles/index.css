@@ -1701,8 +1701,8 @@
   /* Main Content Panel */
   .main-content-container {
     height: 100%;
-    margin-left: 248px;
-    padding: 24px 24px 24px 16px;
+    margin-left: 220px;
+    padding: 0;
   }
 
   .main-content-panel {
@@ -1720,15 +1720,14 @@
   /* Responsive adjustments */
   @media (max-width: 1200px) {
     .main-content-container {
-      margin-left: 232px;
-      padding-right: 20px;
+      margin-left: 220px;
     }
   }
 
   @media (max-width: 768px) {
     .main-content-container {
       margin-left: 0;
-      padding: 88px 16px 16px;
+      padding-top: 88px;
     }
   }
 

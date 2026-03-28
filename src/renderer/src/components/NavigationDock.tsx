@@ -429,14 +429,14 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
         </div>
       )}
 
-      <div className="fixed left-6 top-16 bottom-8 z-30 flex w-56 flex-col rounded-[28px] border border-border-default bg-bg-primary/92 p-4 shadow-2xl backdrop-blur-xl">
-        <div className="pb-5">
+      <div className="fixed left-0 top-0 bottom-0 z-30 flex w-[220px] flex-col border-r border-border-default bg-[#0b0c10] px-4 py-6">
+        <div className="pb-6">
           <div className="text-xs uppercase tracking-[0.24em] text-text-muted">Ariadne</div>
-          <div className="mt-2 text-2xl font-semibold text-text-primary">Menu</div>
-          <div className="mt-1 text-sm text-text-secondary">Generate, brand, schedule, learn.</div>
+          <div className="mt-3 text-3xl font-semibold text-text-primary">Menu</div>
+          <div className="mt-2 text-sm leading-relaxed text-text-secondary">Generate, brand, schedule, learn.</div>
         </div>
 
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 space-y-1.5">
           {navIcons.map((navIcon) => {
             const IconComponent = navIcon.icon
 
@@ -445,7 +445,7 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
                 key={navIcon.id}
                 type="button"
                 onClick={() => handleNavClick(navIcon)}
-                className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors ${
+                className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
                   activeScreen === navIcon.id
                     ? 'border-accent-primary bg-accent-primary/12 text-text-primary'
                     : 'border-transparent bg-transparent text-text-secondary hover:border-border-default hover:bg-bg-secondary/80 hover:text-text-primary'
@@ -459,7 +459,7 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
           })}
         </div>
 
-        <div className="mt-4 rounded-2xl border border-border-default bg-bg-secondary/60 p-3">
+        <div className="mt-4 border-t border-border-default pt-4">
           <div className="text-[11px] uppercase tracking-[0.2em] text-text-muted">Search</div>
           <button
             type="button"
@@ -470,7 +470,7 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
                 onSearchTrigger()
               }
             }}
-            className="mt-3 flex w-full items-center justify-between rounded-xl border border-border-default bg-bg-primary px-3 py-2 text-sm text-text-primary hover:bg-hover-bg transition-colors"
+            className="mt-3 flex w-full items-center justify-between rounded-xl border border-border-default bg-bg-secondary/60 px-3 py-2 text-sm text-text-primary hover:bg-hover-bg transition-colors"
             title={isCommandMode ? 'Exit command mode (Esc)' : 'Search commands (⌘K)'}
           >
             <span className="flex items-center gap-2">
@@ -490,7 +490,7 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
       </div>
 
       {isCommandMode && (
-        <div className="fixed left-80 bottom-8 z-40 w-[560px] rounded-2xl border border-border-default bg-bg-primary/95 p-4 shadow-2xl backdrop-blur-xl">
+        <div className="fixed left-[244px] bottom-6 z-40 w-[560px] rounded-2xl border border-border-default bg-bg-primary/95 p-4 shadow-2xl backdrop-blur-xl">
           <div className="command-input-container">
             {!commandInput && (
               <div className="custom-placeholder">
