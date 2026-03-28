@@ -160,20 +160,19 @@ export function HomePage() {
             <TranscriptionProgress />
           </div>
         ) : (
-          <div className="mx-auto flex h-full max-w-6xl flex-col gap-10">
+          <div className="flex h-full flex-col gap-10">
             <div className="app-page-header">
-              <div className="max-w-2xl">
-                <div className="app-page-title">Home</div>
-                <div className="app-page-subtitle">
-                  Generate reels from a link or local file.
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button className="app-chip">Free Trial</button>
+              <div className="app-page-title">Home</div>
+              <div className="app-page-subtitle">
+                Generate reels from a link or local file.
               </div>
             </div>
 
+            <div className="mx-auto flex w-full max-w-6xl justify-end">
+              <button className="app-chip">Free Trial</button>
+            </div>
+
+            <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-10">
             <div className="mx-auto w-full max-w-xl">
               <div className="app-surface p-5">
                 <div className="app-surface-muted flex items-center gap-3 px-4 py-3">
@@ -258,6 +257,7 @@ export function HomePage() {
                   <div className="mt-2 text-sm text-text-secondary">{project.filename}</div>
                 </button>
               ))}
+            </div>
             </div>
           </div>
         )}

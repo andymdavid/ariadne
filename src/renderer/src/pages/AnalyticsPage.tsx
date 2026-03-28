@@ -11,17 +11,15 @@ export function AnalyticsPage() {
   return (
     <MainContentPanel>
       <div className="app-page">
-        <div className="mx-auto flex h-full max-w-6xl flex-col gap-8">
+        <div className="flex h-full flex-col gap-8">
           <div className="app-page-header">
-            <div className="max-w-3xl">
-              <div className="app-page-title">Analytics</div>
-              <div className="app-page-subtitle">
-                Track output, approvals, and what performs best.
-              </div>
+            <div className="app-page-title">Analytics</div>
+            <div className="app-page-subtitle">
+              Track output, approvals, and what performs best.
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-5">
+          <div className="mx-auto grid w-full max-w-6xl grid-cols-4 gap-5">
             {analyticsCards.map((card) => (
               <div key={card.label} className="rounded-2xl border border-border-default bg-bg-secondary/60 p-5">
                 <div className="text-sm text-text-muted">{card.label}</div>
@@ -31,7 +29,7 @@ export function AnalyticsPage() {
             ))}
           </div>
 
-          <div className="rounded-2xl border border-border-default bg-bg-secondary/40 p-6">
+          <div className="mx-auto w-full max-w-6xl rounded-2xl border border-border-default bg-bg-secondary/40 p-6">
             <div className="text-lg font-semibold text-text-primary">Top Performing Patterns</div>
             <div className="mt-4 grid grid-cols-3 gap-4">
               <div className="rounded-xl border border-border-default bg-bg-primary/60 p-4 text-sm text-text-secondary">

@@ -13,19 +13,18 @@ export function CalendarPage() {
   return (
     <MainContentPanel>
       <div className="app-page">
-        <div className="mx-auto flex h-full max-w-6xl flex-col gap-6">
+        <div className="flex h-full flex-col gap-6">
           <div className="app-page-header">
-            <div className="max-w-3xl">
-              <div className="app-page-title">Calendar</div>
-              <div className="app-page-subtitle">Schedule and review upcoming posts.</div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black">Schedule post</button>
-              <button className="rounded-xl border border-border-default bg-bg-secondary px-4 py-2 text-sm text-text-primary">Upload local video</button>
-            </div>
+            <div className="app-page-title">Calendar</div>
+            <div className="app-page-subtitle">Schedule and review upcoming posts.</div>
           </div>
 
-          <div className="rounded-2xl border border-border-default bg-bg-secondary/50 overflow-hidden">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-end gap-3">
+            <button className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black">Schedule post</button>
+            <button className="rounded-xl border border-border-default bg-bg-secondary px-4 py-2 text-sm text-text-primary">Upload local video</button>
+          </div>
+
+          <div className="mx-auto w-full max-w-6xl rounded-2xl border border-border-default bg-bg-secondary/50 overflow-hidden">
             <div className="grid grid-cols-7 border-b border-border-default">
               {days.map((day) => (
                 <div key={day} className="px-4 py-3 text-sm font-medium text-text-secondary">

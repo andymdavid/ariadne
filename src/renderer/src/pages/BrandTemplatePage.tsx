@@ -289,30 +289,28 @@ export function BrandTemplatePage() {
   return (
     <MainContentPanel>
       <div className="app-page">
-        <div className="mx-auto flex h-full max-w-6xl flex-col gap-6">
+        <div className="flex h-full flex-col gap-6">
           <div className="app-page-header">
-            <div className="max-w-3xl">
-              <div className="app-page-title">Brand Template</div>
-              <div className="app-page-subtitle">
-                Set the default look and behavior each clip should start with.
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
-              <div className="app-chip">{saveMessage}</div>
-              <button
-                type="button"
-                className="app-action-primary"
-                disabled={isSaving}
-                onClick={() => void persistTemplate()}
-              >
-                Save template
-              </button>
+            <div className="app-page-title">Brand Template</div>
+            <div className="app-page-subtitle">
+              Set the default look and behavior each clip should start with.
             </div>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,360px)_minmax(0,1fr)] gap-6">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-end gap-3">
+            {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
+            <div className="app-chip">{saveMessage}</div>
+            <button
+              type="button"
+              className="app-action-primary"
+              disabled={isSaving}
+              onClick={() => void persistTemplate()}
+            >
+              Save template
+            </button>
+          </div>
+
+          <div className="mx-auto grid min-h-0 h-full w-full max-w-6xl flex-1 grid-cols-[320px_minmax(0,360px)_minmax(0,1fr)] gap-6">
             <section className="app-section-shell min-h-0 overflow-y-auto">
               <div className="app-section-header">
                 <div>
