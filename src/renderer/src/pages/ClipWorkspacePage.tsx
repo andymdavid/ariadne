@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { IoArrowBack, IoCheckmark, IoClose, IoPlay, IoPause, IoShareOutline } from 'react-icons/io5'
-import { MainContentPanel } from '../components/MainContentPanel'
 import type { Clip } from '@shared/types'
 
 type ClipCardData = Clip & {
@@ -237,21 +236,21 @@ export function ClipWorkspacePage() {
 
   if (loading) {
     return (
-      <MainContentPanel>
-        <div className="flex h-full items-center justify-center">
+      <div className="ml-[220px] flex h-full items-center justify-center bg-[#0a0b0f]">
+        <div className="flex h-full w-full items-center justify-center">
           <div className="text-center">
             <div className="text-lg text-text-primary">Loading clips…</div>
             <div className="text-sm text-text-muted">Preparing workspace</div>
           </div>
         </div>
-      </MainContentPanel>
+      </div>
     )
   }
 
   if (error || !episodeId) {
     return (
-      <MainContentPanel>
-        <div className="flex h-full items-center justify-center">
+      <div className="ml-[220px] flex h-full items-center justify-center bg-[#0a0b0f]">
+        <div className="flex h-full w-full items-center justify-center">
           <div className="max-w-md text-center">
             <div className="text-lg text-text-primary">Workspace unavailable</div>
             <div className="mt-2 text-sm text-text-muted">{error || 'The clip workspace could not be loaded.'}</div>
@@ -265,14 +264,13 @@ export function ClipWorkspacePage() {
             </button>
           </div>
         </div>
-      </MainContentPanel>
+      </div>
     )
   }
 
   return (
-    <MainContentPanel>
-      <div className="h-full overflow-y-auto px-10 py-8">
-        <div className="mx-auto max-w-[1580px] space-y-8 pb-16">
+    <div className="ml-[220px] h-full overflow-y-auto bg-[#0a0b0f] px-10 py-8">
+      <div className="w-full space-y-8 pb-16">
           <button
             type="button"
             onClick={() => navigate(`/review/${episodeId}`)}
@@ -291,7 +289,7 @@ export function ClipWorkspacePage() {
                 ref={(node) => {
                   cardRefs.current[clip.id] = node
                 }}
-                className={`rounded-[28px] border bg-[#0f1217] p-8 shadow-[0_24px_80px_rgba(0,0,0,0.28)] transition-colors ${
+                className={`w-full rounded-[20px] border bg-[#0f1217] p-8 transition-colors ${
                   isFocused ? 'border-white/14' : 'border-white/8'
                 }`}
               >
@@ -393,8 +391,7 @@ export function ClipWorkspacePage() {
               </section>
             )
           })}
-        </div>
       </div>
-    </MainContentPanel>
+    </div>
   )
 }
