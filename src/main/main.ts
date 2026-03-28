@@ -245,9 +245,15 @@ async function downloadWithMediaExtractor(sourceUrl: string) {
 
   const extractorBinary = resolveMediaExtractorBinary()
   const metadataArgs = ['--dump-single-json', '--no-playlist', sourceUrl]
-  const { stdout: metadataStdout } = await execFileAsync(extractorBinary, metadataArgs, {
-    maxBuffer: 20 * 1024 * 1024
-  })
+  let metadataStdout: string
+  try {
+    ;({ stdout: metadataStdout } = await execFileAsync(extractorBinary, metadataArgs, {
+      maxBuffer: 20 * 1024 * 1024
+    }))
+  } catch (error: any) {
+    const detail = error?.stderr || error?.stdout || error?.message || 'Unknown extractor error'
+    throw new Error(`Could not read media from that link: ${detail}`.trim())
+  }
 
   const metadata = JSON.parse(metadataStdout)
   const downloadArgs = [
@@ -262,9 +268,15 @@ async function downloadWithMediaExtractor(sourceUrl: string) {
     sourceUrl
   ]
 
-  const { stdout } = await execFileAsync(extractorBinary, downloadArgs, {
-    maxBuffer: 20 * 1024 * 1024
-  })
+  let stdout: string
+  try {
+    ;({ stdout } = await execFileAsync(extractorBinary, downloadArgs, {
+      maxBuffer: 20 * 1024 * 1024
+    }))
+  } catch (error: any) {
+    const detail = error?.stderr || error?.stdout || error?.message || 'Unknown extractor error'
+    throw new Error(`Could not download media from that link: ${detail}`.trim())
+  }
 
   const filePath = stdout
     .split('\n')
@@ -274,6 +286,16 @@ async function downloadWithMediaExtractor(sourceUrl: string) {
 
   if (!filePath) {
     throw new Error('Media extractor did not return a downloaded file path.')
+  }
+
+  try {
+    const mediaInfo = await ffmpegService.getMediaInfo(filePath)
+    if (!mediaInfo.hasAudio && !mediaInfo.hasVideo) {
+      throw new Error('Downloaded file did not contain playable audio or video.')
+    }
+  } catch (error) {
+    await fsPromises.unlink(filePath).catch(() => undefined)
+    throw new Error('Could not extract a playable media file from that link.')
   }
 
   return {
@@ -306,7 +328,18 @@ async function resolveSourceToFile(source: string) {
     if (needsMediaExtractor(source)) {
       return downloadWithMediaExtractor(source)
     }
-    return downloadRemoteMedia(source)
+    const downloaded = await downloadRemoteMedia(source)
+    try {
+      const mediaInfo = await ffmpegService.getMediaInfo(downloaded.filePath)
+      if (!mediaInfo.hasAudio && !mediaInfo.hasVideo) {
+        throw new Error('Downloaded file did not contain playable media.')
+      }
+    } catch (error) {
+      const fsPromises = require('fs/promises')
+      await fsPromises.unlink(downloaded.filePath).catch(() => undefined)
+      throw new Error('Unsupported link. Paste a direct media file URL, Google Drive file link, or use Upload.')
+    }
+    return downloaded
   }
 
   return {

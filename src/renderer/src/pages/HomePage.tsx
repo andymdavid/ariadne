@@ -237,7 +237,7 @@ export function HomePage() {
       updateProgress({
         stage: 'completed',
         progress: 0,
-        message: `Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: error instanceof Error ? error.message : 'Processing failed'
       })
       setProcessing(false)
     }
