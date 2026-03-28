@@ -249,26 +249,28 @@ export function ReviewPage() {
 
   return (
     <MainContentPanel>
-      <button
-        type="button"
-        onClick={() => navigate('/')}
-        className="absolute left-8 top-8 z-20 inline-flex items-center gap-2 rounded-full border border-white/8 bg-[#12151b]/88 px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#171b22] hover:text-text-primary"
-      >
-        <IoArrowBack size={15} />
-        <span>Back</span>
-      </button>
-      <ClipCarousel
-        clips={clips}
-        selectedClip={selectedClip}
-        onSelectClip={handleSelectClip}
-        onNavigateClip={handleNavigateToClip}
-        onPlayClip={handlePlayClip}
-        onApproveClip={handleApprove}
-        onRejectClip={handleReject}
-        extractingClips={extractingClips}
-        extractionProgress={extractionProgress}
-        isModalOpen={false}
-      />
+      <div className="relative h-full w-full">
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="absolute left-8 top-8 z-20 inline-flex items-center gap-2 rounded-full border border-white/8 bg-[#12151b]/88 px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#171b22] hover:text-text-primary"
+        >
+          <IoArrowBack size={15} />
+          <span>Back</span>
+        </button>
+        <ClipCarousel
+          clips={clips}
+          selectedClip={selectedClip}
+          onSelectClip={handleSelectClip}
+          onNavigateClip={handleNavigateToClip}
+          onPlayClip={handlePlayClip}
+          onApproveClip={handleApprove}
+          onRejectClip={handleReject}
+          extractingClips={extractingClips}
+          extractionProgress={extractionProgress}
+          isModalOpen={false}
+        />
+      </div>
     </MainContentPanel>
   )
 }
