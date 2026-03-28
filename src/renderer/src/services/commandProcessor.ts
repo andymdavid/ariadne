@@ -47,16 +47,16 @@ export class CommandProcessor {
 
     // Screen-specific commands
     switch (this.context.currentScreen) {
+      case 'home':
       case 'upload':
         return this.handleUploadCommands(command)
-      case 'processing':
-        return this.handleProcessingCommands(command)
       case 'review':
         return this.handleReviewCommands(command)
-      case 'content':
-        return this.handleContentCommands(command)
-      case 'export':
-        return this.handleExportCommands(command)
+      case 'brand-template':
+      case 'asset-library':
+      case 'calendar':
+      case 'analytics':
+        return this.handleGeneralCommands(command)
       default:
         return this.handleGeneralCommands(command)
     }
@@ -72,10 +72,23 @@ export class CommandProcessor {
       case 'home':
       case 'upload':
         this.context.navigate('/')
-        return { success: true, message: 'Navigating to upload screen', action: 'navigate' }
-      case 'library':
-        this.context.navigate('/library')
-        return { success: true, message: 'Opening library', action: 'navigate' }
+        return { success: true, message: 'Navigating to home', action: 'navigate' }
+      case 'brand template':
+      case 'brand-template':
+      case 'brand':
+        this.context.navigate('/brand-template')
+        return { success: true, message: 'Opening brand template', action: 'navigate' }
+      case 'asset library':
+      case 'asset-library':
+      case 'assets':
+        this.context.navigate('/asset-library')
+        return { success: true, message: 'Opening asset library', action: 'navigate' }
+      case 'calendar':
+        this.context.navigate('/calendar')
+        return { success: true, message: 'Opening calendar', action: 'navigate' }
+      case 'analytics':
+        this.context.navigate('/analytics')
+        return { success: true, message: 'Opening analytics', action: 'navigate' }
       case 'review':
         if (this.context.episodeId) {
           this.context.navigate(`/review/${this.context.episodeId}`)
@@ -98,13 +111,13 @@ export class CommandProcessor {
         const helpText = this.getContextualHelp()
         return { success: true, message: helpText, action: 'execute' }
       default:
-        return { success: false, message: `Command "/${cmd}" not recognized. Try /settings, /home, /library, or /help`, action: 'error' }
+        return { success: false, message: `Command "/${cmd}" not recognized. Try /home, /brand template, /asset library, /calendar, /analytics, or /help`, action: 'error' }
     }
   }
 
   private isNavigationCommand(command: string): boolean {
     const navPatterns = [
-      /^(go to|goto|navigate to|open)\s+(upload|processing|review|content|export|settings)/,
+      /^(go to|goto|navigate to|open)\s+(home|upload|brand template|brand|asset library|assets|calendar|analytics|review|export|settings)/,
       /^(next|continue|proceed)$/,
       /^(back|previous|return)$/,
       /^(home|start over)$/
@@ -114,13 +127,28 @@ export class CommandProcessor {
 
   private handleNavigation(command: string): CommandResult {
     // Go to specific screen
-    const gotoMatch = command.match(/^(go to|goto|navigate to|open)\s+(upload|processing|review|content|export|settings)/)
+    const gotoMatch = command.match(/^(go to|goto|navigate to|open)\s+(home|upload|brand template|brand|asset library|assets|calendar|analytics|review|export|settings)/)
     if (gotoMatch) {
       const screen = gotoMatch[2]
       switch (screen) {
+        case 'home':
         case 'upload':
           this.context.navigate('/')
-          return { success: true, message: 'Navigating to upload screen', action: 'navigate' }
+          return { success: true, message: 'Navigating to home', action: 'navigate' }
+        case 'brand template':
+        case 'brand':
+          this.context.navigate('/brand-template')
+          return { success: true, message: 'Opening brand template', action: 'navigate' }
+        case 'asset library':
+        case 'assets':
+          this.context.navigate('/asset-library')
+          return { success: true, message: 'Opening asset library', action: 'navigate' }
+        case 'calendar':
+          this.context.navigate('/calendar')
+          return { success: true, message: 'Opening calendar', action: 'navigate' }
+        case 'analytics':
+          this.context.navigate('/analytics')
+          return { success: true, message: 'Opening analytics', action: 'navigate' }
         case 'settings':
           this.context.navigate('/settings')
           return { success: true, message: 'Opening settings', action: 'navigate' }
@@ -158,20 +186,16 @@ export class CommandProcessor {
 
   private handleNextNavigation(): CommandResult {
     if (!this.context.episodeId) {
-      return { success: false, message: 'No active episode for navigation', action: 'error' }
+      return { success: false, message: 'No active project flow for next-step navigation', action: 'error' }
     }
 
     switch (this.context.currentScreen) {
+      case 'home':
       case 'upload':
-        // Should trigger processing
         return { success: false, message: 'Please select a file first', action: 'error' }
-      case 'processing':
-        return { success: false, message: 'Processing in progress, please wait', action: 'error' }
       case 'review':
         this.context.navigate(`/export/${this.context.episodeId}`)
         return { success: true, message: 'Moving to export screen', action: 'navigate' }
-      case 'export':
-        return { success: false, message: 'Export is the final step', action: 'error' }
       default:
         return { success: false, message: 'Cannot navigate forward from this screen', action: 'error' }
     }
@@ -187,7 +211,7 @@ export class CommandProcessor {
         break
       case 'review':
         this.context.navigate('/')
-        return { success: true, message: 'Returning to upload screen', action: 'navigate' }
+        return { success: true, message: 'Returning to home', action: 'navigate' }
       case 'settings':
         this.context.navigate('/')
         return { success: true, message: 'Returning to home screen', action: 'navigate' }
@@ -206,18 +230,6 @@ export class CommandProcessor {
     }
 
     return { success: false, message: 'Try: "select file", "drag and drop", or "browse"', action: 'error' }
-  }
-
-  private handleProcessingCommands(command: string): CommandResult {
-    if (command.includes('cancel') || command.includes('stop')) {
-      return { success: true, message: 'Processing cancelled', action: 'execute', data: { action: 'cancelProcessing' } }
-    }
-
-    if (command.includes('progress') || command.includes('status')) {
-      return { success: true, message: 'Showing processing progress', action: 'execute' }
-    }
-
-    return { success: false, message: 'Try: "cancel processing" or "view progress"', action: 'error' }
   }
 
   private handleReviewCommands(command: string): CommandResult {
@@ -290,87 +302,6 @@ export class CommandProcessor {
     return { success: false, message: 'Try: "find clips about AI", "approve all high scores", "clips under 30 seconds"', action: 'error' }
   }
 
-  private handleContentCommands(command: string): CommandResult {
-    if (command.includes('create titles') || command.includes('generate titles')) {
-      return { 
-        success: true, 
-        message: 'Generating titles for approved clips', 
-        action: 'execute', 
-        data: { action: 'generateTitles' } 
-      }
-    }
-
-    if (command.includes('write descriptions') || command.includes('generate descriptions')) {
-      return { 
-        success: true, 
-        message: 'Writing descriptions for clips', 
-        action: 'execute', 
-        data: { action: 'generateDescriptions' } 
-      }
-    }
-
-    if (command.includes('thumbnails')) {
-      return { 
-        success: true, 
-        message: 'Selecting thumbnails for clips', 
-        action: 'execute', 
-        data: { action: 'selectThumbnails' } 
-      }
-    }
-
-    return { success: false, message: 'Try: "create titles", "write descriptions", or "select thumbnails"', action: 'error' }
-  }
-
-  private handleExportCommands(command: string): CommandResult {
-    // Export format commands
-    if (command.includes('instagram') || command.includes('ig') || command.includes('stories')) {
-      return { 
-        success: true, 
-        message: 'Exporting as Instagram Stories (9:16)', 
-        action: 'execute', 
-        data: { action: 'export', format: 'instagram' } 
-      }
-    }
-
-    if (command.includes('youtube') || command.includes('yt') || command.includes('shorts')) {
-      return { 
-        success: true, 
-        message: 'Exporting as YouTube Shorts (9:16)', 
-        action: 'execute', 
-        data: { action: 'export', format: 'youtube' } 
-      }
-    }
-
-    if (command.includes('tiktok') || command.includes('tt')) {
-      return { 
-        success: true, 
-        message: 'Exporting as TikTok format (9:16)', 
-        action: 'execute', 
-        data: { action: 'export', format: 'tiktok' } 
-      }
-    }
-
-    if (command.includes('export all') || command.includes('export everything')) {
-      return { 
-        success: true, 
-        message: 'Exporting all approved clips', 
-        action: 'execute', 
-        data: { action: 'exportAll' } 
-      }
-    }
-
-    if (command.includes('save project') || command.includes('save')) {
-      return { 
-        success: true, 
-        message: 'Saving project', 
-        action: 'execute', 
-        data: { action: 'saveProject' } 
-      }
-    }
-
-    return { success: false, message: 'Try: "export as instagram", "export all", or "save project"', action: 'error' }
-  }
-
   private handleGeneralCommands(command: string): CommandResult {
     // Help command
     if (command.includes('help') || command === '?') {
@@ -411,14 +342,15 @@ export class CommandProcessor {
 
   private getContextualHelp(): string {
     switch (this.context.currentScreen) {
+      case 'home':
       case 'upload':
-        return 'Available commands: "select file", "drag and drop", "browse", "validate system"'
+        return 'Available commands: "select file", "drag and drop", "browse", "go to brand template", "validate system"'
+      case 'brand-template':
+        return 'Available commands: "go to asset library", "go to calendar", "go to analytics", "validate system"'
       case 'review':
         return 'Available commands: "find clips about [topic]", "approve all high scores", "clips under [duration]", "next", "validate system"'
-      case 'export':
-        return 'Available commands: "export as instagram", "export all", "save project", "validate system"'
       default:
-        return 'Available commands: "help", "next", "back", "go to [screen]", "validate system"'
+        return 'Available commands: "help", "go to home", "go to brand template", "go to asset library", "go to calendar", "go to analytics", "validate system"'
     }
   }
 }

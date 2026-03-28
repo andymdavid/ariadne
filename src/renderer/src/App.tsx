@@ -3,6 +3,10 @@ import { useEffect, useState, useRef } from 'react'
 import { Layout } from './components/Layout'
 import { NavigationDock } from './components/NavigationDock'
 import { HomePage } from './pages/HomePage'
+import { BrandTemplatePage } from './pages/BrandTemplatePage'
+import { AssetLibraryPage } from './pages/AssetLibraryPage'
+import { CalendarPage } from './pages/CalendarPage'
+import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ReviewPage } from './pages/ReviewPage'
 import { ContentPage } from './pages/EditorPage'
 import { ClipEditorPage } from './pages/ClipEditorPage'
@@ -64,12 +68,12 @@ function App() {
   // Determine current screen for command context
   const getCurrentScreen = () => {
     const path = location.pathname
-    if (path === '/') return 'upload'
-    if (path.startsWith('/review/')) return 'review'
-    if (path.startsWith('/content/')) return 'content'
-    if (path.startsWith('/export/')) return 'export'
-    if (path === '/library') return 'library'
-    return 'upload'
+    if (path === '/' || path.startsWith('/review/') || path.startsWith('/content/') || path.startsWith('/export/')) return 'home'
+    if (path === '/brand-template') return 'brand-template'
+    if (path === '/asset-library') return 'asset-library'
+    if (path === '/calendar') return 'calendar'
+    if (path === '/analytics') return 'analytics'
+    return 'home'
   }
 
   // Extract episode ID from URL
@@ -211,7 +215,7 @@ function App() {
   // Add navigation messages to session history
   useEffect(() => {
     const currentScreen = getCurrentScreen()
-    if (currentScreen !== 'upload' && sessionMessages.length > 0) {
+    if (currentScreen !== 'home' && sessionMessages.length > 0) {
       const navMessage: StatusMessage = {
         id: nextMessageId(),
         type: 'info',
@@ -525,7 +529,7 @@ function App() {
       const currentScreen = getCurrentScreen()
       
       // Cmd/Ctrl + K to toggle navigation dock command mode (only for non-home screens)
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && currentScreen !== 'upload') {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && currentScreen !== 'home') {
         e.preventDefault()
         if (isCommandMode) {
           handleCommandModeExit()
@@ -543,7 +547,7 @@ function App() {
       }
       
       // Forward slash to trigger navigation dock command mode (only for non-home screens)
-      if (e.key === '/' && !isCommandMode && !isInputFocused() && currentScreen !== 'upload') {
+      if (e.key === '/' && !isCommandMode && !isInputFocused() && currentScreen !== 'home') {
         e.preventDefault()
         handleSearchTrigger()
         return
@@ -556,16 +560,16 @@ function App() {
             navigate('/')
             break
           case '2':
-            if (getEpisodeId()) navigate(`/review/${getEpisodeId()}`)
+            navigate('/brand-template')
             break
           case '3':
-            if (getEpisodeId()) navigate(`/content/${getEpisodeId()}`)
+            navigate('/asset-library')
             break
           case '4':
-            if (getEpisodeId()) navigate(`/export/${getEpisodeId()}`)
+            navigate('/calendar')
             break
           case '5':
-            navigate('/library')
+            navigate('/analytics')
             break
         }
       }
@@ -594,6 +598,10 @@ function App() {
                   <HomePage />
                 </ProcessingErrorBoundary>
               } />
+              <Route path="/brand-template" element={<BrandTemplatePage />} />
+              <Route path="/asset-library" element={<AssetLibraryPage />} />
+              <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/review/:id" element={<ReviewPage />} />
               <Route path="/content/:id" element={<ContentPage />} />
               <Route path="/content/:id/:clipId" element={<ClipEditorPage />} />

@@ -1,14 +1,14 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { 
-  IoFolderOpen, 
-  IoCheckmarkCircle, 
+  IoHome, 
   IoCreate, 
-  IoCloudUpload, 
   IoLibrary,
+  IoCalendar,
+  IoAnalytics,
   IoSearch 
 } from 'react-icons/io5'
-import { useScreenFlow, useProjectData } from '../stores/projectStore'
+import { useScreenFlow } from '../stores/projectStore'
 
 export interface StatusMessage {
   id: string
@@ -34,16 +34,14 @@ interface NavIcon {
   id: string
   icon: React.ComponentType<any>
   label: string
-  route: string | ((episodeId?: string) => string)
-  requiresEpisode?: boolean
+  route: string
 }
 
-export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, isCommandMode = false, episodeId, isProcessing = false, sessionMessages = [], onAddMessage }: NavigationDockProps) {
+export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, isCommandMode = false, episodeId: _episodeId, isProcessing = false, sessionMessages = [], onAddMessage }: NavigationDockProps) {
   const location = useLocation()
   const navigate = useNavigate()
-  const [activeScreen, setActiveScreen] = useState<string>('upload')
+  const [activeScreen, setActiveScreen] = useState<string>('home')
   const [commandInput, setCommandInput] = useState('')
-  const [isExpanding, setIsExpanding] = useState(false)
   const [showSlashCommands, setShowSlashCommands] = useState(false)
   const [, setSuggestions] = useState<string[]>([])
   const [filteredSlashCommands, setFilteredSlashCommands] = useState<any[]>([])
@@ -54,71 +52,57 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
   // Use project store for screen flow management
-  const { 
-    completedScreens,
-    canAccessScreen, 
-    isScreenCompleted, 
-    setCurrentScreen
-  } = useScreenFlow()
-  
-  // Get project data including episode ID
-  const { currentEpisode } = useProjectData()
-  
-  // Use episode ID from store if not provided as prop
-  const activeEpisodeId = episodeId || currentEpisode?.id
+  const { setCurrentScreen } = useScreenFlow()
 
   // Navigation icons using solid React Icons for Fey aesthetic
   const navIcons: NavIcon[] = [
     {
-      id: 'upload',
-      icon: IoFolderOpen,
-      label: 'Upload',
+      id: 'home',
+      icon: IoHome,
+      label: 'Home',
       route: '/'
     },
     {
-      id: 'review',
-      icon: IoCheckmarkCircle,
-      label: 'Review',
-      route: (episodeId) => episodeId ? `/review/${episodeId}` : '/',
-      requiresEpisode: true
-    },
-    {
-      id: 'content',
+      id: 'brand-template',
       icon: IoCreate,
-      label: 'Content',
-      route: (episodeId) => episodeId ? `/content/${episodeId}` : '/',
-      requiresEpisode: true
+      label: 'Brand Template',
+      route: '/brand-template'
     },
     {
-      id: 'export',
-      icon: IoCloudUpload,
-      label: 'Export',
-      route: (episodeId) => episodeId ? `/export/${episodeId}` : '/',
-      requiresEpisode: true
-    },
-    {
-      id: 'library',
+      id: 'asset-library',
       icon: IoLibrary,
-      label: 'Library',
-      route: '/library'
+      label: 'Asset Library',
+      route: '/asset-library'
+    },
+    {
+      id: 'calendar',
+      icon: IoCalendar,
+      label: 'Calendar',
+      route: '/calendar'
+    },
+    {
+      id: 'analytics',
+      icon: IoAnalytics,
+      label: 'Analytics',
+      route: '/analytics'
     }
   ]
 
   // Determine active screen from current location and sync with project store
   useEffect(() => {
     const path = location.pathname
-    let screen = 'upload'
+    let screen = 'home'
     
-    if (path === '/') {
-      screen = 'upload'
-    } else if (path.startsWith('/review/')) {
-      screen = 'review'
-    } else if (path.startsWith('/content/')) {
-      screen = 'content'
-    } else if (path.startsWith('/export/')) {
-      screen = 'export'
-    } else if (path === '/library') {
-      screen = 'library'
+    if (path === '/' || path.startsWith('/review/') || path.startsWith('/content/') || path.startsWith('/export/')) {
+      screen = 'home'
+    } else if (path === '/brand-template') {
+      screen = 'brand-template'
+    } else if (path === '/asset-library') {
+      screen = 'asset-library'
+    } else if (path === '/calendar') {
+      screen = 'calendar'
+    } else if (path === '/analytics') {
+      screen = 'analytics'
     }
     
     setActiveScreen(screen)
@@ -159,19 +143,8 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
     }
   }, [displayMessages, isCommandMode, showSlashCommands])
 
-  // Handle 3-phase command mode transition
   useEffect(() => {
-    if (isCommandMode) {
-      // Phase 1: Icons fade out (handled by CSS)
-      // Phase 2: Start expansion after 150ms
-      setTimeout(() => {
-        setIsExpanding(true)
-      }, 150)
-      
-      // Phase 3: Input appears (handled by CSS with delay)
-    } else {
-      // Reset states when exiting command mode
-      setIsExpanding(false)
+    if (!isCommandMode) {
       setCommandInput('')
       setShowSlashCommands(false)
       setFilteredSlashCommands([])
@@ -180,44 +153,8 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
 
   // Handle navigation icon click
   const handleNavClick = (navIcon: NavIcon) => {
-    console.log('Navigation click:', {
-      screen: navIcon.id,
-      label: navIcon.label,
-      canAccess: canAccessScreen(navIcon.id),
-      isCompleted: isScreenCompleted(navIcon.id),
-      completedScreens: Array.from(completedScreens),
-      episodeId,
-      activeEpisodeId
-    })
-    
-    // Check if screen can be accessed based on workflow completion
-    if (!canAccessScreen(navIcon.id)) {
-      console.log('Screen not accessible yet:', navIcon.label, {
-        canAccess: canAccessScreen(navIcon.id),
-        isCompleted: isScreenCompleted(navIcon.id),
-        completedScreens: Array.from(completedScreens)
-      })
-      return
-    }
-    
-    if (navIcon.requiresEpisode && !activeEpisodeId) {
-      // Show tooltip or feedback that episode is required
-      console.log('Episode required for', navIcon.label, { episodeId, activeEpisodeId })
-      return
-    }
-
-    const route = typeof navIcon.route === 'function' 
-      ? navIcon.route(activeEpisodeId) 
-      : navIcon.route
-    
-    console.log('Navigating to:', route)
-    navigate(route)
-  }
-
-  // Check if nav icon is disabled
-  const isIconDisabled = (navIcon: NavIcon): boolean => {
-    // Disable if workflow requirements aren't met or episode is required but missing
-    return !canAccessScreen(navIcon.id) || !!(navIcon.requiresEpisode && !activeEpisodeId)
+    console.log('Navigating to:', navIcon.route)
+    navigate(navIcon.route)
   }
 
   // Handle command input changes with autocomplete
@@ -275,20 +212,14 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
   // Get contextual suggestions based on current screen
   const getContextualSuggestions = (input: string): string[] => {
     const suggestions = {
-      upload: ['select file', 'browse files', 'drag and drop'],
-      processing: ['view progress', 'cancel processing', 'show details'],
-      review: [
-        'find clips about AI',
-        'show controversial moments', 
-        'clips under 30 seconds',
-        'approve all high scores',
-        'reject low scores'
-      ],
-      content: ['create titles', 'write descriptions', 'select thumbnails'],
-      export: ['export all', 'export as instagram', 'export as youtube', 'save project']
+      home: ['select file', 'browse files', 'open recent project'],
+      'brand-template': ['caption defaults', 'overlay defaults', 'music defaults'],
+      'asset-library': ['logos', 'music', 'fonts'],
+      calendar: ['schedule post', 'upload local video'],
+      analytics: ['top clips', 'best hooks', 'performance summary']
     }
 
-    const currentSuggestions = suggestions[activeScreen as keyof typeof suggestions] || suggestions.review
+    const currentSuggestions = suggestions[activeScreen as keyof typeof suggestions] || suggestions.home
     
     if (!input) return currentSuggestions.slice(0, 3)
     
@@ -395,33 +326,32 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
   const getSlashCommands = () => {
     const commonCommands = [
       { id: 'help', command: '/help', description: 'Show available commands' },
-      { id: 'home', command: '/home', description: 'Go to upload screen' },
+      { id: 'home', command: '/home', description: 'Go to home' },
+      { id: 'brand', command: '/brand template', description: 'Open brand template' },
+      { id: 'assets', command: '/asset library', description: 'Open asset library' },
+      { id: 'calendar', command: '/calendar', description: 'Open calendar' },
+      { id: 'analytics', command: '/analytics', description: 'Open analytics' },
       { id: 'settings', command: '/settings', description: 'Open settings' },
     ]
 
     const screenCommands = {
-      upload: [
+      home: [
         { id: 'select', command: '/select file', description: 'Choose a file to upload' },
         { id: 'browse', command: '/browse', description: 'Open file browser' },
       ],
-      processing: [
-        { id: 'status', command: '/status', description: 'View processing progress' },
-        { id: 'cancel', command: '/cancel', description: 'Cancel processing' },
+      'brand-template': [
+        { id: 'captions', command: '/caption defaults', description: 'Edit shared caption styling' },
+        { id: 'overlay', command: '/overlay defaults', description: 'Adjust logo and CTA defaults' },
       ],
-      review: [
-        { id: 'find', command: '/find clips about', description: 'Search clips by topic' },
-        { id: 'approve', command: '/approve all', description: 'Approve high-scoring clips' },
-        { id: 'reject', command: '/reject low scores', description: 'Reject low-scoring clips' },
+      'asset-library': [
+        { id: 'logos', command: '/logos', description: 'Manage reusable logos and overlays' },
+        { id: 'music', command: '/music', description: 'Manage reusable music assets' },
       ],
-      content: [
-        { id: 'titles', command: '/create titles', description: 'Generate titles for clips' },
-        { id: 'descriptions', command: '/write descriptions', description: 'Generate descriptions' },
-        { id: 'thumbnails', command: '/select thumbnails', description: 'Choose thumbnails' },
+      calendar: [
+        { id: 'schedule', command: '/schedule post', description: 'Schedule a clip for publishing' },
       ],
-      export: [
-        { id: 'instagram', command: '/export as instagram', description: 'Export for Instagram Stories' },
-        { id: 'youtube', command: '/export as youtube', description: 'Export for YouTube Shorts' },
-        { id: 'all', command: '/export all', description: 'Export all approved clips' },
+      analytics: [
+        { id: 'top', command: '/top clips', description: 'View top-performing clips' },
       ]
     }
 
@@ -499,47 +429,69 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
         </div>
       )}
 
-      {/* Navigation Dock */}
-      <div className={`navigation-dock ${isCommandMode ? 'command-mode' : ''} ${isExpanding ? 'expanding' : ''}`}>
-        {/* Navigation Icons - Only render in default state */}
-        {!isCommandMode && navIcons.map((navIcon) => {
-          const IconComponent = navIcon.icon
-          const completed = isScreenCompleted(navIcon.id)
-          const accessible = canAccessScreen(navIcon.id)
-          const disabled = isIconDisabled(navIcon)
-          
-          return (
-            <button
-              key={navIcon.id}
-              className={`nav-icon ${activeScreen === navIcon.id ? 'active' : ''} ${disabled ? 'disabled' : ''} ${completed ? 'completed' : ''} ${!accessible ? 'inaccessible' : ''}`}
-              onClick={() => handleNavClick(navIcon)}
-              disabled={disabled}
-              title={`${navIcon.label}${completed ? ' (Completed)' : ''}${!accessible ? ' (Locked)' : ''}`}
-            >
-              <IconComponent className="nav-icon-solid" size={20} />
-              {completed && (
-                <div className="completion-indicator">
-                  <IoCheckmarkCircle size={12} />
-                </div>
-              )}
-            </button>
-          )
-        })}
-
-        {/* Progress Indicator */}
-        <div className="progress-indicator">
-          <div 
-            className="progress-fill"
-            style={{ 
-              width: `${getProgressPercentage(activeScreen)}%` 
-            }}
-          />
+      <div className="fixed left-6 top-16 bottom-8 z-30 flex w-56 flex-col rounded-[28px] border border-border-default bg-bg-primary/92 p-4 shadow-2xl backdrop-blur-xl">
+        <div className="pb-5">
+          <div className="text-xs uppercase tracking-[0.24em] text-text-muted">Ariadne</div>
+          <div className="mt-2 text-2xl font-semibold text-text-primary">Menu</div>
+          <div className="mt-1 text-sm text-text-secondary">Generate, brand, schedule, learn.</div>
         </div>
 
-        {/* Command Input (hidden initially, shown in command mode) */}
-        {isCommandMode && (
+        <div className="flex-1 space-y-2">
+          {navIcons.map((navIcon) => {
+            const IconComponent = navIcon.icon
+
+            return (
+              <button
+                key={navIcon.id}
+                type="button"
+                onClick={() => handleNavClick(navIcon)}
+                className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors ${
+                  activeScreen === navIcon.id
+                    ? 'border-accent-primary bg-accent-primary/12 text-text-primary'
+                    : 'border-transparent bg-transparent text-text-secondary hover:border-border-default hover:bg-bg-secondary/80 hover:text-text-primary'
+                }`}
+                title={navIcon.label}
+              >
+                <IconComponent size={18} />
+                <span className="text-sm font-medium">{navIcon.label}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-border-default bg-bg-secondary/60 p-3">
+          <div className="text-[11px] uppercase tracking-[0.2em] text-text-muted">Search</div>
+          <button
+            type="button"
+            onClick={() => {
+              if (isCommandMode && onCommandModeExit) {
+                onCommandModeExit()
+              } else {
+                onSearchTrigger()
+              }
+            }}
+            className="mt-3 flex w-full items-center justify-between rounded-xl border border-border-default bg-bg-primary px-3 py-2 text-sm text-text-primary hover:bg-hover-bg transition-colors"
+            title={isCommandMode ? 'Exit command mode (Esc)' : 'Search commands (⌘K)'}
+          >
+            <span className="flex items-center gap-2">
+              <IoSearch size={16} />
+              {isCommandMode ? 'Close command mode' : 'Open command search'}
+            </span>
+            <span className="text-xs text-text-muted">{isCommandMode ? 'Esc' : '⌘K'}</span>
+          </button>
+
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-bg-primary">
+            <div
+              className="h-full rounded-full bg-accent-primary transition-all"
+              style={{ width: `${getProgressPercentage(activeScreen)}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {isCommandMode && (
+        <div className="fixed left-80 bottom-8 z-40 w-[560px] rounded-2xl border border-border-default bg-bg-primary/95 p-4 shadow-2xl backdrop-blur-xl">
           <div className="command-input-container">
-            {/* Custom placeholder with styled kbd elements */}
             {!commandInput && (
               <div className="custom-placeholder">
                 {isProcessing ? (
@@ -564,42 +516,20 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
               <div className="processing-spinner" style={{ marginLeft: '12px' }} />
             )}
           </div>
-        )}
-      </div>
-
-      {/* Search Trigger Button */}
-      <button 
-        className={`search-trigger ${isCommandMode ? 'command-mode' : ''}`}
-        onClick={() => {
-          if (isCommandMode && onCommandModeExit) {
-            onCommandModeExit()
-          } else {
-            onSearchTrigger()
-          }
-        }}
-        title={isCommandMode ? "Exit command mode (Esc)" : "Search commands (⌘K)"}
-      >
-        {isCommandMode ? (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-          </svg>
-        ) : (
-          <IoSearch className="search-icon-solid" size={20} />
-        )}
-      </button>
+        </div>
+      )}
     </>
   )
 }
 
 // Calculate progress percentage based on current screen
 function getProgressPercentage(activeScreen: string): number {
-  // Smooth progress calculation with meaningful steps
   const progressSteps = {
-    upload: 0,      // Starting point
-    review: 33,     // Processing complete, reviewing clips
-    content: 66,    // Clips reviewed, creating content
-    export: 100,    // Content ready, exporting
-    library: 0      // Independent screen
+    home: 10,
+    'brand-template': 32,
+    'asset-library': 54,
+    calendar: 76,
+    analytics: 100
   }
   
   return progressSteps[activeScreen as keyof typeof progressSteps] || 0
