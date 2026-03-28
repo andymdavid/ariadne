@@ -295,7 +295,7 @@ export function ClipEditorPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-[#08090c] text-text-primary">
+    <div className="ml-[220px] flex h-full flex-col bg-[#08090c] text-text-primary">
       <header className="flex items-center justify-between border-b border-white/8 px-6 py-4">
         <div className="flex min-w-0 items-center gap-4">
           <button
@@ -416,7 +416,7 @@ export function ClipEditorPage() {
               ) : null}
               {captionPreview?.text ? (
                 <div
-                  className="absolute left-1/2 max-w-[72%] -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center text-[18px] font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                  className="absolute left-1/2 w-[78%] max-w-[320px] -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center text-[14px] font-semibold leading-[1.28] text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
                   style={{
                     fontFamily: captionPreview.font,
                     top:
