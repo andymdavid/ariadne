@@ -549,7 +549,7 @@
   .status-display-dropdown {
     position: fixed;
     bottom: 128px; /* 56px bar + 8px gap + 64px margin for proper clearance */
-    left: 50%;
+    left: calc(220px + ((100vw - 220px) / 2));
     transform: translateX(-50%);
     z-index: 999;
     

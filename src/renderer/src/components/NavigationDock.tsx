@@ -481,7 +481,7 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
         </div>
       </div>
 
-      {isCommandMode && (
+      {isCommandMode && !isProcessing && displayMessages.length === 0 && (
         <div className="fixed left-[244px] top-6 z-40 w-[560px] rounded-2xl border border-border-default bg-bg-primary/95 p-4 shadow-2xl backdrop-blur-xl">
           <div className="command-input-container">
             {!commandInput && (
