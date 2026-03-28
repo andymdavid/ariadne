@@ -55,6 +55,16 @@ type PreviewFrameState = {
   cropMode: 'fit' | 'center' | 'blur'
 }
 
+type CaptionLayoutConfig = {
+  maxLines: number
+  widthRatio: number
+  minWidth: number
+  maxWidth?: number
+  fontScale: number
+  minFontSize: number
+  maxFontSize: number
+}
+
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 const measureTextWidth = (
@@ -82,6 +92,64 @@ const formatClockTime = (seconds: number) => {
   }
 
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${hundredths.toString().padStart(2, '0')}`
+}
+
+const getCaptionLayoutConfig = (
+  presetId: string | null | undefined,
+  _previewWidth: number
+): CaptionLayoutConfig => {
+  switch (presetId) {
+    case 'deep-diver':
+      return {
+        maxLines: 1,
+        widthRatio: 0.7,
+        minWidth: 150,
+        fontScale: 0.06,
+        minFontSize: 15,
+        maxFontSize: 22
+      }
+    case 'karaoke':
+      return {
+        maxLines: 2,
+        widthRatio: 0.78,
+        minWidth: 180,
+        maxWidth: 340,
+        fontScale: 0.054,
+        minFontSize: 14,
+        maxFontSize: 20
+      }
+    case 'beasty':
+      return {
+        maxLines: 3,
+        widthRatio: 0.82,
+        minWidth: 190,
+        maxWidth: 360,
+        fontScale: 0.053,
+        minFontSize: 14,
+        maxFontSize: 20
+      }
+    case 'youshaei':
+    case 'pod-p':
+      return {
+        maxLines: 2,
+        widthRatio: 0.8,
+        minWidth: 185,
+        maxWidth: 350,
+        fontScale: 0.052,
+        minFontSize: 14,
+        maxFontSize: 19
+      }
+    default:
+      return {
+        maxLines: 2,
+        widthRatio: 0.78,
+        minWidth: 180,
+        maxWidth: 340,
+        fontScale: 0.052,
+        minFontSize: 14,
+        maxFontSize: 19
+      }
+  }
 }
 
 export function ClipEditorPage() {
@@ -117,13 +185,21 @@ export function ClipEditorPage() {
     font = 'Inter'
   ) => {
     if (!line) return fallbackText
-    if (presetId !== 'deep-diver') return line.text || fallbackText
+    if (presetId === 'none') return ''
 
+    const layout = getCaptionLayoutConfig(presetId, previewFrameWidth)
     const words = line.words?.filter((word) => word.word?.trim())
     if (words && words.length > 0 && playheadTime !== undefined) {
-      const fontSize = clamp(Math.round(previewFrameWidth * 0.06), 15, 22)
+      const fontSize = clamp(
+        Math.round(previewFrameWidth * layout.fontScale),
+        layout.minFontSize,
+        layout.maxFontSize
+      )
       const bubblePadding = 32
-      const maxBubbleWidth = Math.max(150, previewFrameWidth * 0.7)
+      const rawBubbleWidth = Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
+      const maxBubbleWidth = layout.maxWidth
+        ? Math.min(layout.maxWidth, rawBubbleWidth)
+        : rawBubbleWidth
       const maxTextWidth = Math.max(110, maxBubbleWidth - bubblePadding)
       const relativeWordIndex = words.findIndex(
         (word) => playheadTime >= word.start && playheadTime <= word.end
@@ -138,19 +214,14 @@ export function ClipEditorPage() {
           .join(' ')
           .replace(/\s+([,.!?;:])/g, '$1')
           .trim()
+        const candidateWidth = measureTextWidth(candidateText, fontSize, font)
+        const nextLineCount = Math.max(1, Math.ceil(candidateWidth / maxTextWidth))
 
-        if (
-          fittedWords.length > 0 &&
-          measureTextWidth(candidateText, fontSize, font) > maxTextWidth
-        ) {
+        if (fittedWords.length > 0 && nextLineCount > layout.maxLines) {
           break
         }
 
         fittedWords.push(nextWord)
-
-        if (measureTextWidth(candidateText, fontSize, font) >= maxTextWidth) {
-          break
-        }
       }
 
       const phrase = fittedWords.join(' ').replace(/\s+([,.!?;:])/g, '$1').trim()
@@ -158,7 +229,8 @@ export function ClipEditorPage() {
       if (phrase) return phrase
     }
 
-    return (line.text.split(/\s+/).find((word) => word.trim()) || fallbackText).trim()
+    const fallbackWords = (line.text || fallbackText).split(/\s+/).filter(Boolean)
+    return fallbackWords.slice(0, layout.maxLines === 1 ? 1 : 6).join(' ').trim()
   }
 
   useEffect(() => {
@@ -627,55 +699,62 @@ export function ClipEditorPage() {
                 />
               ) : null}
               {captionPreview?.text ? (
-                <div
-                  className={`absolute left-1/2 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${
-                    captionPreview.presetId === 'deep-diver'
-                      ? 'whitespace-nowrap text-[17px] leading-[1.2]'
-                      : 'w-[78%] max-w-[320px] text-[14px] leading-[1.28]'
-                  }`}
-                  style={{
-                    fontFamily: captionPreview.font,
-                    fontSize:
-                      captionPreview.presetId === 'deep-diver'
-                        ? `${clamp(Math.round(previewFrameWidth * 0.06), 15, 22)}px`
-                        : undefined,
-                    maxWidth:
-                      captionPreview.presetId === 'deep-diver'
-                        ? `${Math.max(150, previewFrameWidth * 0.7)}px`
-                        : undefined,
-                    top:
-                      captionPreview.position === 'top'
-                        ? '12%'
-                        : captionPreview.position === 'center'
-                          ? '50%'
-                          : captionPreview.position === 'custom' && captionPreview.customY != null
-                            ? `${captionPreview.customY}%`
-                            : undefined,
-                    bottom:
-                      captionPreview.position === 'bottom'
-                        ? '12%'
-                        : captionPreview.position === 'custom' && captionPreview.customY == null
-                          ? '12%'
-                          : undefined,
-                    left:
-                      captionPreview.position === 'custom' && captionPreview.customX != null
-                        ? `${captionPreview.customX}%`
-                        : '50%',
-                    transform:
-                      captionPreview.position === 'center'
-                        ? 'translate(-50%, -50%)'
-                        : 'translateX(-50%)',
-                    zIndex: 25,
-                    cursor: isDraggingCaption ? 'grabbing' : 'grab'
-                  }}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    setIsDraggingCaption(true)
-                  }}
-                >
-                  {captionPreview.text}
-                </div>
+                (() => {
+                  const layout = getCaptionLayoutConfig(captionPreview.presetId, previewFrameWidth)
+                  const bubbleWidth = layout.maxWidth
+                    ? Math.min(layout.maxWidth, Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio))
+                    : Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
+                  const fontSize = clamp(
+                    Math.round(previewFrameWidth * layout.fontScale),
+                    layout.minFontSize,
+                    layout.maxFontSize
+                  )
+
+                  return (
+                    <div
+                      className={`absolute left-1/2 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${
+                        layout.maxLines === 1 ? 'whitespace-nowrap leading-[1.2]' : 'leading-[1.28]'
+                      }`}
+                      style={{
+                        fontFamily: captionPreview.font,
+                        fontSize: `${fontSize}px`,
+                        width: `${bubbleWidth}px`,
+                        maxWidth: `${bubbleWidth}px`,
+                        top:
+                          captionPreview.position === 'top'
+                            ? '12%'
+                            : captionPreview.position === 'center'
+                              ? '50%'
+                              : captionPreview.position === 'custom' && captionPreview.customY != null
+                                ? `${captionPreview.customY}%`
+                                : undefined,
+                        bottom:
+                          captionPreview.position === 'bottom'
+                            ? '12%'
+                            : captionPreview.position === 'custom' && captionPreview.customY == null
+                              ? '12%'
+                              : undefined,
+                        left:
+                          captionPreview.position === 'custom' && captionPreview.customX != null
+                            ? `${captionPreview.customX}%`
+                            : '50%',
+                        transform:
+                          captionPreview.position === 'center'
+                            ? 'translate(-50%, -50%)'
+                            : 'translateX(-50%)',
+                        zIndex: 25,
+                        cursor: isDraggingCaption ? 'grabbing' : 'grab'
+                      }}
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        setIsDraggingCaption(true)
+                      }}
+                    >
+                      {captionPreview.text}
+                    </div>
+                  )
+                })()
               ) : null}
               {musicEnabled ? (
                 <div className="absolute bottom-5 left-5 inline-flex items-center gap-2 rounded-full bg-black/55 px-3 py-2 text-xs text-white/85">
