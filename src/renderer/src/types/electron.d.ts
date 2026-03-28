@@ -12,6 +12,7 @@ declare global {
       
       // Processing operations
       processEpisode: (filePath: string, projectName?: string) => Promise<any>;
+      processSource: (source: string, projectName?: string) => Promise<any>;
       playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) => Promise<any>;
       
       // Database operations

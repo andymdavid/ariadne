@@ -9,6 +9,7 @@ import { MainContentPanel } from '../components/MainContentPanel'
 export function HomePage() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [sourceLink, setSourceLink] = useState('')
+  const [sourceError, setSourceError] = useState('')
   const [recentProjects, setRecentProjects] = useState<SavedProject[]>([])
   const navigate = useNavigate()
   const { isProcessing, setProcessing, updateProgress, reset, setActiveJobId } = useProcessingStore()
@@ -45,6 +46,7 @@ export function HomePage() {
   }
 
   const startProcessing = async (filePath: string) => {
+    setSourceError('')
     reset()
     setActiveJobId(undefined)
     setProcessing(true)
@@ -114,6 +116,79 @@ export function HomePage() {
     }
   }
 
+  const startSourceProcessing = async (source: string) => {
+    const trimmedSource = source.trim()
+    if (!trimmedSource) {
+      setSourceError('Paste a direct media or Google Drive link, or use Upload.')
+      return
+    }
+
+    setSourceError('')
+    reset()
+    setActiveJobId(undefined)
+    setProcessing(true)
+    updateProgress({
+      stage: 'uploading',
+      progress: 0,
+      message: 'Starting processing...'
+    })
+
+    try {
+      if (!window.electronAPI?.processSource) {
+        throw new Error('Source processing API not available')
+      }
+
+      const processingCompletePromise = new Promise((resolve, reject) => {
+        let timeoutId: NodeJS.Timeout
+
+        const cleanup = window.electronAPI?.onProcessingComplete?.((data) => {
+          clearTimeout(timeoutId)
+          cleanup?.()
+          errorCleanup?.()
+          resolve(data)
+        })
+
+        const errorCleanup = window.electronAPI?.onProcessingError?.((error) => {
+          const errorMessage = typeof error === 'string' ? error : error.message
+          clearTimeout(timeoutId)
+          cleanup?.()
+          errorCleanup?.()
+          reject(new Error(errorMessage))
+        })
+
+        timeoutId = setTimeout(() => {
+          cleanup?.()
+          errorCleanup?.()
+          reject(new Error('Processing timed out after 20 minutes'))
+        }, 20 * 60 * 1000)
+      })
+
+      const result = await Promise.race([
+        processingCompletePromise,
+        window.electronAPI.processSource(trimmedSource)
+      ])
+
+      setTimeout(() => {
+        const state = useProjectStore.getState()
+        if (state.currentEpisode?.id) {
+          navigate(`/review/${state.currentEpisode.id}`)
+        } else if (result && (result as any).episodeId) {
+          navigate(`/review/${(result as any).episodeId}`)
+        }
+      }, 1500)
+
+      setProcessing(false)
+    } catch (error) {
+      console.error('Processing error:', error)
+      updateProgress({
+        stage: 'completed',
+        progress: 0,
+        message: `Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      })
+      setProcessing(false)
+    }
+  }
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
@@ -142,6 +217,25 @@ export function HomePage() {
     navigate(`/review/${project.id}`)
   }
 
+  const handleGenerate = async () => {
+    if (sourceLink.trim()) {
+      await startSourceProcessing(sourceLink)
+      return
+    }
+
+    await handleFileSelect()
+  }
+
+  const handleGoogleDrive = async () => {
+    const promptValue = window.prompt('Paste a Google Drive share link')
+    if (!promptValue) {
+      return
+    }
+
+    setSourceLink(promptValue)
+    await startSourceProcessing(promptValue)
+  }
+
   return (
     <MainContentPanel>
       <div className="app-page">
@@ -158,26 +252,40 @@ export function HomePage() {
                   <input
                     value={sourceLink}
                     onChange={(e) => setSourceLink(e.target.value)}
-                    placeholder="Drop a YouTube, Rumble, or podcast link"
+                    placeholder="Paste a direct media or Google Drive link"
                     className="flex-1 bg-transparent text-base text-text-primary outline-none placeholder:text-text-muted"
                   />
                 </div>
 
                 <div className="mt-4 flex items-center gap-6 px-2 text-sm text-text-secondary">
-                  <button className="inline-flex items-center gap-2 hover:text-text-primary transition-colors">
+                  <button
+                    type="button"
+                    onClick={handleFileSelect}
+                    className="inline-flex items-center gap-2 hover:text-text-primary transition-colors"
+                  >
                     <IoCloudUploadOutline size={16} />
                     Upload
                   </button>
-                  <button className="inline-flex items-center gap-2 hover:text-text-primary transition-colors">
+                  <button
+                    type="button"
+                    onClick={handleGoogleDrive}
+                    className="inline-flex items-center gap-2 hover:text-text-primary transition-colors"
+                  >
                     Google Drive
                   </button>
                 </div>
 
-                <button className="app-action-primary mt-5 w-full justify-center">Get clips in 1 click</button>
-
-                <button className="mt-4 w-full text-center text-sm text-text-secondary underline underline-offset-4">
-                  Click here to try a sample project
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  className="app-action-primary mt-5 w-full justify-center"
+                >
+                  Get clips in 1 click
                 </button>
+
+                {sourceError ? (
+                  <div className="mt-3 text-sm text-red-400">{sourceError}</div>
+                ) : null}
               </div>
             </div>
 

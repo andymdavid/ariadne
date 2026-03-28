@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
-import { existsSync, createReadStream } from 'fs';
+import { existsSync } from 'fs';
 import { database } from './database/database';
 import { processingPipeline } from './services/processingPipeline';
 import { configService } from './services/configService';
@@ -17,6 +17,189 @@ let activeProcessingJob: { jobId: string; filePath: string } | null = null;
 const allowedMediaPaths = new Set<string>();
 
 const isDev = process.env.NODE_ENV === 'development';
+
+function looksLikeRemoteUrl(value: string) {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function normalizeGoogleDriveUrl(rawUrl: string) {
+  const url = new URL(rawUrl)
+  if (!url.hostname.includes('drive.google.com')) {
+    return rawUrl
+  }
+
+  const fileMatch = url.pathname.match(/\/file\/d\/([^/]+)/)
+  const fileId = fileMatch?.[1] || url.searchParams.get('id')
+  if (!fileId) {
+    return rawUrl
+  }
+
+  return `https://drive.google.com/uc?export=download&id=${fileId}`
+}
+
+function sanitizeProjectName(value: string) {
+  return value
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Imported Episode'
+}
+
+function inferProjectNameFromSource(source: string) {
+  try {
+    const url = new URL(source)
+    const lastSegment = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() || '')
+    if (lastSegment) {
+      return sanitizeProjectName(lastSegment)
+    }
+    return sanitizeProjectName(url.hostname.replace(/^www\./, ''))
+  } catch {
+    const fileName = source.split('/').pop() || source
+    return sanitizeProjectName(fileName)
+  }
+}
+
+async function downloadRemoteMedia(sourceUrl: string) {
+  const fs = require('fs')
+  const fsPromises = require('fs/promises')
+  const http = require('http')
+  const https = require('https')
+  const path = require('path')
+
+  const resolvedUrl = normalizeGoogleDriveUrl(sourceUrl)
+  const importsDir = path.join(app.getPath('userData'), 'imports')
+  await fsPromises.mkdir(importsDir, { recursive: true })
+
+  const inferExtension = (contentType?: string) => {
+    switch ((contentType || '').split(';')[0].trim().toLowerCase()) {
+      case 'audio/mpeg':
+        return '.mp3'
+      case 'audio/mp4':
+      case 'audio/x-m4a':
+        return '.m4a'
+      case 'audio/wav':
+      case 'audio/x-wav':
+        return '.wav'
+      case 'video/mp4':
+        return '.mp4'
+      case 'video/quicktime':
+        return '.mov'
+      default:
+        return ''
+    }
+  }
+
+  const fileNameFromHeaders = (headers: Record<string, string | string[] | undefined>) => {
+    const dispositionHeader = headers['content-disposition']
+    const disposition = Array.isArray(dispositionHeader) ? dispositionHeader[0] : dispositionHeader
+    const utf8Match = disposition?.match(/filename\*=UTF-8''([^;]+)/i)
+    if (utf8Match?.[1]) {
+      return decodeURIComponent(utf8Match[1])
+    }
+    const plainMatch = disposition?.match(/filename="?([^"]+)"?/i)
+    return plainMatch?.[1] || null
+  }
+
+  const download = (currentUrl: string, redirects = 0): Promise<{ filePath: string; projectName: string }> =>
+    new Promise((resolve, reject) => {
+      if (redirects > 5) {
+        reject(new Error('Too many redirects while downloading source'))
+        return
+      }
+
+      const client = currentUrl.startsWith('https:') ? https : http
+      const request = client.get(
+        currentUrl,
+        {
+          headers: {
+            'User-Agent': 'Ariadne/1.0'
+          }
+        },
+        (response: any) => {
+          const statusCode = response.statusCode ?? 0
+
+          if ([301, 302, 303, 307, 308].includes(statusCode) && response.headers.location) {
+            response.resume()
+            const nextUrl = new URL(response.headers.location, currentUrl).toString()
+            download(nextUrl, redirects + 1).then(resolve).catch(reject)
+            return
+          }
+
+          if (statusCode < 200 || statusCode >= 300) {
+            response.resume()
+            reject(new Error(`Source download failed with status ${statusCode}`))
+            return
+          }
+
+          const contentTypeHeader = response.headers['content-type']
+          const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader
+          const headerFileName = fileNameFromHeaders(response.headers)
+          const pathnameName = decodeURIComponent(new URL(currentUrl).pathname.split('/').filter(Boolean).pop() || '')
+          const rawFileName = headerFileName || pathnameName || `import-${Date.now()}`
+          const extFromName = path.extname(rawFileName)
+          const extension = extFromName || inferExtension(contentType)
+          const baseName = sanitizeProjectName(rawFileName)
+          const storedFileName = `${baseName.replace(/\s+/g, '-')}-${Date.now()}${extension}`
+          const filePath = path.join(importsDir, storedFileName)
+          const writeStream = fs.createWriteStream(filePath)
+
+          response.pipe(writeStream)
+          writeStream.on('finish', () => {
+            writeStream.close(() => {
+              resolve({
+                filePath,
+                projectName: sanitizeProjectName(rawFileName)
+              })
+            })
+          })
+          writeStream.on('error', (error: Error) => {
+            reject(error)
+          })
+        }
+      )
+
+      request.on('error', (error: Error) => {
+        reject(error)
+      })
+    })
+
+  return download(resolvedUrl)
+}
+
+async function runProcessingJob(filePath: string, projectName?: string) {
+  if (activeProcessingJob) {
+    throw new Error(`Processing already in progress for job ${activeProcessingJob.jobId}`);
+  }
+
+  const jobId = randomUUID();
+  activeProcessingJob = { jobId, filePath };
+
+  try {
+    return await processingPipeline.processEpisode(filePath, projectName, mainWindow!, jobId);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'Processing failed');
+  } finally {
+    if (activeProcessingJob?.jobId === jobId) {
+      activeProcessingJob = null;
+    }
+  }
+}
+
+async function resolveSourceToFile(source: string) {
+  if (looksLikeRemoteUrl(source)) {
+    return downloadRemoteMedia(source)
+  }
+
+  return {
+    filePath: source,
+    projectName: inferProjectNameFromSource(source)
+  }
+}
 
 async function backfillClipDimensions(batchSize = 25) {
   try {
@@ -201,24 +384,13 @@ ipcMain.handle('get-app-version', () => {
 
 // Processing handlers
 ipcMain.handle('process-episode', async (event, filePath: string, projectName?: string) => {
-  if (activeProcessingJob) {
-    throw new Error(`Processing already in progress for job ${activeProcessingJob.jobId}`);
-  }
-
-  const jobId = randomUUID();
-  activeProcessingJob = { jobId, filePath };
-
-  try {
-    const result = await processingPipeline.processEpisode(filePath, projectName, mainWindow!, jobId);
-    return result;
-  } catch (error) {
-    throw new Error(error instanceof Error ? error.message : 'Processing failed');
-  } finally {
-    if (activeProcessingJob?.jobId === jobId) {
-      activeProcessingJob = null;
-    }
-  }
+  return runProcessingJob(filePath, projectName)
 });
+
+ipcMain.handle('process-source', async (event, source: string, projectName?: string) => {
+  const resolvedSource = await resolveSourceToFile(source)
+  return runProcessingJob(resolvedSource.filePath, projectName || resolvedSource.projectName)
+})
 
 // Database handlers
 ipcMain.handle('get-recent-projects', () => {

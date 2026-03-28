@@ -18,6 +18,8 @@ const electronAPI = {
   // Processing operations
   processEpisode: (filePath: string, projectName?: string) => 
     ipcRenderer.invoke('process-episode', filePath, projectName),
+  processSource: (source: string, projectName?: string) =>
+    ipcRenderer.invoke('process-source', source, projectName),
   playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) =>
     ipcRenderer.invoke('play-clip', episodeId, startTime, endTime, clipId),
   
@@ -135,6 +137,7 @@ declare global {
       
       // Processing operations
       processEpisode: (filePath: string, projectName?: string) => Promise<any>;
+      processSource: (source: string, projectName?: string) => Promise<any>;
       playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) => Promise<any>;
       
       // Database operations
