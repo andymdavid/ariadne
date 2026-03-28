@@ -3,18 +3,11 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   IoArrowBack,
   IoCheckmarkCircleOutline,
-  IoCloudUploadOutline,
-  IoColorWandOutline,
-  IoCopyOutline,
   IoExpandOutline,
-  IoImagesOutline,
   IoPlay,
   IoPause,
-  IoPricetagOutline,
   IoResizeOutline,
-  IoSaveOutline,
-  IoSparklesOutline,
-  IoTextOutline
+  IoSaveOutline
 } from 'react-icons/io5'
 
 type ClipRecord = {
@@ -32,8 +25,6 @@ type TranscriptLine = {
   text: string
 }
 
-type ToolId = 'enhance' | 'captions' | 'upload' | 'brand' | 'broll' | 'transitions' | 'text'
-
 const formatClockTime = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '00:00.00'
   const hours = Math.floor(seconds / 3600)
@@ -48,16 +39,6 @@ const formatClockTime = (seconds: number) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${hundredths.toString().padStart(2, '0')}`
 }
 
-const TOOL_ITEMS: Array<{ id: ToolId; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = [
-  { id: 'enhance', label: 'AI enhance', icon: IoSparklesOutline },
-  { id: 'captions', label: 'Captions', icon: IoCopyOutline },
-  { id: 'upload', label: 'Upload', icon: IoCloudUploadOutline },
-  { id: 'brand', label: 'Brand template', icon: IoPricetagOutline },
-  { id: 'broll', label: 'B-Roll', icon: IoImagesOutline },
-  { id: 'transitions', label: 'Transitions', icon: IoColorWandOutline },
-  { id: 'text', label: 'Text', icon: IoTextOutline }
-]
-
 export function ClipEditorPage() {
   const navigate = useNavigate()
   const { id: episodeId, clipId } = useParams<{ id: string; clipId: string }>()
@@ -66,7 +47,6 @@ export function ClipEditorPage() {
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
   const [episodeDuration, setEpisodeDuration] = useState(0)
   const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([])
-  const [activeTool, setActiveTool] = useState<ToolId>('captions')
   const [isTranscriptOnly, setIsTranscriptOnly] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -278,7 +258,7 @@ export function ClipEditorPage() {
 
       <div
         className="grid min-h-0 flex-1 overflow-hidden"
-        style={{ gridTemplateColumns: 'minmax(320px, 1.05fr) minmax(440px, 1fr) 88px' }}
+        style={{ gridTemplateColumns: 'minmax(320px, 1.05fr) minmax(440px, 1fr)' }}
       >
         <section className="flex min-h-0 flex-col border-r border-white/8 px-6 py-5">
           <div className="mb-4 flex items-center justify-between">
@@ -350,29 +330,6 @@ export function ClipEditorPage() {
           </div>
         </section>
 
-        <aside className="min-h-0 overflow-y-auto border-l border-white/8 px-4 py-5">
-          <div className="flex min-h-full flex-col items-center gap-4">
-            {TOOL_ITEMS.map((tool) => {
-              const Icon = tool.icon
-              const isActive = activeTool === tool.id
-              return (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() => setActiveTool(tool.id)}
-                  className={`flex w-full flex-col items-center gap-2 rounded-2xl px-2 py-3 text-center transition-colors ${
-                    isActive
-                      ? 'bg-white/8 text-text-primary'
-                      : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
-                  }`}
-                >
-                  <Icon size={18} />
-                  <span className="text-xs leading-4">{tool.label}</span>
-                </button>
-              )
-            })}
-          </div>
-        </aside>
       </div>
 
       <footer className="shrink-0 border-t border-white/8 bg-[#090b0f]">
