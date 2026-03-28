@@ -201,6 +201,119 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
+  .app-stat-card {
+    background: #0f1217;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    padding: 14px 16px;
+  }
+
+  .app-stat-label {
+    font-size: 11px;
+    line-height: 1.2;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(240, 246, 252, 0.42);
+  }
+
+  .app-stat-value {
+    margin-top: 10px;
+    font-size: 18px;
+    line-height: 1.1;
+    font-weight: 600;
+    color: #f3f5f7;
+  }
+
+  .app-section-shell {
+    background: #111318;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 22px;
+  }
+
+  .app-section-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+
+  .app-section-kicker {
+    font-size: 11px;
+    line-height: 1.2;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(240, 246, 252, 0.42);
+  }
+
+  .app-section-title {
+    margin: 8px 0 0;
+    font-size: 24px;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: #f3f5f7;
+  }
+
+  .app-upload-panel {
+    background: #0d0f13;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 18px;
+    padding: 18px;
+  }
+
+  .app-empty-state {
+    min-height: 280px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    background: #0d0f13;
+    text-align: center;
+    padding: 24px;
+  }
+
+  .app-empty-title {
+    font-size: 18px;
+    line-height: 1.2;
+    font-weight: 600;
+    color: #f3f5f7;
+  }
+
+  .app-empty-copy {
+    max-width: 420px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: rgba(240, 246, 252, 0.58);
+  }
+
+  .app-list-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    background: #0d0f13;
+    padding: 14px 16px;
+  }
+
+  .app-list-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    background: #171b22;
+    color: rgba(240, 246, 252, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
   /* Status indicators */
   .status-pending {
     @apply text-accent-warning;
