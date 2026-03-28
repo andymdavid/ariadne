@@ -96,6 +96,7 @@ export function ClipEditModal({
   const [selectedBoundary, setSelectedBoundary] = useState<TrimBoundarySide>('out')
   const [snapMode, setSnapMode] = useState<TrimSnapMode>('word')
   const [isLoopPreviewEnabled, setIsLoopPreviewEnabled] = useState(false)
+  const [showPrecisionDetails, setShowPrecisionDetails] = useState(false)
   const [startAnchor, setStartAnchor] = useState<TrimBoundaryAnchor | null>(null)
   const [endAnchor, setEndAnchor] = useState<TrimBoundaryAnchor | null>(null)
   const pendingSeekTimeRef = useRef<number | null>(null)
@@ -150,6 +151,7 @@ export function ClipEditModal({
     setSelectedTrimWordId(null)
     setSnapMode('word')
     setIsLoopPreviewEnabled(false)
+    setShowPrecisionDetails(false)
   }, [clipData.endTime, clipData.startTime, isOpen])
 
   // Load logo settings
@@ -1571,9 +1573,13 @@ export function ClipEditModal({
               <TabsContent value="duration" className="flex-1 px-4 py-4 overflow-y-auto mt-0 data-[state=inactive]:hidden">
                 <div className="space-y-3">
                   <div>
-                    <h3 className="text-base font-bold text-text-primary mb-1">Duration & Boundaries</h3>
+                    <h3 className="text-base font-bold text-text-primary mb-1">
+                      {isPagePresentation ? 'Trim' : 'Duration & Boundaries'}
+                    </h3>
                     <p className="text-xs text-text-muted">
-                      Play the video, pause where you want to trim, then click the trim buttons
+                      {isPagePresentation
+                        ? 'Use the overview timeline for rough edits, then open precision controls only when you need exact placement.'
+                        : 'Play the video, pause where you want to trim, then click the trim buttons'}
                     </p>
                   </div>
 
@@ -1605,9 +1611,11 @@ export function ClipEditModal({
                       <div className="text-xs text-text-muted">
                         clip-relative {formatPreciseTime(clipRelativeCurrentTime)}
                       </div>
-                      <div className="text-xs text-text-muted">
-                        {frameRate ? `${frameRate.toFixed(3)} fps` : '10ms nudge fallback'}
-                      </div>
+                      {!isPagePresentation && (
+                        <div className="text-xs text-text-muted">
+                          {frameRate ? `${frameRate.toFixed(3)} fps` : '10ms nudge fallback'}
+                        </div>
+                      )}
                     </div>
 
                     <Button
@@ -1756,14 +1764,18 @@ export function ClipEditModal({
                     <div className="space-y-3">
                       <div className="flex items-center gap-2">
                         <div className="h-px flex-1 bg-border-default" />
-                        <h4 className="text-sm font-semibold text-text-primary">Word Boundaries</h4>
+                        <h4 className="text-sm font-semibold text-text-primary">
+                          {isPagePresentation ? 'Transcript Context' : 'Word Boundaries'}
+                        </h4>
                         <div className="h-px flex-1 bg-border-default" />
                       </div>
 
                       <div className="p-4 bg-gradient-to-br from-bg-secondary to-bg-tertiary rounded-xl border border-border-default shadow-sm space-y-3">
                         <div className="flex items-center justify-between gap-3 text-xs text-text-muted">
                           <span>
-                            Click a word to target an exact trim anchor from Whisper timing.
+                            {isPagePresentation
+                              ? 'Select nearby words when you want to snap a boundary to spoken content.'
+                              : 'Click a word to target an exact trim anchor from Whisper timing.'}
                           </span>
                           {activeTrimWord && (
                             <span className="font-mono text-accent-primary">
@@ -1864,7 +1876,9 @@ export function ClipEditModal({
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
                           <div className="h-px flex-1 bg-border-default" />
-                          <h4 className="text-sm font-semibold text-text-primary">Live Transcript</h4>
+                          <h4 className="text-sm font-semibold text-text-primary">
+                            {isPagePresentation ? 'Context Around Playhead' : 'Live Transcript'}
+                          </h4>
                           <div className="h-px flex-1 bg-border-default" />
                         </div>
 
@@ -1970,6 +1984,7 @@ export function ClipEditModal({
                   )}
 
                   {/* Time Display - Always Visible */}
+                  {!isPagePresentation && (
                   <div className="p-5 bg-gradient-to-br from-bg-secondary to-bg-tertiary rounded-xl border border-border-default shadow-sm">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-8">
@@ -2040,7 +2055,126 @@ export function ClipEditModal({
                       </div>
                     )}
                   </div>
+                  )}
 
+                  {isPagePresentation ? (
+                    <div className="rounded-xl border border-border-default bg-bg-secondary/70 shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => setShowPrecisionDetails((current) => !current)}
+                        className="flex w-full items-center justify-between px-4 py-3 text-left"
+                      >
+                        <div>
+                          <div className="text-sm font-semibold text-text-primary">Precision Controls</div>
+                          <div className="text-xs text-text-muted">
+                            {activeBoundaryLabel} boundary, {activeSnapLabel.toLowerCase()} snap
+                          </div>
+                        </div>
+                        <span
+                          className="text-base text-text-muted transition-transform duration-200"
+                          style={{ transform: showPrecisionDetails ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                        >
+                          ▶
+                        </span>
+                      </button>
+
+                      {showPrecisionDetails && (
+                        <div className="space-y-3 border-t border-border-default px-4 py-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-semibold text-text-primary">Boundary Inspector</div>
+                            <div className="flex flex-wrap gap-2 justify-end">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedBoundary('in')}
+                                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                                  selectedBoundary === 'in'
+                                    ? 'bg-green-600 text-white'
+                                    : 'bg-green-50 text-green-700 border border-green-200'
+                                }`}
+                              >
+                                Inspect Start
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedBoundary('out')}
+                                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                                  selectedBoundary === 'out'
+                                    ? 'bg-red-600 text-white'
+                                    : 'bg-red-50 text-red-700 border border-red-200'
+                                }`}
+                              >
+                                Inspect End
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSnapMode('word')}
+                                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                                  snapMode === 'word'
+                                    ? 'bg-accent-primary text-white'
+                                    : 'bg-bg-primary text-text-secondary border border-border-default'
+                                }`}
+                              >
+                                Word Snap
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSnapMode('frame')}
+                                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                                  snapMode === 'frame'
+                                    ? 'bg-accent-primary text-white'
+                                    : 'bg-bg-primary text-text-secondary border border-border-default'
+                                }`}
+                              >
+                                Frame Snap
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSnapMode('free')}
+                                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                                  snapMode === 'free'
+                                    ? 'bg-accent-primary text-white'
+                                    : 'bg-bg-primary text-text-secondary border border-border-default'
+                                }`}
+                              >
+                                Free
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                              <div className="text-xs uppercase tracking-wide text-text-muted">Timestamp</div>
+                              <div className="mt-1 font-mono text-base text-text-primary">{formatPreciseTime(activeBoundaryTime)}</div>
+                            </div>
+                            <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                              <div className="text-xs uppercase tracking-wide text-text-muted">Anchor</div>
+                              <div className="mt-1 text-base font-medium text-text-primary">
+                                {activeBoundaryAnchor?.label || activeBoundaryAnchor?.type || 'Free placement'}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                              <div className="text-xs uppercase tracking-wide text-text-muted">Word Delta</div>
+                              <div className="mt-1 font-mono text-base text-text-primary">
+                                {nearestWordDelta !== null ? `${nearestWordDelta.toFixed(3)}s` : 'Unavailable'}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3">
+                              <div className="text-xs uppercase tracking-wide text-text-muted">Frame Step</div>
+                              <div className="mt-1 font-mono text-base text-text-primary">
+                                {frameRate ? `${frameStep.toFixed(4)}s / frame` : '0.0100s fallback'}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-border-default bg-bg-primary/80 px-4 py-3 col-span-2">
+                              <div className="text-xs uppercase tracking-wide text-text-muted">Keyboard</div>
+                              <div className="mt-1 text-sm text-text-primary">
+                                Left/Right: 1 frame. Shift+Left/Right: 5 frames. Alt+Left/Right: previous/next word boundary. Hold Cmd/Ctrl to bypass snapping.
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
                   <div className="p-4 bg-bg-secondary rounded-xl border border-border-default shadow-sm space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <h4 className="text-sm font-semibold text-text-primary">Boundary Inspector</h4>
@@ -2154,6 +2288,7 @@ export function ClipEditModal({
                       </div>
                     </div>
                   </div>
+                  )}
 
                 </div>
               </TabsContent>
