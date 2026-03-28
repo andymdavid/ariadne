@@ -2,27 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import {
   IoCloudUploadOutline,
-  IoDocumentTextOutline,
   IoImagesOutline,
   IoMusicalNotesOutline,
   IoTextOutline
 } from 'react-icons/io5'
+import type { BrandTemplate } from '@shared/types'
 import { MainContentPanel } from '../components/MainContentPanel'
 
 type AssetKind = 'logo' | 'music'
-
-type AssetStatusCard = {
-  id: string
-  label: string
-  value: string
-  tone?: 'default' | 'muted'
-}
-
-const libraryStatusCards: AssetStatusCard[] = [
-  { id: 'vocabulary', label: 'Vocabulary rules', value: 'Not connected yet', tone: 'muted' },
-  { id: 'censored', label: 'Censored words', value: 'Not connected yet', tone: 'muted' },
-  { id: 'fonts', label: 'Fonts bundled', value: '10 families loaded' }
-]
 
 const bundledFonts = ['Anton', 'Inter']
 
@@ -31,8 +18,10 @@ const formatFileName = (filePath: string) => filePath.split('/').pop() || filePa
 export function AssetLibraryPage() {
   const [logos, setLogos] = useState<string[]>([])
   const [musicTracks, setMusicTracks] = useState<string[]>([])
+  const [brandTemplate, setBrandTemplate] = useState<BrandTemplate | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState<AssetKind | null>(null)
+  const [isUpdatingFont, setIsUpdatingFont] = useState<string | null>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
   const musicInputRef = useRef<HTMLInputElement>(null)
 
@@ -57,13 +46,15 @@ export function AssetLibraryPage() {
     try {
       setIsLoading(true)
 
-      const [loadedLogos, loadedMusic] = await Promise.all([
+      const [loadedLogos, loadedMusic, loadedBrandTemplate] = await Promise.all([
         window.electronAPI?.listLogos?.() ?? Promise.resolve([]),
-        window.electronAPI?.listMusic?.() ?? Promise.resolve([])
+        window.electronAPI?.listMusic?.() ?? Promise.resolve([]),
+        window.electronAPI?.getBrandTemplate?.() ?? Promise.resolve(null)
       ])
 
       setLogos(loadedLogos ?? [])
       setMusicTracks(loadedMusic ?? [])
+      setBrandTemplate(loadedBrandTemplate)
     } catch (error) {
       console.error('Failed to load asset library:', error)
     } finally {
@@ -111,28 +102,38 @@ export function AssetLibraryPage() {
     }
   }
 
+  const handleFontSelect = async (font: string) => {
+    if (!brandTemplate) return
+
+    try {
+      setIsUpdatingFont(font)
+      const updatedTemplate = await window.electronAPI?.updateBrandTemplate?.({
+        caption: {
+          ...brandTemplate.caption,
+          font
+        }
+      })
+
+      if (updatedTemplate) {
+        setBrandTemplate(updatedTemplate)
+      }
+    } catch (error) {
+      console.error('Failed to update brand template font:', error)
+      alert('Failed to apply font to brand template')
+    } finally {
+      setIsUpdatingFont(null)
+    }
+  }
+
   return (
     <MainContentPanel>
       <div className="app-page">
         <div className="mx-auto flex h-full max-w-7xl flex-col gap-8">
-          <div className="app-page-header">
-            <div className="max-w-3xl">
-              <div className="text-[11px] uppercase tracking-[0.24em] text-text-muted">Asset Library</div>
-              <div className="mt-3 app-page-title">Reusable Brand Assets</div>
-              <div className="app-page-subtitle">
-                Keep logos, music, and language controls in one place so generated clips inherit the same brand system by default.
-              </div>
-            </div>
-
-            <div className="grid min-w-[300px] grid-cols-3 gap-3">
-              {libraryStatusCards.map((card) => (
-                <div key={card.id} className="app-stat-card">
-                  <div className="app-stat-label">{card.label}</div>
-                  <div className={`app-stat-value ${card.tone === 'muted' ? 'text-text-secondary' : ''}`}>
-                    {card.id === 'fonts' ? `${bundledFonts.length} families` : card.value}
-                  </div>
-                </div>
-              ))}
+          <div className="max-w-3xl">
+            <div className="text-[11px] uppercase tracking-[0.24em] text-text-muted">Asset Library</div>
+            <div className="mt-3 app-page-title">Reusable Brand Assets</div>
+            <div className="app-page-subtitle">
+              Only real, reusable inputs should live here. Upload logos and music, then choose the default caption font that Brand Template will use.
             </div>
           </div>
 
@@ -182,7 +183,7 @@ export function AssetLibraryPage() {
                 />
               </section>
 
-              <section className="app-section-shell min-h-0 flex-1">
+              <section className="app-section-shell min-h-0 flex flex-1 flex-col">
                 <div className="app-section-header">
                   <div>
                     <div className="app-section-kicker">Live Data</div>
@@ -190,7 +191,7 @@ export function AssetLibraryPage() {
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                   {isLoading ? (
                     <div className="app-empty-state">
                       <div className="app-empty-title">Loading asset library...</div>
@@ -229,42 +230,47 @@ export function AssetLibraryPage() {
               <section className="app-section-shell">
                 <div className="app-section-header">
                   <div>
-                    <div className="app-section-kicker">Language</div>
-                    <h2 className="app-section-title">Shared vocabulary rules</h2>
-                  </div>
-                </div>
-
-                <div className="grid gap-3">
-                  <PendingLibraryPanel
-                    icon={<IoDocumentTextOutline size={18} />}
-                    title="Brand vocabulary"
-                    description="Approved terms, proper nouns, and phrasing rules should live here once the store is wired."
-                  />
-                  <PendingLibraryPanel
-                    icon={<IoTextOutline size={18} />}
-                    title="Censored words"
-                    description="Caption replacements and blocked terms are still missing real persistence, so this section stays honest for now."
-                  />
-                </div>
-              </section>
-
-              <section className="app-section-shell">
-                <div className="app-section-header">
-                  <div>
                     <div className="app-section-kicker">Typography</div>
-                    <h2 className="app-section-title">Bundled fonts</h2>
+                    <h2 className="app-section-title">Fonts</h2>
                   </div>
-                  <div className="app-chip">{bundledFonts.length} available</div>
+                  <div className="app-chip">{bundledFonts.length} bundled</div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="mb-4 text-sm leading-relaxed text-text-secondary">
+                  Choose which bundled font Brand Template should use for captions by default. This now updates the persisted template state directly.
+                </div>
+
+                <div className="space-y-3">
                   {bundledFonts.map((font) => (
-                    <div key={font} className="app-list-row">
-                      <div>
+                    <button
+                      key={font}
+                      type="button"
+                      onClick={() => void handleFontSelect(font)}
+                      className={`app-list-row w-full text-left transition-colors ${
+                        brandTemplate?.caption.font === font
+                          ? 'border-white/20 bg-white/5'
+                          : 'hover:border-border-default hover:bg-[#151921]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="app-list-icon">
+                          <IoTextOutline size={16} />
+                        </div>
                         <div className="text-sm font-medium text-text-primary">{font}</div>
-                        <div className="text-xs text-text-secondary">Bundled with the desktop app</div>
                       </div>
-                    </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-xs text-text-secondary">
+                          {brandTemplate?.caption.font === font ? 'Selected in Brand Template' : 'Bundled with the app'}
+                        </div>
+                        <div className="app-chip">
+                          {isUpdatingFont === font
+                            ? 'Saving...'
+                            : brandTemplate?.caption.font === font
+                              ? 'Active'
+                              : 'Use'}
+                        </div>
+                      </div>
+                    </button>
                   ))}
                 </div>
               </section>
@@ -304,26 +310,6 @@ function AssetUploadPanel({
       <button type="button" className="app-action-secondary mt-6 w-full justify-center" onClick={onUpload}>
         {uploadLabel}
       </button>
-    </div>
-  )
-}
-
-function PendingLibraryPanel({
-  icon,
-  title,
-  description
-}: {
-  icon: ReactNode
-  title: string
-  description: string
-}) {
-  return (
-    <div className="app-surface-muted p-4">
-      <div className="flex items-center gap-3">
-        <div className="app-list-icon">{icon}</div>
-        <div className="text-sm font-medium text-text-primary">{title}</div>
-      </div>
-      <div className="mt-3 text-sm leading-relaxed text-text-secondary">{description}</div>
     </div>
   )
 }
