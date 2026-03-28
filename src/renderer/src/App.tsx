@@ -26,6 +26,7 @@ import { IoFlash, IoCheckmarkCircle, IoCreate, IoCloudUpload, IoAnalytics } from
 function App() {
   const location = useLocation()
   const navigate = useNavigate()
+  const isFullEditorRoute = /^\/content\/[^/]+\/[^/]+$/.test(location.pathname)
   const [commandResult, setCommandResult] = useState<string>('')
   const [sessionData] = useState<{[key: string]: any}>({})
   const [isCommandMode, setIsCommandMode] = useState(false)
@@ -623,19 +624,21 @@ function App() {
       </Layout>
       
       {/* Navigation Dock and Command Interface */}
-      <NavigationErrorBoundary>
-        <NavigationDock
-          onSearchTrigger={handleSearchTrigger}
-          onCommandModeExit={handleCommandModeExit}
-          onCommand={handleCommand}
-          isCommandMode={isCommandMode}
-          episodeId={getEpisodeId()}
-          isProcessing={isProcessing}
-          sessionMessages={sessionMessages}
-          onAddMessage={addSessionMessage}
-          showStatusMode={sessionMessages.length >= 3} // Show status mode when there are initial messages
-        />
-      </NavigationErrorBoundary>
+      {!isFullEditorRoute && (
+        <NavigationErrorBoundary>
+          <NavigationDock
+            onSearchTrigger={handleSearchTrigger}
+            onCommandModeExit={handleCommandModeExit}
+            onCommand={handleCommand}
+            isCommandMode={isCommandMode}
+            episodeId={getEpisodeId()}
+            isProcessing={isProcessing}
+            sessionMessages={sessionMessages}
+            onAddMessage={addSessionMessage}
+            showStatusMode={sessionMessages.length >= 3} // Show status mode when there are initial messages
+          />
+        </NavigationErrorBoundary>
+      )}
 
       {/* Command Result Feedback */}
       {commandResult && (

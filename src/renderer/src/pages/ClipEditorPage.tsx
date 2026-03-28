@@ -1,37 +1,83 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ClipEditModal } from '../components/ClipEditModal'
-import type { Clip } from '@shared/types'
+import {
+  IoArrowBack,
+  IoCheckmarkCircleOutline,
+  IoCloudUploadOutline,
+  IoColorWandOutline,
+  IoCopyOutline,
+  IoExpandOutline,
+  IoImagesOutline,
+  IoPlay,
+  IoPause,
+  IoPricetagOutline,
+  IoResizeOutline,
+  IoSaveOutline,
+  IoSparklesOutline,
+  IoTextOutline
+} from 'react-icons/io5'
 
-type ClipEditorData = {
+type ClipRecord = {
   id: string
   keyQuote: string
   startTime: number
   endTime: number
   duration: number
-  videoWidth?: number | null
-  videoHeight?: number | null
 }
 
-const mapClipToEditorData = (clip: Partial<Clip> & { id: string }): ClipEditorData => ({
-  id: clip.id,
-  keyQuote: clip.keyQuote || 'Untitled clip',
-  startTime: clip.startTime ?? 0,
-  endTime: clip.endTime ?? 0,
-  duration: clip.duration ?? Math.max(0, (clip.endTime ?? 0) - (clip.startTime ?? 0)),
-  videoWidth: clip.videoWidth ?? null,
-  videoHeight: clip.videoHeight ?? null
-})
+type TranscriptLine = {
+  id: string
+  start: number
+  end: number
+  text: string
+}
+
+type ToolId = 'enhance' | 'captions' | 'upload' | 'brand' | 'broll' | 'transitions' | 'text'
+
+const formatClockTime = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00.00'
+  const hours = Math.floor(seconds / 3600)
+  const mins = Math.floor((seconds % 3600) / 60)
+  const secs = Math.floor(seconds % 60)
+  const hundredths = Math.floor((seconds % 1) * 100)
+
+  if (hours > 0) {
+    return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${hundredths.toString().padStart(2, '0')}`
+  }
+
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${hundredths.toString().padStart(2, '0')}`
+}
+
+const TOOL_ITEMS: Array<{ id: ToolId; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = [
+  { id: 'enhance', label: 'AI enhance', icon: IoSparklesOutline },
+  { id: 'captions', label: 'Captions', icon: IoCopyOutline },
+  { id: 'upload', label: 'Upload', icon: IoCloudUploadOutline },
+  { id: 'brand', label: 'Brand template', icon: IoPricetagOutline },
+  { id: 'broll', label: 'B-Roll', icon: IoImagesOutline },
+  { id: 'transitions', label: 'Transitions', icon: IoColorWandOutline },
+  { id: 'text', label: 'Text', icon: IoTextOutline }
+]
 
 export function ClipEditorPage() {
   const navigate = useNavigate()
   const { id: episodeId, clipId } = useParams<{ id: string; clipId: string }>()
-  const [clipData, setClipData] = useState<ClipEditorData | null>(null)
+  const [clip, setClip] = useState<ClipRecord | null>(null)
+  const [clipTitle, setClipTitle] = useState('Untitled clip')
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null)
+  const [episodeDuration, setEpisodeDuration] = useState(0)
+  const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([])
+  const [activeTool, setActiveTool] = useState<ToolId>('captions')
+  const [isTranscriptOnly, setIsTranscriptOnly] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const transcriptScrollerRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
-    const loadClip = async () => {
+    const loadEditor = async () => {
       if (!episodeId || !clipId) {
         setError('Missing episode or clip ID')
         setLoading(false)
@@ -42,90 +88,360 @@ export function ClipEditorPage() {
         setLoading(true)
         setError(null)
 
-        const rawClip = await window.electronAPI?.getClip?.(clipId)
+        const [rawClip, mediaSource, titles, segments] = await Promise.all([
+          window.electronAPI?.getClip?.(clipId),
+          window.electronAPI?.getEpisodeMediaSource?.(episodeId),
+          window.electronAPI?.getClipTitles?.(clipId).catch(() => []),
+          window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => [])
+        ])
+
         if (!rawClip) {
           setError('Clip not found')
           return
         }
 
-        setClipData(mapClipToEditorData({
+        const mappedClip: ClipRecord = {
           id: rawClip.id,
-          keyQuote: rawClip.key_quote ?? rawClip.keyQuote,
+          keyQuote: rawClip.key_quote ?? rawClip.keyQuote ?? 'Untitled clip',
           startTime: Number(rawClip.start_time ?? rawClip.startTime ?? 0),
           endTime: Number(rawClip.end_time ?? rawClip.endTime ?? 0),
-          duration: Number(rawClip.duration ?? 0),
-          videoWidth: rawClip.video_width ?? rawClip.videoWidth ?? null,
-          videoHeight: rawClip.video_height ?? rawClip.videoHeight ?? null
-        }))
+          duration: Number(rawClip.duration ?? 0)
+        }
+
+        setClip(mappedClip)
+        setClipTitle((titles || []).find((entry: any) => entry.is_selected)?.title || (titles || [])[0]?.title || mappedClip.keyQuote)
+        setMediaUrl(mediaSource?.mediaUrl ?? null)
+        setEpisodeDuration(mediaSource?.duration ?? 0)
+        setTranscriptLines(
+          (segments || []).map((segment: any) => ({
+            id: segment.id,
+            start: Number(segment.start_time ?? segment.start ?? 0),
+            end: Number(segment.end_time ?? segment.end ?? 0),
+            text: segment.text || ''
+          }))
+        )
+        setCurrentTime(mappedClip.startTime)
       } catch (loadError) {
-        console.error('Failed to load clip for editor page:', loadError)
+        console.error('Failed to load clip editor:', loadError)
         setError('Failed to load clip editor')
       } finally {
         setLoading(false)
       }
     }
 
-    loadClip()
+    void loadEditor()
   }, [clipId, episodeId])
 
-  const handleBackToReview = () => {
-    if (!episodeId) {
-      navigate('/')
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !clip || !mediaUrl) return
+
+    const handleLoadedMetadata = () => {
+      video.currentTime = clip.startTime
+      setCurrentTime(clip.startTime)
+    }
+
+    const handleTimeUpdate = () => {
+      const nextTime = video.currentTime
+      setCurrentTime(nextTime)
+
+      if (nextTime >= clip.endTime) {
+        video.pause()
+        video.currentTime = clip.startTime
+        setCurrentTime(clip.startTime)
+        setIsPlaying(false)
+      }
+    }
+
+    const handlePlay = () => setIsPlaying(true)
+    const handlePause = () => setIsPlaying(false)
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata)
+    video.addEventListener('timeupdate', handleTimeUpdate)
+    video.addEventListener('play', handlePlay)
+    video.addEventListener('pause', handlePause)
+
+    return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video.removeEventListener('timeupdate', handleTimeUpdate)
+      video.removeEventListener('play', handlePlay)
+      video.removeEventListener('pause', handlePause)
+    }
+  }, [clip, mediaUrl])
+
+  const activeLineId = useMemo(() => {
+    return transcriptLines.find((line) => currentTime >= line.start && currentTime <= line.end)?.id || null
+  }, [currentTime, transcriptLines])
+
+  useEffect(() => {
+    if (!activeLineId || !transcriptScrollerRef.current) return
+
+    const activeNode = transcriptScrollerRef.current.querySelector<HTMLElement>(`[data-line-id="${activeLineId}"]`)
+    activeNode?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [activeLineId])
+
+  const togglePlayback = () => {
+    const video = videoRef.current
+    if (!video || !clip) return
+
+    if (isPlaying) {
+      video.pause()
       return
     }
 
-    navigate(`/review/${episodeId}`)
+    if (video.currentTime < clip.startTime || video.currentTime >= clip.endTime) {
+      video.currentTime = clip.startTime
+      setCurrentTime(clip.startTime)
+    }
+
+    void video.play()
   }
+
+  const seekWithinClip = (nextTime: number) => {
+    const video = videoRef.current
+    if (!video || !clip) return
+
+    const clampedTime = Math.min(Math.max(nextTime, clip.startTime), clip.endTime)
+    video.currentTime = clampedTime
+    setCurrentTime(clampedTime)
+  }
+
+  const timelineProgress = useMemo(() => {
+    if (!clip || clip.duration <= 0) return 0
+    return ((currentTime - clip.startTime) / clip.duration) * 100
+  }, [clip, currentTime])
 
   if (loading) {
     return (
-      <div className="h-full w-full px-6 py-5">
-        <div className="flex h-full items-center justify-center rounded-2xl border border-border-default bg-bg-primary/80 shadow-2xl">
-          <div className="text-center">
-            <div className="text-lg text-text-primary">Loading editor…</div>
-            <div className="text-sm text-text-muted">Preparing clip workspace</div>
-          </div>
+      <div className="flex h-full items-center justify-center bg-[#08090c]">
+        <div className="text-center">
+          <div className="text-lg text-text-primary">Loading clip editor…</div>
+          <div className="text-sm text-text-muted">Preparing transcript and preview</div>
         </div>
       </div>
     )
   }
 
-  if (error || !clipData || !episodeId) {
+  if (error || !clip || !episodeId) {
     return (
-      <div className="h-full w-full px-6 py-5">
-        <div className="flex h-full items-center justify-center rounded-2xl border border-border-default bg-bg-primary/80 shadow-2xl">
-          <div className="max-w-md text-center space-y-4">
-            <div>
-              <h1 className="text-xl font-semibold text-text-primary">Editor unavailable</h1>
-              <p className="mt-2 text-sm text-text-secondary">{error || 'Clip data could not be loaded.'}</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleBackToReview}
-              className="inline-flex items-center rounded-full border border-border-default bg-bg-tertiary px-4 py-2 text-sm text-text-primary hover:bg-hover-bg transition-colors"
-            >
-              Back to Review
-            </button>
-          </div>
+      <div className="flex h-full items-center justify-center bg-[#08090c]">
+        <div className="max-w-md text-center">
+          <div className="text-lg text-text-primary">Editor unavailable</div>
+          <div className="mt-2 text-sm text-text-muted">{error || 'Clip data could not be loaded.'}</div>
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#12151b] px-4 py-2 text-sm text-text-primary transition-colors hover:bg-[#171b22]"
+          >
+            <IoArrowBack size={15} />
+            Back home
+          </button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full w-full px-6 py-5">
-      <ClipEditModal
-        isOpen
-        presentation="page"
-        clipId={clipData.id}
-        episodeId={episodeId}
-        clipData={clipData}
-        onBack={handleBackToReview}
-        onClose={handleBackToReview}
-        onSave={() => {
-          // The editor persists changes internally. The page stays in place after save.
-        }}
-      />
+    <div className="flex h-full flex-col bg-[#08090c] text-text-primary">
+      <header className="flex items-center justify-between border-b border-white/8 px-6 py-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <button
+            type="button"
+            onClick={() => navigate(`/review/${episodeId}`)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-white/6 hover:text-text-primary"
+          >
+            <IoArrowBack size={16} />
+          </button>
+          <div className="min-w-0">
+            <div className="truncate text-[15px] font-medium text-text-primary">{clipTitle}</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled
+            className="inline-flex items-center gap-2 rounded-xl border border-white/8 bg-[#14171d] px-4 py-2 text-sm font-medium text-text-muted"
+          >
+            <IoSaveOutline size={16} />
+            Save changes
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/export/${episodeId}`)}
+            className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black"
+          >
+            Export
+          </button>
+        </div>
+      </header>
+
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(320px,1.05fr)_minmax(440px,1fr)_88px]">
+        <section className="border-r border-white/8 px-6 py-5">
+          <div className="mb-4 flex items-center justify-between">
+            <label className="inline-flex items-center gap-3 text-sm text-text-secondary">
+              <input
+                type="checkbox"
+                checked={isTranscriptOnly}
+                onChange={(event) => setIsTranscriptOnly(event.target.checked)}
+                className="h-4 w-4 rounded border-white/12 bg-transparent"
+              />
+              Transcript only
+            </label>
+            <button
+              type="button"
+              className="rounded-lg border border-white/8 px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-white/6 hover:text-text-primary"
+            >
+              + Add a section
+            </button>
+          </div>
+
+          <div ref={transcriptScrollerRef} className="h-[calc(100%-52px)] overflow-y-auto pr-4">
+            <div className="space-y-8 text-[15px] leading-9 text-[#d8dbe2]">
+              {transcriptLines.map((line) => (
+                <div
+                  key={line.id}
+                  data-line-id={line.id}
+                  className={`rounded-xl px-2 py-1 transition-colors ${
+                    activeLineId === line.id ? 'bg-white/8 text-white' : ''
+                  }`}
+                >
+                  {line.text}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="flex min-h-0 flex-col">
+          <div className="flex items-center justify-between px-8 py-5">
+            <div className="flex items-center gap-7 text-sm text-text-secondary">
+              <span className="inline-flex items-center gap-2">
+                <IoResizeOutline size={15} />
+                9:16
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <IoExpandOutline size={15} />
+                Layout: Fill
+              </span>
+              <span>Tracker: OFF</span>
+            </div>
+          </div>
+
+          <div className="flex flex-1 items-center justify-center px-8 pb-6">
+            <div className="relative aspect-[9/16] h-full max-h-[420px] overflow-hidden rounded-[24px] bg-black">
+              {mediaUrl ? (
+                <video
+                  ref={videoRef}
+                  src={mediaUrl}
+                  className="h-full w-full object-cover"
+                  playsInline
+                  muted
+                  preload="metadata"
+                />
+              ) : null}
+              <div className="absolute left-5 top-5 rounded-full bg-black/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
+                Preview
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside className="border-l border-white/8 px-4 py-5">
+          <div className="flex h-full flex-col items-center gap-4">
+            {TOOL_ITEMS.map((tool) => {
+              const Icon = tool.icon
+              const isActive = activeTool === tool.id
+              return (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => setActiveTool(tool.id)}
+                  className={`flex w-full flex-col items-center gap-2 rounded-2xl px-2 py-3 text-center transition-colors ${
+                    isActive
+                      ? 'bg-white/8 text-text-primary'
+                      : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
+                  }`}
+                >
+                  <Icon size={18} />
+                  <span className="text-xs leading-4">{tool.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </aside>
+      </div>
+
+      <footer className="border-t border-white/8 bg-[#090b0f]">
+        <div className="flex items-center justify-between border-b border-white/8 px-6 py-3">
+          <div className="flex items-center gap-4 text-sm text-text-secondary">
+            <button type="button" className="inline-flex items-center gap-2 hover:text-text-primary">
+              <IoCheckmarkCircleOutline size={15} />
+              Hide timeline
+            </button>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => seekWithinClip(currentTime - 1)}
+              className="text-text-secondary transition-colors hover:text-text-primary"
+            >
+              ‹‹
+            </button>
+            <button
+              type="button"
+              onClick={togglePlayback}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-black"
+            >
+              {isPlaying ? <IoPause size={16} /> : <IoPlay size={16} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => seekWithinClip(currentTime + 1)}
+              className="text-text-secondary transition-colors hover:text-text-primary"
+            >
+              ››
+            </button>
+            <div className="text-sm text-text-secondary">
+              {formatClockTime(currentTime - clip.startTime)} / {formatClockTime(clip.duration)}
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-4">
+          <div className="relative mb-4 h-1 rounded-full bg-white/8">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-white"
+              style={{ width: `${Math.min(Math.max(timelineProgress, 0), 100)}%` }}
+            />
+          </div>
+
+          <div className="flex items-end gap-2 overflow-x-auto pb-2">
+            {transcriptLines.map((line) => {
+              const width = episodeDuration > 0 ? Math.max(((line.end - line.start) / episodeDuration) * 1000, 54) : 72
+              const isActive = activeLineId === line.id
+
+              return (
+                <button
+                  key={line.id}
+                  type="button"
+                  onClick={() => seekWithinClip(line.start)}
+                  className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                    isActive
+                      ? 'border-white/20 bg-white/10 text-white'
+                      : 'border-white/8 bg-[#11141a] text-text-secondary hover:border-white/14 hover:text-text-primary'
+                  }`}
+                  style={{ width }}
+                >
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.16em] text-text-muted">Segment</div>
+                  <div className="truncate text-xs">{line.text}</div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }
