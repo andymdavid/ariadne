@@ -270,7 +270,7 @@ export function ClipWorkspacePage() {
 
   return (
     <div className="ml-[220px] h-full overflow-y-auto bg-[#0a0b0f] px-10 py-8">
-      <div className="w-full space-y-8 pb-16">
+      <div className="w-full space-y-0 pb-16">
           <button
             type="button"
             onClick={() => navigate(`/review/${episodeId}`)}
@@ -289,7 +289,7 @@ export function ClipWorkspacePage() {
                 ref={(node) => {
                   cardRefs.current[clip.id] = node
                 }}
-                className={`w-full rounded-[20px] border bg-[#0f1217] p-8 transition-colors ${
+                className={`w-full border-b px-0 py-8 transition-colors ${
                   isFocused ? 'border-white/14' : 'border-white/8'
                 }`}
               >
@@ -306,14 +306,14 @@ export function ClipWorkspacePage() {
 
                 <div className="grid grid-cols-[140px_320px_minmax(0,1fr)_180px] gap-6">
                   <aside className="space-y-3">
-                    <div className="app-surface-muted p-4">
+                    <div className="rounded-2xl border border-white/8 bg-[#0d1014] p-4">
                       <div className="text-[12px] uppercase tracking-[0.16em] text-text-muted">Score</div>
                       <div className="mt-3 text-[48px] font-semibold leading-none text-[#8df0a7]">
                         {Math.round(clip.shareabilityScore * 10)}
                       </div>
                       <div className="mt-2 text-sm text-text-secondary">{clip.contentType.replace('_', ' ')}</div>
                     </div>
-                    <div className="app-surface-muted space-y-3 p-4 text-sm text-text-secondary">
+                    <div className="rounded-2xl border border-white/8 bg-[#0d1014] space-y-3 p-4 text-sm text-text-secondary">
                       <div>
                         <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Duration</div>
                         <div className="mt-1 text-text-primary">{formatTime(clip.duration)}</div>
@@ -338,7 +338,7 @@ export function ClipWorkspacePage() {
                     title={clip.title}
                   />
 
-                  <section className="app-surface-muted min-h-[568px] p-5">
+                  <section className="min-h-[568px] rounded-2xl border border-white/8 bg-[#0d1014] p-5">
                     <div className="mb-4 flex items-center justify-between gap-4 border-b border-white/8 pb-4">
                       <div className="text-sm font-medium text-text-primary">Transcript</div>
                       <div className="text-xs text-text-muted">
