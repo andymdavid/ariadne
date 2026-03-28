@@ -28,6 +28,7 @@ type TranscriptLine = {
 }
 
 type PreviewCaptionState = {
+  presetId?: string | null
   text: string
   font: string
   position: 'top' | 'center' | 'bottom' | 'custom'
@@ -78,11 +79,14 @@ export function ClipEditorPage() {
   const [logoPreview, setLogoPreview] = useState<PreviewLogoState | null>(null)
   const [framePreview, setFramePreview] = useState<PreviewFrameState | null>(null)
   const [musicEnabled, setMusicEnabled] = useState(false)
+  const [isDraggingCaption, setIsDraggingCaption] = useState(false)
+  const [isDraggingLogo, setIsDraggingLogo] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const transcriptScrollerRef = useRef<HTMLDivElement>(null)
+  const previewFrameRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const loadEditor = async () => {
@@ -139,6 +143,7 @@ export function ClipEditorPage() {
           mappedClip.keyQuote
 
         setCaptionPreview({
+          presetId: template?.caption.presetId ?? null,
           text: activeCaptionText,
           font: clipEdits?.caption_font || template?.caption.font || 'Inter',
           position: (clipEdits?.caption_position || template?.caption.position || 'bottom') as PreviewCaptionState['position'],
@@ -147,7 +152,9 @@ export function ClipEditorPage() {
         })
 
         setLogoPreview({
-          enabled: clipEdits ? clipEdits.logo_enabled === 1 : template?.logo.enabled ?? false,
+          enabled: clipEdits
+            ? clipEdits.logo_enabled === 1 || Boolean(clipEdits.logo_path)
+            : (template?.logo.enabled ?? false) || Boolean(template?.logo.assetPath),
           assetPath: clipEdits?.logo_path || template?.logo.assetPath || null,
           positionX: clipEdits?.logo_position_x ?? template?.logo.positionX ?? 85,
           positionY: clipEdits?.logo_position_y ?? template?.logo.positionY ?? 85,
@@ -263,6 +270,83 @@ export function ClipEditorPage() {
       }
     })
   }, [currentTime, transcriptLines])
+
+  useEffect(() => {
+    const previewFrame = previewFrameRef.current
+    if (!previewFrame || (!isDraggingCaption && !isDraggingLogo)) return
+
+    const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const rect = previewFrame.getBoundingClientRect()
+      const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 8, 92)
+      const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 8, 92)
+
+      if (isDraggingCaption) {
+        setCaptionPreview((current) =>
+          current
+            ? {
+                ...current,
+                position: 'custom',
+                customX: x,
+                customY: y
+              }
+            : current
+        )
+      }
+
+      if (isDraggingLogo) {
+        setLogoPreview((current) =>
+          current
+            ? {
+                ...current,
+                positionX: x,
+                positionY: y
+              }
+            : current
+        )
+      }
+    }
+
+    const handleMouseUp = async () => {
+      setIsDraggingCaption(false)
+      setIsDraggingLogo(false)
+
+      try {
+        if (!clipId) return
+
+        if (isDraggingCaption && captionPreview) {
+          await window.electronAPI?.saveClipEdits?.(clipId, {
+            caption_position: 'custom',
+            caption_custom_x: captionPreview.customX,
+            caption_custom_y: captionPreview.customY,
+            caption_font: captionPreview.font
+          })
+        }
+
+        if (isDraggingLogo && logoPreview) {
+          await window.electronAPI?.saveClipEdits?.(clipId, {
+            logo_enabled: logoPreview.enabled ? 1 : 0,
+            logo_path: logoPreview.assetPath,
+            logo_position_x: logoPreview.positionX,
+            logo_position_y: logoPreview.positionY,
+            logo_scale: logoPreview.scale,
+            logo_opacity: logoPreview.opacity
+          })
+        }
+      } catch (dragSaveError) {
+        console.error('Failed to persist preview drag state:', dragSaveError)
+      }
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [captionPreview, clipId, isDraggingCaption, isDraggingLogo, logoPreview])
 
   if (loading) {
     return (
@@ -385,7 +469,10 @@ export function ClipEditorPage() {
           </div>
 
           <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-6">
-            <div className="relative aspect-[9/16] h-full max-h-[420px] min-h-0 overflow-hidden rounded-[24px] bg-black">
+            <div
+              ref={previewFrameRef}
+              className="relative aspect-[9/16] h-full max-h-[420px] min-h-0 overflow-hidden rounded-[24px] bg-black"
+            >
               {mediaUrl ? (
                 <video
                   ref={videoRef}
@@ -410,13 +497,23 @@ export function ClipEditorPage() {
                     transform: 'translate(-50%, -50%)',
                     width: `${logoPreview.scale * 100}%`,
                     opacity: logoPreview.opacity,
-                    zIndex: 20
+                    zIndex: 20,
+                    cursor: isDraggingLogo ? 'grabbing' : 'grab'
+                  }}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setIsDraggingLogo(true)
                   }}
                 />
               ) : null}
               {captionPreview?.text ? (
                 <div
-                  className="absolute left-1/2 w-[78%] max-w-[320px] -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center text-[14px] font-semibold leading-[1.28] text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                  className={`absolute left-1/2 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${
+                    captionPreview.presetId === 'deep-diver'
+                      ? 'max-w-[78%] whitespace-nowrap text-ellipsis overflow-hidden text-[17px] leading-[1.2]'
+                      : 'w-[78%] max-w-[320px] text-[14px] leading-[1.28]'
+                  }`}
                   style={{
                     fontFamily: captionPreview.font,
                     top:
@@ -441,7 +538,13 @@ export function ClipEditorPage() {
                       captionPreview.position === 'center'
                         ? 'translate(-50%, -50%)'
                         : 'translateX(-50%)',
-                    zIndex: 25
+                    zIndex: 25,
+                    cursor: isDraggingCaption ? 'grabbing' : 'grab'
+                  }}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setIsDraggingCaption(true)
                   }}
                 >
                   {captionPreview.text}
