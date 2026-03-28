@@ -4,6 +4,7 @@ import { BrowserWindow } from 'electron'
 import { database } from '../database/database'
 import { ffmpegService } from './ffmpegService'
 import AIService from './aiService'
+import clipCandidateService from './clipCandidateService'
 import LocalWhisperService from './localWhisperService'
 import { configService } from './configService'
 import type {
@@ -56,6 +57,24 @@ class ProcessingPipeline {
     }
 
     return `Failed to analyze media file: ${message}`
+  }
+
+  private buildHeuristicAnalysis(transcriptData: { text: string; segments: Array<{ id: number; start: number; end: number; text: string }> }) {
+    const candidates = clipCandidateService.generateCandidates(transcriptData.segments).slice(0, 8)
+
+    return {
+      potentialClips: candidates.map((candidate, index) => ({
+        id: `heuristic_${index + 1}`,
+        startTime: candidate.startTime,
+        endTime: candidate.endTime,
+        duration: candidate.duration,
+        contentType: 'insight' as const,
+        shareabilityScore: Number(Math.max(1, Math.min(10, candidate.heuristicScore * 1.6)).toFixed(1)),
+        keyQuote: candidate.text.slice(0, 180),
+        reason: 'Generated from local heuristic ranking because AI ranking was unavailable.',
+        contextNeeded: 'low' as const
+      }))
+    }
   }
   
   /**
@@ -252,13 +271,13 @@ class ProcessingPipeline {
       let aiAnalysisSucceeded = false
       
       if (!this.aiService) {
-        analysis = { potentialClips: [] }
+        analysis = this.buildHeuristicAnalysis(transcription)
         this.sendProgress(window, {
           jobId,
           stage: 'analyzing',
           progress: 90,
           stageProgress: 100,
-          message: 'Transcript saved. Add an OpenRouter key to enable clip suggestions.'
+          message: 'AI unavailable. Using heuristic clip suggestions.'
         })
       } else {
         try {
@@ -280,8 +299,7 @@ class ProcessingPipeline {
         } catch (aiError) {
           console.error('AI analysis failed, proceeding with transcript-only mode:', aiError)
           
-          // Graceful degradation: Create empty clips array but preserve transcription
-          analysis = { potentialClips: [] }
+          analysis = this.buildHeuristicAnalysis(transcription)
           aiAnalysisSucceeded = false
           
           this.sendProgress(window, {
@@ -289,7 +307,7 @@ class ProcessingPipeline {
             stage: 'analyzing',
             progress: 90,
             stageProgress: 100,
-            message: 'AI analysis failed - transcript saved successfully'
+            message: 'AI analysis failed. Using heuristic clip suggestions.'
           })
         }
       }
@@ -372,7 +390,9 @@ class ProcessingPipeline {
       // Update final progress message based on what was accomplished
       const finalMessage = aiAnalysisSucceeded 
         ? `Found ${analysis.potentialClips.length} potential clips!`
-        : `Transcription completed! AI analysis failed but transcript is saved.`
+        : analysis.potentialClips.length > 0
+          ? `Generated ${analysis.potentialClips.length} heuristic clip suggestions.`
+          : `Transcription completed, but no clips were identified.`
         
       this.sendProgress(window, {
         jobId,

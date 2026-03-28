@@ -267,19 +267,22 @@ function App() {
     } else if (!isProcessing && processingAnnouncementActiveRef.current) {
       processingAnnouncementActiveRef.current = false
       // When processing ends, add final completion message and reset
+      const generatedClipCount = projectClips.length
       const completionMessage: StatusMessage = {
         id: nextMessageId(), 
-        type: 'success',
-        message: '🎉 All clips generated successfully! Ready to review your content.',
+        type: generatedClipCount > 0 ? 'success' : 'info',
+        message: generatedClipCount > 0
+          ? '🎉 Clips generated successfully! Ready to review your content.'
+          : 'Processing finished, but no clips were identified.',
         timestamp: new Date(),
-        icon: IoCheckmarkCircle
+        icon: generatedClipCount > 0 ? IoCheckmarkCircle : IoAnalytics
       }
       addSessionMessage(completionMessage)
       setHasActivatedAriadne(false)
       setPreviousStage('')
       lastAnnouncedStageRef.current = ''
     }
-  }, [isProcessing, addSessionMessage])
+  }, [isProcessing, addSessionMessage, projectClips.length])
 
   // Track previous stage to detect stage changes and add completion messages
   const [previousStage, setPreviousStage] = useState<string>('')
