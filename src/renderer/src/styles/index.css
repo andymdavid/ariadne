@@ -1700,154 +1700,35 @@
 
   /* Main Content Panel */
   .main-content-container {
-    position: absolute;
-    top: 120px;
-    left: 280px;
-    right: 120px;
-    bottom: 140px;
-    z-index: 1;
+    height: 100%;
+    margin-left: 248px;
+    padding: 24px 24px 24px 16px;
   }
 
   .main-content-panel {
-    position: relative;
     width: 100%;
     height: 100%;
-    background: rgba(13, 17, 23, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 12px;
-    box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.4),
-      0 2px 8px rgba(0, 0, 0, 0.3),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
     overflow: hidden;
     display: flex;
     flex-direction: column;
   }
 
-  /* Dark mode variant (when backgrounds are disabled) */
-  body.dark-mode .main-content-panel {
-    background: rgba(13, 17, 23, 0.95);
-    border: 1px solid rgba(48, 54, 61, 0.6);
-  }
-
-  /* Light reflection gradient for depth */
-  .main-content-panel::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 120px;
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.08) 0%,
-      rgba(255, 255, 255, 0) 100%
-    );
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  /* Subtle inner shadow for depth */
-  .main-content-panel::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    border-radius: 12px;
-    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  /* Content area within the panel */
-  .main-content-panel > * {
-    position: relative;
-    z-index: 2;
-  }
-
   /* Responsive adjustments */
   @media (max-width: 1200px) {
     .main-content-container {
-      left: 240px;
-      right: 60px;
+      margin-left: 232px;
+      padding-right: 20px;
     }
   }
 
   @media (max-width: 768px) {
     .main-content-container {
-      left: 32px;
-      right: 40px;
-      top: 80px;
-      bottom: 120px;
-    }
-  }
-
-  /* Logo */
-  .logo-container {
-    position: fixed;
-    /* Left aligned with same margin as content panel */
-    left: 120px;
-    /* Properly centered in header space - accounting for status bar */
-    top: 80px;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    z-index: 10;
-  }
-
-  .logo-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .logo-symbol {
-    color: rgba(240, 246, 252, 0.9);
-    transition: all 0.3s ease;
-  }
-
-  .logo-symbol:hover {
-    color: rgba(88, 166, 255, 0.8);
-    transform: scale(1.05);
-  }
-
-  .logo-text {
-    font-size: 18px;
-    font-weight: 600;
-    color: rgba(240, 246, 252, 0.95);
-    letter-spacing: -0.02em;
-    font-family: 'Inter', system-ui, sans-serif;
-    user-select: none;
-  }
-
-  /* Responsive logo adjustments */
-  @media (max-width: 1200px) {
-    .logo-container {
-      /* Adjust left margin to match content panel */
-      left: 60px;
-      top: 80px;
-    }
-  }
-
-  @media (max-width: 768px) {
-    .logo-container {
-      /* Adjust for smaller screens - left margin and header space */
-      left: 40px;
-      top: 60px;
-    }
-    
-    .logo-text {
-      font-size: 16px;
-    }
-    
-    .logo-symbol {
-      width: 20px;
-      height: 20px;
+      margin-left: 0;
+      padding: 88px 16px 16px;
     }
   }
 

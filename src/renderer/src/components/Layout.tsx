@@ -1,7 +1,4 @@
 import { ReactNode, useEffect } from 'react'
-import { StatusBar } from './StatusBar'
-import { Logo } from './Logo'
-import { BackgroundImage } from './BackgroundImage'
 import { useSettingsStore } from '../stores/settingsStore'
 
 interface LayoutProps {
@@ -21,18 +18,8 @@ export function Layout({ children }: LayoutProps) {
   }, [backgroundImagesEnabled])
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
-      {/* Background Image - behind all content */}
-      <BackgroundImage />
-
-      {/* Status Bar */}
-      <StatusBar />
-
-      {/* Logo */}
-      <Logo />
-
-      {/* Main Content Area - will be sized by App component */}
-      <main className="flex-1 flex overflow-hidden">
+    <div className="h-screen overflow-hidden bg-[#0a0b0f] text-text-primary">
+      <main className="h-full overflow-hidden">
         {children}
       </main>
     </div>
