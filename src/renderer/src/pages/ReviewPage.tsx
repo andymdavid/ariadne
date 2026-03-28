@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { IoArrowBack } from 'react-icons/io5'
 import { ClipCarousel } from '../components/ClipCarousel'
 import { MainContentPanel } from '../components/MainContentPanel'
 import { useClipsData, useProjectStore } from '../stores/projectStore'
@@ -248,6 +249,14 @@ export function ReviewPage() {
 
   return (
     <MainContentPanel>
+      <button
+        type="button"
+        onClick={() => navigate('/')}
+        className="absolute left-8 top-8 z-20 inline-flex items-center gap-2 rounded-full border border-white/8 bg-[#12151b]/88 px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#171b22] hover:text-text-primary"
+      >
+        <IoArrowBack size={15} />
+        <span>Back</span>
+      </button>
       <ClipCarousel
         clips={clips}
         selectedClip={selectedClip}
