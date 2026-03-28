@@ -273,11 +273,11 @@ export function ClipWorkspacePage() {
       <div className="w-full space-y-0 pb-16">
           <button
             type="button"
-            onClick={() => navigate(`/review/${episodeId}`)}
+            onClick={() => navigate('/')}
             className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-[#12151b]/88 px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#171b22] hover:text-text-primary"
           >
             <IoArrowBack size={15} />
-            <span>Back to clips</span>
+            <span>Back home</span>
           </button>
 
           {clips.map((clip) => {

@@ -7,7 +7,6 @@ import { BrandTemplatePage } from './pages/BrandTemplatePage'
 import { AssetLibraryPage } from './pages/AssetLibraryPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
-import { ReviewPage } from './pages/ReviewPage'
 import { ContentPage } from './pages/EditorPage'
 import { ClipWorkspacePage } from './pages/ClipWorkspacePage'
 import { ExportPage } from './pages/ExportPage'
@@ -607,7 +606,7 @@ function App() {
               <Route path="/asset-library" element={<AssetLibraryPage />} />
               <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
-              <Route path="/review/:id" element={<ReviewPage />} />
+              <Route path="/review/:id" element={<ClipWorkspacePage />} />
               <Route path="/content/:id" element={<ContentPage />} />
               <Route path="/content/:id/:clipId" element={<ClipWorkspacePage />} />
               <Route path="/export/:id" element={<ExportPage />} />
