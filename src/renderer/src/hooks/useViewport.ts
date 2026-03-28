@@ -3,14 +3,14 @@ import { useEffect, useState } from 'react'
 interface ViewportDimensions {
   width: number
   height: number
-  availableHeight: number // Height minus command bar space
+  availableHeight: number
 }
 
 export function useViewport() {
   const [dimensions, setDimensions] = useState<ViewportDimensions>({
     width: window.innerWidth,
     height: window.innerHeight,
-    availableHeight: window.innerHeight - 104 // 56px bar + 48px margins
+    availableHeight: window.innerHeight
   })
 
   useEffect(() => {
@@ -18,7 +18,7 @@ export function useViewport() {
       const newDimensions = {
         width: window.innerWidth,
         height: window.innerHeight,
-        availableHeight: window.innerHeight - 104
+        availableHeight: window.innerHeight
       }
       setDimensions(newDimensions)
     }
@@ -43,7 +43,7 @@ export function setupNoScrollViewport() {
   document.body.style.overflow = 'hidden'
   document.documentElement.style.overflow = 'hidden'
   
-  // Ensure body and html take full viewport but account for dock space
+  // Ensure body and html take full viewport
   document.body.style.height = '100vh'
   document.body.style.width = '100vw'
   document.documentElement.style.height = '100vh'
@@ -65,7 +65,7 @@ export function useContentHeight() {
     const mainContent = document.querySelector('.main-content') as HTMLElement
     if (mainContent) {
       mainContent.style.height = `${availableHeight}px`
-      mainContent.style.overflow = 'hidden'
+      mainContent.style.overflow = 'auto'
     }
   }, [availableHeight])
   

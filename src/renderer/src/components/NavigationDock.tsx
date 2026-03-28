@@ -460,7 +460,6 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
         </div>
 
         <div className="mt-4 border-t border-border-default pt-4">
-          <div className="text-[11px] uppercase tracking-[0.2em] text-text-muted">Search</div>
           <button
             type="button"
             onClick={() => {
@@ -470,7 +469,7 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
                 onSearchTrigger()
               }
             }}
-            className="mt-3 flex w-full items-center justify-between rounded-xl border border-border-default bg-bg-secondary/60 px-3 py-2 text-sm text-text-primary hover:bg-hover-bg transition-colors"
+            className="flex w-full items-center justify-between rounded-xl border border-border-default bg-bg-secondary/60 px-3 py-2 text-sm text-text-primary hover:bg-hover-bg transition-colors"
             title={isCommandMode ? 'Exit command mode (Esc)' : 'Search commands (⌘K)'}
           >
             <span className="flex items-center gap-2">
@@ -479,18 +478,11 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
             </span>
             <span className="text-xs text-text-muted">{isCommandMode ? 'Esc' : '⌘K'}</span>
           </button>
-
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-bg-primary">
-            <div
-              className="h-full rounded-full bg-accent-primary transition-all"
-              style={{ width: `${getProgressPercentage(activeScreen)}%` }}
-            />
-          </div>
         </div>
       </div>
 
       {isCommandMode && (
-        <div className="fixed left-[244px] bottom-6 z-40 w-[560px] rounded-2xl border border-border-default bg-bg-primary/95 p-4 shadow-2xl backdrop-blur-xl">
+        <div className="fixed left-[244px] top-6 z-40 w-[560px] rounded-2xl border border-border-default bg-bg-primary/95 p-4 shadow-2xl backdrop-blur-xl">
           <div className="command-input-container">
             {!commandInput && (
               <div className="custom-placeholder">
@@ -520,17 +512,4 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
       )}
     </>
   )
-}
-
-// Calculate progress percentage based on current screen
-function getProgressPercentage(activeScreen: string): number {
-  const progressSteps = {
-    home: 10,
-    'brand-template': 32,
-    'asset-library': 54,
-    calendar: 76,
-    analytics: 100
-  }
-  
-  return progressSteps[activeScreen as keyof typeof progressSteps] || 0
 }

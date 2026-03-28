@@ -150,8 +150,8 @@ export function HomePage() {
             <TranscriptionProgress />
           </div>
         ) : (
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-10">
-            <div className="mx-auto w-full max-w-xl pt-8">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 pt-48 pb-10">
+            <div className="mx-auto w-full max-w-xl">
               <div className="app-surface p-5">
                 <div className="app-surface-muted flex items-center gap-3 px-4 py-3">
                   <IoLinkOutline className="text-text-muted" size={18} />
@@ -191,7 +191,7 @@ export function HomePage() {
             </div>
 
             <div
-              className={`grid grid-cols-3 gap-5 pb-6 ${isDragOver ? 'opacity-70' : ''}`}
+              className={`grid grid-cols-3 gap-5 ${isDragOver ? 'opacity-70' : ''}`}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}

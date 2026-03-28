@@ -13,7 +13,7 @@ import { ClipEditorPage } from './pages/ClipEditorPage'
 import { ExportPage } from './pages/ExportPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
-import { useViewport, setupNoScrollViewport } from './hooks/useViewport'
+import { setupNoScrollViewport } from './hooks/useViewport'
 import { useProcessingUpdates } from './hooks/useProcessingUpdates'
 import { CommandProcessor, createCommandProcessor, CommandContext } from './services/commandProcessor'
 import { ScreenFlowManager } from './services/screenFlowManager'
@@ -26,7 +26,6 @@ import { IoFlash, IoCheckmarkCircle, IoCreate, IoCloudUpload, IoAnalytics } from
 function App() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { availableHeight } = useViewport()
   const [commandResult, setCommandResult] = useState<string>('')
   const [sessionData] = useState<{[key: string]: any}>({})
   const [isCommandMode, setIsCommandMode] = useState(false)
@@ -585,8 +584,10 @@ function App() {
         <div 
           className="main-content"
           style={{ 
-            height: `${availableHeight}px`,
-            overflow: 'hidden',
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overflowX: 'hidden',
             display: 'flex',
             flexDirection: 'column'
           }}

@@ -18,8 +18,8 @@ export function Layout({ children }: LayoutProps) {
   }, [backgroundImagesEnabled])
 
   return (
-    <div className="h-screen overflow-hidden bg-[#0a0b0f] text-text-primary">
-      <main className="h-full overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[#0a0b0f] text-text-primary">
+      <main className="flex min-h-0 flex-1 overflow-hidden">
         {children}
       </main>
     </div>
