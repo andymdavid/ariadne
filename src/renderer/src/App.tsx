@@ -9,7 +9,7 @@ import { CalendarPage } from './pages/CalendarPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ReviewPage } from './pages/ReviewPage'
 import { ContentPage } from './pages/EditorPage'
-import { ClipEditorPage } from './pages/ClipEditorPage'
+import { ClipWorkspacePage } from './pages/ClipWorkspacePage'
 import { ExportPage } from './pages/ExportPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -609,7 +609,7 @@ function App() {
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/review/:id" element={<ReviewPage />} />
               <Route path="/content/:id" element={<ContentPage />} />
-              <Route path="/content/:id/:clipId" element={<ClipEditorPage />} />
+              <Route path="/content/:id/:clipId" element={<ClipWorkspacePage />} />
               <Route path="/export/:id" element={<ExportPage />} />
               <Route path="/library" element={
                 <LibraryErrorBoundary>
