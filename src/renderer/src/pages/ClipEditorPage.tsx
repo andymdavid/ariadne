@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ClipEditModal } from '../components/ClipEditModal'
-import { MainContentPanel } from '../components/MainContentPanel'
 import type { Clip } from '@shared/types'
 
 type ClipEditorData = {
@@ -80,21 +79,21 @@ export function ClipEditorPage() {
 
   if (loading) {
     return (
-      <MainContentPanel className="p-6">
-        <div className="flex h-full items-center justify-center rounded-2xl border border-border-default bg-bg-secondary/40">
+      <div className="h-full w-full px-6 py-5">
+        <div className="flex h-full items-center justify-center rounded-2xl border border-border-default bg-bg-primary/80 shadow-2xl">
           <div className="text-center">
             <div className="text-lg text-text-primary">Loading editor…</div>
             <div className="text-sm text-text-muted">Preparing clip workspace</div>
           </div>
         </div>
-      </MainContentPanel>
+      </div>
     )
   }
 
   if (error || !clipData || !episodeId) {
     return (
-      <MainContentPanel className="p-6">
-        <div className="flex h-full items-center justify-center rounded-2xl border border-border-default bg-bg-secondary/40">
+      <div className="h-full w-full px-6 py-5">
+        <div className="flex h-full items-center justify-center rounded-2xl border border-border-default bg-bg-primary/80 shadow-2xl">
           <div className="max-w-md text-center space-y-4">
             <div>
               <h1 className="text-xl font-semibold text-text-primary">Editor unavailable</h1>
@@ -109,12 +108,12 @@ export function ClipEditorPage() {
             </button>
           </div>
         </div>
-      </MainContentPanel>
+      </div>
     )
   }
 
   return (
-    <MainContentPanel className="p-4">
+    <div className="h-full w-full px-6 py-5">
       <ClipEditModal
         isOpen
         presentation="page"
@@ -127,6 +126,6 @@ export function ClipEditorPage() {
           // The editor persists changes internally. The page stays in place after save.
         }}
       />
-    </MainContentPanel>
+    </div>
   )
 }
