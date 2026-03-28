@@ -55,6 +55,21 @@ type PreviewFrameState = {
   cropMode: 'fit' | 'center' | 'blur'
 }
 
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
+const measureTextWidth = (
+  text: string,
+  fontSize: number,
+  fontFamily: string,
+  fontWeight = 600
+) => {
+  if (typeof document === 'undefined') return text.length * fontSize * 0.56
+  const context = document.createElement('canvas').getContext('2d')
+  if (!context) return text.length * fontSize * 0.56
+  context.font = `${fontWeight} ${fontSize}px ${fontFamily}`
+  return context.measureText(text).width
+}
+
 const formatClockTime = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '00:00.00'
   const hours = Math.floor(seconds / 3600)
@@ -86,6 +101,7 @@ export function ClipEditorPage() {
   const [musicEnabled, setMusicEnabled] = useState(false)
   const [isDraggingCaption, setIsDraggingCaption] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
+  const [previewFrameWidth, setPreviewFrameWidth] = useState(260)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -97,37 +113,52 @@ export function ClipEditorPage() {
     line: TranscriptLine | undefined,
     fallbackText: string,
     presetId?: string | null,
-    playheadTime?: number
+    playheadTime?: number,
+    font = 'Inter'
   ) => {
     if (!line) return fallbackText
     if (presetId !== 'deep-diver') return line.text || fallbackText
 
     const words = line.words?.filter((word) => word.word?.trim())
     if (words && words.length > 0 && playheadTime !== undefined) {
+      const fontSize = clamp(Math.round(previewFrameWidth * 0.06), 15, 22)
+      const bubblePadding = 32
+      const maxBubbleWidth = Math.max(150, previewFrameWidth * 0.7)
+      const maxTextWidth = Math.max(110, maxBubbleWidth - bubblePadding)
       const relativeWordIndex = words.findIndex(
         (word) => playheadTime >= word.start && playheadTime <= word.end
       )
-
       const anchorIndex = relativeWordIndex >= 0 ? relativeWordIndex : 0
-      const windowStart = Math.max(0, anchorIndex - 1)
-      const windowEnd = Math.min(words.length, windowStart + 5)
-      const phrase = words
-        .slice(windowStart, windowEnd)
-        .map((word) => word.word.trim())
-        .join(' ')
-        .replace(/\s+([,.!?;:])/g, '$1')
-        .trim()
+      const fittedWords: string[] = []
+
+      for (let index = anchorIndex; index < words.length; index += 1) {
+        const nextWord = words[index]?.word?.trim()
+        if (!nextWord) continue
+        const candidateText = [...fittedWords, nextWord]
+          .join(' ')
+          .replace(/\s+([,.!?;:])/g, '$1')
+          .trim()
+
+        if (
+          fittedWords.length > 0 &&
+          measureTextWidth(candidateText, fontSize, font) > maxTextWidth
+        ) {
+          break
+        }
+
+        fittedWords.push(nextWord)
+
+        if (measureTextWidth(candidateText, fontSize, font) >= maxTextWidth) {
+          break
+        }
+      }
+
+      const phrase = fittedWords.join(' ').replace(/\s+([,.!?;:])/g, '$1').trim()
 
       if (phrase) return phrase
     }
 
-    const compactPhrase = line.text
-      .split(/\s+/)
-      .slice(0, 5)
-      .join(' ')
-      .trim()
-
-    return compactPhrase || fallbackText
+    return (line.text.split(/\s+/).find((word) => word.trim()) || fallbackText).trim()
   }
 
   useEffect(() => {
@@ -206,7 +237,8 @@ export function ClipEditorPage() {
               : undefined,
             mappedClip.keyQuote,
             template?.caption.presetId,
-            mappedClip.startTime
+            mappedClip.startTime,
+            clipEdits?.caption_font || template?.caption.font || 'Inter'
           ) || mappedClip.keyQuote
 
         setCaptionPreview({
@@ -333,16 +365,36 @@ export function ClipEditorPage() {
       if (!currentCaption) return currentCaption
       return {
         ...currentCaption,
-        text: getPreviewCaptionText(activeLine, currentCaption.text, currentCaption.presetId, currentTime)
+        text: getPreviewCaptionText(
+          activeLine,
+          currentCaption.text,
+          currentCaption.presetId,
+          currentTime,
+          currentCaption.font
+        )
       }
     })
-  }, [currentTime, transcriptLines])
+  }, [currentTime, previewFrameWidth, transcriptLines])
+
+  useEffect(() => {
+    const previewFrame = previewFrameRef.current
+    if (!previewFrame || typeof ResizeObserver === 'undefined') return
+
+    const updateWidth = () => {
+      setPreviewFrameWidth(previewFrame.clientWidth || 260)
+    }
+
+    updateWidth()
+
+    const observer = new ResizeObserver(() => updateWidth())
+    observer.observe(previewFrame)
+
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const previewFrame = previewFrameRef.current
     if (!previewFrame || (!isDraggingCaption && !isDraggingLogo)) return
-
-    const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
     const handleMouseMove = (event: MouseEvent) => {
       const rect = previewFrame.getBoundingClientRect()
@@ -578,11 +630,19 @@ export function ClipEditorPage() {
                 <div
                   className={`absolute left-1/2 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${
                     captionPreview.presetId === 'deep-diver'
-                      ? 'max-w-[78%] whitespace-nowrap text-ellipsis overflow-hidden text-[17px] leading-[1.2]'
+                      ? 'whitespace-nowrap text-[17px] leading-[1.2]'
                       : 'w-[78%] max-w-[320px] text-[14px] leading-[1.28]'
                   }`}
                   style={{
                     fontFamily: captionPreview.font,
+                    fontSize:
+                      captionPreview.presetId === 'deep-diver'
+                        ? `${clamp(Math.round(previewFrameWidth * 0.06), 15, 22)}px`
+                        : undefined,
+                    maxWidth:
+                      captionPreview.presetId === 'deep-diver'
+                        ? `${Math.max(150, previewFrameWidth * 0.7)}px`
+                        : undefined,
                     top:
                       captionPreview.position === 'top'
                         ? '12%'
