@@ -31,6 +31,43 @@ const aiLabels: Record<keyof BrandTemplate['ai'], string> = {
 
 type EditableTemplateSection = 'caption' | 'logo' | 'music' | 'frame' | 'ai'
 
+const defaultBrandTemplate: BrandTemplate = {
+  caption: {
+    presetId: 'deep-diver',
+    text: 'One Line',
+    font: 'Inter',
+    position: 'bottom',
+    customX: null,
+    customY: null
+  },
+  logo: {
+    enabled: false,
+    assetPath: null,
+    positionX: 84,
+    positionY: 12,
+    scale: 0.18,
+    opacity: 0.9
+  },
+  music: {
+    enabled: false,
+    assetPath: null,
+    volume: 0.3,
+    duckEnabled: true
+  },
+  frame: {
+    aspectRatio: '9:16',
+    cropMode: 'fit'
+  },
+  ai: {
+    removeFillerWords: false,
+    removePauses: false,
+    keywordHighlighter: false,
+    emojis: true,
+    stockBroll: false
+  },
+  updatedAt: new Date().toISOString()
+}
+
 export function BrandTemplatePage() {
   const [template, setTemplate] = useState<BrandTemplate | null>(null)
   const [logos, setLogos] = useState<string[]>([])
@@ -38,6 +75,7 @@ export function BrandTemplatePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState('Saved')
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [isDraggingCaption, setIsDraggingCaption] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
@@ -114,17 +152,47 @@ export function BrandTemplatePage() {
   const loadPageState = async () => {
     try {
       setIsLoading(true)
-      const [loadedTemplate, loadedLogos, loadedMusic] = await Promise.all([
-        window.electronAPI?.getBrandTemplate?.(),
+      setLoadError(null)
+
+      const [loadedTemplate, loadedConfig, loadedLogos, loadedMusic] = await Promise.all([
+        window.electronAPI?.getBrandTemplate?.() ?? Promise.resolve(undefined),
+        window.electronAPI?.getConfig?.() ?? Promise.resolve(undefined),
         window.electronAPI?.listLogos?.(),
         window.electronAPI?.listMusic?.()
       ])
 
-      setTemplate(loadedTemplate ?? null)
+      const resolvedTemplate = loadedTemplate ?? loadedConfig?.brandTemplate ?? defaultBrandTemplate
+
+      setTemplate({
+        ...defaultBrandTemplate,
+        ...resolvedTemplate,
+        caption: {
+          ...defaultBrandTemplate.caption,
+          ...resolvedTemplate.caption
+        },
+        logo: {
+          ...defaultBrandTemplate.logo,
+          ...resolvedTemplate.logo
+        },
+        music: {
+          ...defaultBrandTemplate.music,
+          ...resolvedTemplate.music
+        },
+        frame: {
+          ...defaultBrandTemplate.frame,
+          ...resolvedTemplate.frame
+        },
+        ai: {
+          ...defaultBrandTemplate.ai,
+          ...resolvedTemplate.ai
+        }
+      })
       setLogos(loadedLogos ?? [])
       setMusicTracks(loadedMusic ?? [])
     } catch (error) {
       console.error('Failed to load brand template:', error)
+      setTemplate(defaultBrandTemplate)
+      setLoadError(error instanceof Error ? error.message : 'Unknown error')
     } finally {
       setIsLoading(false)
     }
@@ -190,11 +258,29 @@ export function BrandTemplatePage() {
   const captionStyle = getCaptionPositionStyle(template?.caption)
   const logoPreviewSize = `${Math.max((template?.logo.scale ?? 0.18) * 100, 12)}%`
 
-  if (isLoading || !template) {
+  if (isLoading) {
     return (
       <MainContentPanel>
         <div className="app-page">
           <div className="flex h-full items-center justify-center text-text-muted">Loading brand template...</div>
+        </div>
+      </MainContentPanel>
+    )
+  }
+
+  if (!template) {
+    return (
+      <MainContentPanel>
+        <div className="app-page">
+          <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+            <div className="text-lg font-medium text-text-primary">Brand template failed to load</div>
+            <div className="max-w-md text-sm text-text-secondary">
+              {loadError || 'Template state was unavailable.'}
+            </div>
+            <button type="button" className="app-action-secondary" onClick={() => void loadPageState()}>
+              Retry
+            </button>
+          </div>
         </div>
       </MainContentPanel>
     )
@@ -214,6 +300,7 @@ export function BrandTemplatePage() {
             </div>
 
             <div className="flex items-center gap-3">
+              {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
               <div className="app-chip">{saveMessage}</div>
               <button
                 type="button"
