@@ -3,6 +3,22 @@ import { useProcessingStore } from '../stores/processingStore'
 import { useProjectStore } from '../stores/projectStore'
 import type { ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload } from '@shared/types'
 
+function sanitizeProcessingErrorMessage(message: string) {
+  if (!message) {
+    return 'Processing failed.'
+  }
+
+  if (message.includes('ffprobe exited with code')) {
+    return 'Could not analyze that media file.'
+  }
+
+  if (message.includes('File name too long')) {
+    return 'Could not import a playable media file from that link.'
+  }
+
+  return message.length > 220 ? `${message.slice(0, 220).trim()}...` : message
+}
+
 export function useProcessingUpdates() {
   const { updateProgress, setProcessing, activeJobId, setActiveJobId } = useProcessingStore()
   const { 
@@ -284,6 +300,7 @@ export function useProcessingUpdates() {
     // Set up processing error listener
     const cleanupError = window.electronAPI?.onProcessingError?.((error: ProcessingErrorPayload | string) => {
       const errorPayload = typeof error === 'string' ? { message: error } : error
+      const safeMessage = sanitizeProcessingErrorMessage(errorPayload.message)
 
       if (errorPayload.jobId && activeJobIdRef.current && errorPayload.jobId !== activeJobIdRef.current) {
         console.log('Ignoring stale processing error for foreign job:', errorPayload.jobId)
@@ -333,7 +350,7 @@ export function useProcessingUpdates() {
       updateProgress({ 
         stage: state.fullTranscript.length > 0 ? 'analyzing' : 'uploading', 
         progress: state.fullTranscript.length > 0 ? 70 : 0, 
-        message: `Processing failed: ${errorPayload.message}. ${state.fullTranscript.length > 0 ? 'Transcript saved - you can review it now.' : 'Please try again.'}` 
+        message: `Processing failed: ${safeMessage}. ${state.fullTranscript.length > 0 ? 'Transcript saved - you can review it now.' : 'Please try again.'}` 
       })
     })
 

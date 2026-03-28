@@ -43,6 +43,20 @@ class ProcessingPipeline {
       console.error('Failed to initialize Local Whisper service:', error)
     }
   }
+
+  private getFriendlyMediaError(filePath: string, error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+
+    if (filePath.includes('/ariadne/imports/')) {
+      return 'Could not import a playable media file from that link.'
+    }
+
+    if (message.includes('Failed to probe media file')) {
+      return 'Could not analyze that media file.'
+    }
+
+    return `Failed to analyze media file: ${message}`
+  }
   
   /**
    * Process a podcast file through the complete pipeline
@@ -94,7 +108,7 @@ class ProcessingPipeline {
         console.log('Media info retrieved:', mediaInfo)
       } catch (error) {
         console.error('Failed to get media info:', error)
-        throw new Error(`Failed to analyze media file: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        throw new Error(this.getFriendlyMediaError(filePath, error))
       }
       
       this.sendProgress(window, {
