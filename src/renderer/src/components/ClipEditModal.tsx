@@ -45,6 +45,20 @@ type EditorTab = 'duration' | 'transcript' | 'captions' | 'logo' | 'music' | 'fr
 type TrimBoundarySide = 'in' | 'out'
 type TrimSnapMode = 'free' | 'frame' | 'word'
 
+const EDITOR_SECTIONS: Array<{
+  id: EditorTab
+  label: string
+  shortLabel: string
+  description: string
+}> = [
+  { id: 'duration', label: 'Trim', shortLabel: 'Trim', description: 'Shape clip boundaries and timing.' },
+  { id: 'transcript', label: 'Transcript', shortLabel: 'Text', description: 'Correct spoken text before captions.' },
+  { id: 'captions', label: 'Captions', shortLabel: 'Caps', description: 'Style subtitles and on-screen text.' },
+  { id: 'logo', label: 'Logo', shortLabel: 'Logo', description: 'Place branding and watermark overlays.' },
+  { id: 'music', label: 'Music', shortLabel: 'Music', description: 'Mix background music and ducking.' },
+  { id: 'frame', label: 'Frame', shortLabel: 'Frame', description: 'Set crop, aspect ratio, and positioning.' }
+]
+
 const clampZoom = (value?: number) => Math.max(0.5, Math.min(4, value ?? 1))
 
 export function ClipEditModal({
@@ -1444,6 +1458,12 @@ export function ClipEditModal({
   const containerClassName = isPagePresentation
     ? 'h-full w-full bg-bg-primary border border-border-default overflow-hidden flex flex-col'
     : 'absolute inset-0 bg-bg-primary rounded-xl border border-border-default shadow-2xl overflow-hidden flex flex-col z-[60]'
+  const activeSection = EDITOR_SECTIONS.find((section) => section.id === activeTab) ?? EDITOR_SECTIONS[0]
+  const clipDurationLabel = formatPreciseTime(editedEndTime - editedStartTime)
+  const clipWordCount = visibleTrimWords.length
+  const transcriptSegmentCount = clipTranscriptSegments.length
+  const activeBoundaryLabel = selectedBoundary === 'in' ? 'Start' : 'End'
+  const activeSnapLabel = snapMode === 'word' ? 'Word' : snapMode === 'frame' ? 'Frame' : 'Free'
 
   return (
     <div
@@ -1485,30 +1505,67 @@ export function ClipEditModal({
 
         {/* Main Content Area - Side by Side Layout */}
         <div className="flex-1 flex overflow-hidden min-h-0 w-full">
-          {/* Left Panel: Tabs and Content (75%) */}
-          <div className="flex flex-col min-h-0 flex-shrink-0" style={{ width: '75%' }}>
+          {isPagePresentation && (
+            <aside className="w-56 border-r border-border-default bg-bg-secondary/60 p-3 flex-shrink-0">
+              <div className="space-y-1">
+                <div className="px-2 pb-3">
+                  <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Editor</div>
+                  <div className="mt-2 text-lg font-semibold text-text-primary">{activeSection.label}</div>
+                  <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                    {activeSection.description}
+                  </p>
+                </div>
+
+                {EDITOR_SECTIONS.map((section) => {
+                  const isActive = activeTab === section.id
+
+                  return (
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => setActiveTab(section.id)}
+                      className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
+                        isActive
+                          ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
+                          : 'border-transparent bg-transparent text-text-secondary hover:border-border-default hover:bg-bg-primary/60 hover:text-text-primary'
+                      }`}
+                    >
+                      <div className="text-sm font-medium">{section.label}</div>
+                      <div className="mt-1 text-xs text-text-muted">{section.description}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            </aside>
+          )}
+
+          <div className="flex min-w-0 flex-1 overflow-hidden">
+          {/* Left Panel: Tabs and Content */}
+          <div className={`flex flex-col min-h-0 ${isPagePresentation ? 'flex-1' : 'flex-shrink-0'}`} style={isPagePresentation ? undefined : { width: '75%' }}>
             <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as EditorTab)} className="flex-1 flex flex-col min-h-0">
               {/* Tab Navigation */}
-              <TabsList className="w-full justify-center bg-bg-primary border-b border-border-default rounded-none h-auto p-0">
-                <TabsTrigger value="duration" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
-                  Duration
-                </TabsTrigger>
-                <TabsTrigger value="transcript" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
-                  Transcript
-                </TabsTrigger>
-                <TabsTrigger value="captions" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
-                  Captions
-                </TabsTrigger>
-                <TabsTrigger value="logo" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
-                  Logo
-                </TabsTrigger>
-                <TabsTrigger value="music" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
-                  Music
-                </TabsTrigger>
-                <TabsTrigger value="frame" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
-                  Frame
-                </TabsTrigger>
-              </TabsList>
+              {!isPagePresentation && (
+                <TabsList className="w-full justify-center bg-bg-primary border-b border-border-default rounded-none h-auto p-0">
+                  <TabsTrigger value="duration" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
+                    Duration
+                  </TabsTrigger>
+                  <TabsTrigger value="transcript" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
+                    Transcript
+                  </TabsTrigger>
+                  <TabsTrigger value="captions" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
+                    Captions
+                  </TabsTrigger>
+                  <TabsTrigger value="logo" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
+                    Logo
+                  </TabsTrigger>
+                  <TabsTrigger value="music" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
+                    Music
+                  </TabsTrigger>
+                  <TabsTrigger value="frame" className="data-[state=active]:bg-transparent data-[state=active]:text-accent-primary data-[state=active]:border-b-2 data-[state=active]:border-accent-primary rounded-none">
+                    Frame
+                  </TabsTrigger>
+                </TabsList>
+              )}
 
               {/* Tab Content */}
               <TabsContent value="duration" className="flex-1 px-4 py-4 overflow-y-auto mt-0 data-[state=inactive]:hidden">
@@ -2225,15 +2282,33 @@ export function ClipEditModal({
             </Tabs>
           </div>
 
-          {/* Right Panel: Video Preview (25%) */}
-          <div className="border-l border-border-default bg-bg-secondary flex flex-col items-center justify-center p-4 flex-shrink-0" style={{ width: '25%' }}>
+          {/* Right Panel: Video Preview */}
+          <div className={`border-l border-border-default bg-bg-secondary flex flex-col ${isPagePresentation ? 'w-[360px] p-3' : 'items-center justify-center p-4 flex-shrink-0'}`} style={isPagePresentation ? undefined : { width: '25%' }}>
+          {isPagePresentation && (
+            <div className="mb-3 rounded-xl border border-border-default bg-bg-primary/70 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Current Tool</div>
+                  <div className="mt-1 text-lg font-semibold text-text-primary">{activeSection.label}</div>
+                  <p className="mt-1 text-xs leading-relaxed text-text-muted">{activeSection.description}</p>
+                </div>
+                <div className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                  hasUnsavedChanges
+                    ? 'bg-amber-500/15 text-amber-300'
+                    : 'bg-emerald-500/15 text-emerald-300'
+                }`}>
+                  {hasUnsavedChanges ? 'Unsaved' : 'Saved'}
+                </div>
+              </div>
+            </div>
+          )}
           <div
             ref={videoContainerRef}
             className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center"
             style={{
               aspectRatio: frameSettings?.aspectRatio || '9/16',
               width: '100%',
-              maxHeight: '100%'
+              maxHeight: isPagePresentation ? '420px' : '100%'
             }}
           >
             {/* Loading Overlay - shows even when no media source yet */}
@@ -2629,6 +2704,122 @@ export function ClipEditModal({
                 </div>
               )}
             </div>
+
+            {isPagePresentation && (
+              <div className="mt-3 flex-1 overflow-y-auto rounded-xl border border-border-default bg-bg-primary/70 p-3">
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Clip Summary</div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Start</div>
+                        <div className="mt-1 font-mono text-sm text-text-primary">{formatPreciseTime(editedStartTime)}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">End</div>
+                        <div className="mt-1 font-mono text-sm text-text-primary">{formatPreciseTime(editedEndTime)}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Duration</div>
+                        <div className="mt-1 font-mono text-sm text-text-primary">{clipDurationLabel}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Words</div>
+                        <div className="mt-1 text-sm text-text-primary">{clipWordCount}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {activeTab === 'duration' && (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Trim Inspector</div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Editing Boundary</div>
+                        <div className="mt-1 text-sm font-medium text-text-primary">{activeBoundaryLabel}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Snap Mode</div>
+                        <div className="mt-1 text-sm font-medium text-text-primary">{activeSnapLabel}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Anchor</div>
+                        <div className="mt-1 text-sm text-text-primary">{activeBoundaryAnchor?.label || activeBoundaryAnchor?.type || 'Free placement'}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Loop Preview</div>
+                        <div className="mt-1 text-sm text-text-primary">{isLoopPreviewEnabled ? 'On' : 'Off'}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'transcript' && (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Transcript</div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Editable Segments</div>
+                        <div className="mt-1 text-sm text-text-primary">{transcriptSegmentCount}</div>
+                      </div>
+                      <p className="text-sm leading-relaxed text-text-secondary">
+                        Correct transcript text here before caption styling or export.
+                      </p>
+                    </div>
+                  )}
+
+                  {activeTab === 'captions' && (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Caption Status</div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Enabled</div>
+                        <div className="mt-1 text-sm text-text-primary">{captionStyle?.enabled ? 'Yes' : 'No'}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Style</div>
+                        <div className="mt-1 text-sm text-text-primary">{captionStyle?.highlightStyle || 'word'}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'logo' && (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Logo</div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Status</div>
+                        <div className="mt-1 text-sm text-text-primary">{logoSettings?.enabled ? 'Enabled' : 'Disabled'}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'music' && (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Music</div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Status</div>
+                        <div className="mt-1 text-sm text-text-primary">{musicSettings?.enabled ? 'Enabled' : 'Disabled'}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Ducking</div>
+                        <div className="mt-1 text-sm text-text-primary">{musicSettings?.duckEnabled ? 'On' : 'Off'}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'frame' && frameSettings && (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Frame</div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Aspect Ratio</div>
+                        <div className="mt-1 text-sm text-text-primary">{frameSettings.aspectRatio}</div>
+                      </div>
+                      <div className="rounded-lg border border-border-default bg-bg-secondary/70 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">Crop Mode</div>
+                        <div className="mt-1 text-sm text-text-primary">{frameSettings.cropMode}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           </div>
         </div>
 
@@ -2648,8 +2839,13 @@ export function ClipEditModal({
           </div>
 
           <div className="flex items-center space-x-3">
+            {isPagePresentation && (
+              <div className="hidden text-xs text-text-muted md:block">
+                {activeSection.shortLabel} workspace
+              </div>
+            )}
             <Button onClick={handleClose} variant="secondary">
-              Cancel
+              {isPagePresentation ? 'Back' : 'Cancel'}
             </Button>
             <Button
               onClick={handleSave}
