@@ -161,7 +161,7 @@ export function HomePage() {
           </div>
         ) : (
           <div className="mx-auto flex h-full max-w-6xl flex-col gap-10">
-            <div className="flex items-start justify-between gap-6">
+            <div className="app-page-header">
               <div className="max-w-2xl">
                 <div className="app-page-title">Home</div>
                 <div className="app-page-subtitle">

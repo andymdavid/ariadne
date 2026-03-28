@@ -14,7 +14,7 @@ export function CalendarPage() {
     <MainContentPanel>
       <div className="app-page">
         <div className="mx-auto flex h-full max-w-6xl flex-col gap-6">
-          <div className="flex items-start justify-between gap-6">
+          <div className="app-page-header">
             <div className="max-w-3xl">
               <div className="app-page-title">Calendar</div>
               <div className="app-page-subtitle">Schedule and review upcoming posts.</div>

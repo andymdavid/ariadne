@@ -12,10 +12,12 @@ export function AnalyticsPage() {
     <MainContentPanel>
       <div className="app-page">
         <div className="mx-auto flex h-full max-w-6xl flex-col gap-8">
-          <div className="max-w-3xl">
-            <div className="app-page-title">Analytics</div>
-            <div className="app-page-subtitle">
-              Track output, approvals, and what performs best.
+          <div className="app-page-header">
+            <div className="max-w-3xl">
+              <div className="app-page-title">Analytics</div>
+              <div className="app-page-subtitle">
+                Track output, approvals, and what performs best.
+              </div>
             </div>
           </div>
 
