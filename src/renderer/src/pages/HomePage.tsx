@@ -1,16 +1,47 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { IoAddCircleOutline, IoCloudUploadOutline, IoLinkOutline } from 'react-icons/io5'
 import { useProcessingStore } from '../stores/processingStore'
-import { useProjectStore } from '../stores/projectStore'
+import { useProjectStore, type SavedProject } from '../stores/projectStore'
 import { TranscriptionProgress } from '../components/TranscriptionProgress'
 import { MainContentPanel } from '../components/MainContentPanel'
 
+const featureShortcuts = [
+  'Long to shorts',
+  'AI Captions',
+  'Video editor',
+  'Enhance speech',
+  'AI Reframe',
+  'AI B-Roll',
+  'AI hook'
+]
+
 export function HomePage() {
   const [isDragOver, setIsDragOver] = useState(false)
+  const [sourceLink, setSourceLink] = useState('')
+  const [recentProjects, setRecentProjects] = useState<SavedProject[]>([])
   const navigate = useNavigate()
   const { isProcessing, setProcessing, updateProgress, reset, setActiveJobId } = useProcessingStore()
-  // IPC listeners are now handled by useProcessingUpdates hook in App.tsx
+  const { syncWithDatabase, getSavedProjects } = useProjectStore()
 
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        await syncWithDatabase()
+      } catch (error) {
+        console.error('Failed to sync recent projects:', error)
+      }
+
+      const projects = getSavedProjects()
+        .slice()
+        .sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime())
+        .slice(0, 6)
+
+      setRecentProjects(projects)
+    }
+
+    loadProjects()
+  }, [getSavedProjects, syncWithDatabase])
 
   const handleFileSelect = async () => {
     try {
@@ -24,7 +55,6 @@ export function HomePage() {
   }
 
   const startProcessing = async (filePath: string) => {
-    // Reset store and set initial state
     reset()
     setActiveJobId(undefined)
     setProcessing(true)
@@ -33,88 +63,62 @@ export function HomePage() {
       progress: 0,
       message: 'Starting processing...'
     })
-    
+
     try {
-      // Extract project name from file path
       const fileName = filePath.split('/').pop() || 'Unknown Episode'
       const projectName = fileName.split('.')[0]
-      
-      // Clean IPC-based processing without race conditions
+
       if (!window.electronAPI?.processEpisode) {
         throw new Error('Processing API not available')
       }
-      
-      // Set up completion handler before starting processing
+
       const processingCompletePromise = new Promise((resolve, reject) => {
         let timeoutId: NodeJS.Timeout
-        
-        // Set up completion listener
+
         const cleanup = window.electronAPI?.onProcessingComplete?.((data) => {
-          console.log('Processing completed via IPC:', data)
           clearTimeout(timeoutId)
-          cleanup?.() // Remove listener
+          cleanup?.()
           errorCleanup?.()
           resolve(data)
         })
-        
-        // Set up error listener  
+
         const errorCleanup = window.electronAPI?.onProcessingError?.((error) => {
           const errorMessage = typeof error === 'string' ? error : error.message
-          console.error('Processing failed via IPC:', error)
           clearTimeout(timeoutId)
           cleanup?.()
           errorCleanup?.()
           reject(new Error(errorMessage))
         })
-        
-        // Timeout after 20 minutes (AI analysis can take longer for long episodes)
+
         timeoutId = setTimeout(() => {
-          console.error('Processing timed out after 20 minutes')
           cleanup?.()
           errorCleanup?.()
           reject(new Error('Processing timed out after 20 minutes'))
         }, 20 * 60 * 1000)
       })
-      
-      const processRequest = window.electronAPI
-        .processEpisode(filePath, projectName)
-        .catch((startError) => {
-          console.error('Failed to start processing:', startError)
-          throw startError
-        })
 
-      console.log('Processing started, waiting for completion...')
-      
-      // Wait for completion via IPC events, but still surface immediate IPC invoke failures.
+      const processRequest = window.electronAPI.processEpisode(filePath, projectName).catch((startError) => {
+        throw startError
+      })
+
       const result = await Promise.race([processingCompletePromise, processRequest])
-      
-      console.log('Processing completed successfully:', result)
-      
-      // Navigation to review screen after processing completion
-      // Wait briefly for auto-save to complete and set currentEpisode
+
       setTimeout(() => {
         const state = useProjectStore.getState()
         if (state.currentEpisode?.id) {
-          console.log('Navigating to review screen for episode:', state.currentEpisode.id)
           navigate(`/review/${state.currentEpisode.id}`)
-        } else {
-          console.warn('No episode ID available for navigation after processing completion')
-          // Fallback: try to get episode ID from processing result
-          if (result && (result as any).episodeId) {
-            console.log('Using episode ID from processing result:', (result as any).episodeId)
-            navigate(`/review/${(result as any).episodeId}`)
-          }
+        } else if (result && (result as any).episodeId) {
+          navigate(`/review/${(result as any).episodeId}`)
         }
-      }, 1500) // Wait for auto-save to complete (1000ms + buffer)
-      
-      setProcessing(false)
+      }, 1500)
 
+      setProcessing(false)
     } catch (error) {
       console.error('Processing error:', error)
       updateProgress({
         stage: 'completed',
         progress: 0,
-        message: `Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: `Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       })
       setProcessing(false)
     }
@@ -125,17 +129,12 @@ export function HomePage() {
     setIsDragOver(false)
 
     const files = Array.from(e.dataTransfer.files)
-    const mediaFile = files.find(file =>
-      file.type.startsWith('video/') || file.type.startsWith('audio/')
-    )
+    const mediaFile = files.find((file) => file.type.startsWith('video/') || file.type.startsWith('audio/'))
 
     if (mediaFile) {
-      // In Electron, we can get the file path from the File object
       const filePath = (mediaFile as any).path
       if (filePath) {
         startProcessing(filePath)
-      } else {
-        console.error('Could not get file path from dropped file')
       }
     }
   }
@@ -149,48 +148,121 @@ export function HomePage() {
     setIsDragOver(false)
   }
 
+  const handleOpenProject = (project: SavedProject) => {
+    navigate(`/review/${project.id}`)
+  }
+
   return (
     <MainContentPanel>
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="max-w-2xl w-full space-y-8 text-center">
-          {/* Upload Area or Progress Display */}
-          {isProcessing ? (
+      <div className="app-page">
+        {isProcessing ? (
+          <div className="flex h-full items-center justify-center">
             <TranscriptionProgress />
-          ) : (
+          </div>
+        ) : (
+          <div className="mx-auto flex h-full max-w-6xl flex-col gap-10">
+            <div className="flex items-start justify-between gap-6">
+              <div className="max-w-2xl">
+                <div className="text-[11px] uppercase tracking-[0.24em] text-text-muted">Home</div>
+                <div className="mt-3 app-page-title">Generate reels in 1 click</div>
+                <div className="app-page-subtitle">
+                  Paste a source link or upload a local file. Ariadne should handle clipping, branding defaults,
+                  and project creation from here.
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button className="app-chip">Free Trial</button>
+              </div>
+            </div>
+
+            <div className="mx-auto w-full max-w-xl">
+              <div className="app-surface p-5">
+                <div className="app-surface-muted flex items-center gap-3 px-4 py-3">
+                  <IoLinkOutline className="text-text-muted" size={18} />
+                  <input
+                    value={sourceLink}
+                    onChange={(e) => setSourceLink(e.target.value)}
+                    placeholder="Drop a YouTube, Rumble, or podcast link"
+                    className="flex-1 bg-transparent text-base text-text-primary outline-none placeholder:text-text-muted"
+                  />
+                </div>
+
+                <div className="mt-4 flex items-center gap-6 px-2 text-sm text-text-secondary">
+                  <button className="inline-flex items-center gap-2 hover:text-text-primary transition-colors">
+                    <IoCloudUploadOutline size={16} />
+                    Upload
+                  </button>
+                  <button className="inline-flex items-center gap-2 hover:text-text-primary transition-colors">
+                    Google Drive
+                  </button>
+                </div>
+
+                <button className="app-action-primary mt-5 w-full justify-center">Get clips in 1 click</button>
+
+                <button className="mt-4 w-full text-center text-sm text-text-secondary underline underline-offset-4">
+                  Click here to try a sample project
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-10 pt-2">
+              {featureShortcuts.map((feature) => (
+                <div key={feature} className="flex flex-col items-center gap-3">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border-default bg-[#12151b] text-sm text-text-primary">
+                    ✦
+                  </div>
+                  <div className="text-sm text-text-secondary">{feature}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between pt-4">
+              <div className="text-sm text-text-muted">All projects ({recentProjects.length})</div>
+              <div className="flex items-center gap-3 text-sm text-text-muted">
+                <span>0 GB / 100 GB</span>
+                <span className="app-chip !px-3 !py-2">Auto-save</span>
+                <span className="app-chip !px-3 !py-2">Auto-import</span>
+              </div>
+            </div>
+
             <div
-              className={`
-                border-2 border-dashed rounded-lg p-12 transition-all duration-200
-                ${isDragOver 
-                  ? 'border-accent-primary bg-accent-primary/5' 
-                  : 'border-border-default hover:border-accent-primary/50 hover:bg-accent-primary/5'
-                }
-              `}
+              className={`grid grid-cols-3 gap-5 pb-6 ${isDragOver ? 'opacity-70' : ''}`}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
             >
-              <div className="space-y-4">
-                <div className="text-6xl text-text-muted">📎</div>
-                <div className="space-y-2">
-                  <p className="text-lg font-medium text-text-primary">
-                    Drop your podcast file here
-                  </p>
-                  <p className="text-text-muted">
-                    or click to browse
-                  </p>
+              <button
+                type="button"
+                onClick={handleFileSelect}
+                className="app-surface-muted flex min-h-[190px] flex-col items-center justify-center border-dashed text-center hover:border-accent-primary hover:bg-accent-primary/5 transition-colors"
+              >
+                <IoAddCircleOutline size={28} className="text-text-muted" />
+                <div className="mt-4 text-lg font-medium text-text-primary">Upload local file</div>
+                <div className="mt-2 max-w-[220px] text-sm leading-relaxed text-text-secondary">
+                  Start a new project from a local video or audio source.
                 </div>
-                <div className="flex gap-3 justify-center">
-                  <button
-                    onClick={handleFileSelect}
-                    className="btn-primary"
-                  >
-                    Select File
-                  </button>
-                </div>
-              </div>
+              </button>
+
+              {recentProjects.map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  onClick={() => handleOpenProject(project)}
+                  className="app-surface p-3 text-left hover:border-white/20 transition-colors"
+                >
+                  <div className="flex aspect-video items-end rounded-xl bg-[#171b22] p-3">
+                    <div className="text-sm text-text-muted">Demo project</div>
+                  </div>
+                  <div className="mt-4 text-xl font-medium text-text-primary">
+                    {project.name}
+                  </div>
+                  <div className="mt-2 text-sm text-text-secondary">{project.filename}</div>
+                </button>
+              ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </MainContentPanel>
   )

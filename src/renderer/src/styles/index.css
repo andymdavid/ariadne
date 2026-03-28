@@ -121,6 +121,86 @@
     @apply bg-bg-tertiary border border-border-default rounded-md px-3 py-2 text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-primary transition-colors;
   }
 
+  .app-page {
+    height: 100%;
+    overflow: auto;
+    padding: 28px 32px;
+  }
+
+  .app-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .app-page-title {
+    font-size: 34px;
+    line-height: 1.05;
+    font-weight: 600;
+    color: #f3f5f7;
+    letter-spacing: -0.04em;
+  }
+
+  .app-page-subtitle {
+    margin-top: 6px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: rgba(240, 246, 252, 0.58);
+  }
+
+  .app-surface {
+    background: #111318;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+  }
+
+  .app-surface-muted {
+    background: #0d0f13;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+  }
+
+  .app-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #15181e;
+    color: rgba(240, 246, 252, 0.88);
+    font-size: 14px;
+    padding: 10px 16px;
+  }
+
+  .app-action-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    background: #ffffff;
+    color: #050608;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 12px 18px;
+    border: none;
+  }
+
+  .app-action-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    background: #1a1d24;
+    color: #f0f6fc;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 12px 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
   /* Status indicators */
   .status-pending {
     @apply text-accent-warning;
