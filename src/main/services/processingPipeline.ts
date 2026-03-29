@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { existsSync } from 'fs'
 import { basename, join } from 'path'
 import { BrowserWindow } from 'electron'
 import { database } from '../database/database'
@@ -11,6 +12,7 @@ import type {
   ProcessingResultPayload
 } from '@shared/types'
 import type {
+  PipelineWorkerCandidate,
   PipelineWorkerCompletedEvent,
   PipelineWorkerContentPackage,
   PipelineWorkerPotentialClip
@@ -134,6 +136,40 @@ class ProcessingPipeline {
       updatedAt: workflowJob.updatedAt
     }
   }
+
+  async recoverPipelines(window?: BrowserWindow) {
+    const recoverableJobs = database.listRecoverablePipelineWorkflowJobs() as Array<{
+      id: string
+      status: PipelineJobViewDTO['status']
+    }>
+
+    for (const job of recoverableJobs) {
+      if (pipelineWorkerSupervisor.hasLiveWorker(job.id)) {
+        continue
+      }
+
+      if (job.status === 'running') {
+        database.updateWorkflowJob(job.id, {
+          status: 'pending_resume',
+          updatedAt: new Date().toISOString()
+        })
+      }
+
+      if (job.status === 'cancel_requested') {
+        continue
+      }
+
+      try {
+        await this.resumePipelineJob(job.id, window)
+      } catch (error) {
+        console.error(`Pipeline recovery failed for job ${job.id}:`, error)
+      }
+    }
+  }
+
+  hasLiveWorker() {
+    return pipelineWorkerSupervisor.hasAnyLiveWorker()
+  }
   /**
    * Process a podcast file through the complete pipeline
    */
@@ -247,77 +283,26 @@ class ProcessingPipeline {
       }
       
       currentStep = null
-      const workerResult = await pipelineWorkerSupervisor.runPipeline(
-        {
-          type: 'start_pipeline',
-          workflowJobId,
-          audioPath,
-          mediaDuration: mediaInfo.duration,
-          apiConfig: configService.getApiConfig().openRouterKey ? configService.getApiConfig() : null,
-          brandVoiceExamples: configService.getBrandVoice().examples
-        },
-        { window }
+      const workerResult = await this.runHeavyPipelineStages(
+        workflowJobId,
+        audioPath,
+        mediaInfo.duration,
+        'transcription',
+        {},
+        window
       )
 
-      await this.storeTranscript(episodeId, workerResult.transcription)
-      const storedClips = await this.storeClips(
-        episodeId,
-        workerResult.analysis.potentialClips,
-        mediaInfo.resolution
-      )
-      await this.storeGeneratedContentPackages(storedClips, workerResult.contentPackages)
-      
-      // Step 8: Update episode status
-      database.updateEpisodeStatus(episodeId, 'completed')
-      this.completeWorkflowJob(workflowJobId, projectId, episodeId, workerResult.analysis.potentialClips.length)
-      
-      // Step 9: Add to recent projects
-      configService.addRecentProject({
-        id: projectId,
-        name: projectName || basename(filePath),
-        path: filePath
-      })
-      
-      this.sendProgress(window, {
-        jobId: workflowJobId,
-        stage: 'completed',
-        progress: 100,
-        stageProgress: 100,
-        message: `Found ${workerResult.analysis.potentialClips.length} potential clips!`
-      })
-      
-      const processingTime = (Date.now() - startTime) / 1000
-      
-      const result: ProcessingResultPayload = {
-        jobId: workflowJobId,
+      return await this.finalizePipelineResult(
+        workflowJobId,
         projectId,
         episodeId,
-        clipsFound: workerResult.analysis.potentialClips.length,
-        processingTime,
-        aiAnalysisSucceeded: workerResult.aiAnalysisSucceeded,
-        hasTranscript: true
-      }
-      
-      // Send completion event with context about what succeeded/failed
-      console.log('Sending processing complete event:', result)
-      window?.webContents.send('processing-complete', result)
-      
-      // Update final progress message based on what was accomplished
-      const finalMessage = workerResult.aiAnalysisSucceeded 
-        ? `Found ${workerResult.analysis.potentialClips.length} potential clips!`
-        : workerResult.analysis.potentialClips.length > 0
-          ? `Generated ${workerResult.analysis.potentialClips.length} heuristic clip suggestions.`
-          : `Transcription completed, but no clips were identified.`
-        
-      this.sendProgress(window, {
-        jobId: workflowJobId,
-        stage: 'completed',
-        progress: 100,
-        stageProgress: 100,
-        message: finalMessage
-      })
-      
-      return result
+        filePath,
+        projectName || basename(filePath),
+        mediaInfo.resolution,
+        workerResult,
+        startTime,
+        window
+      )
       
     } catch (error) {
       console.error('Processing pipeline failed:', error)
@@ -354,6 +339,264 @@ class ProcessingPipeline {
       
       throw error
     }
+  }
+
+  private async runHeavyPipelineStages(
+    workflowJobId: string,
+    audioPath: string,
+    mediaDuration: number,
+    startStage: 'transcription' | 'clip_generation' | 'clip_ranking' | 'content_package_generation',
+    resumeData: {
+      transcription?: PipelineWorkerCompletedEvent['transcription']
+      candidates?: PipelineWorkerCandidate[]
+      analysis?: PipelineWorkerCompletedEvent['analysis']
+      aiAnalysisSucceeded?: boolean
+      contentPackages?: PipelineWorkerContentPackage[]
+    },
+    window?: BrowserWindow
+  ) {
+    const apiConfig = configService.getApiConfig()
+    return pipelineWorkerSupervisor.runPipeline(
+      {
+        type: 'start_pipeline',
+        workflowJobId,
+        audioPath,
+        mediaDuration,
+        apiConfig: apiConfig.openRouterKey ? apiConfig : null,
+        brandVoiceExamples: configService.getBrandVoice().examples,
+        startStage,
+        resumeData
+      },
+      { window }
+    )
+  }
+
+  private async finalizePipelineResult(
+    workflowJobId: string,
+    projectId: string,
+    episodeId: string,
+    filePath: string,
+    projectName: string,
+    sourceResolution: { width: number; height: number } | undefined,
+    workerResult: PipelineWorkerCompletedEvent,
+    startedAt: number,
+    window?: BrowserWindow
+  ) {
+    await this.storeTranscript(episodeId, workerResult.transcription)
+    const storedClips = await this.storeClips(
+      episodeId,
+      workerResult.analysis.potentialClips,
+      sourceResolution
+    )
+    await this.storeGeneratedContentPackages(storedClips, workerResult.contentPackages)
+
+    database.updateEpisodeStatus(episodeId, 'completed')
+    this.completeWorkflowJob(workflowJobId, projectId, episodeId, workerResult.analysis.potentialClips.length)
+
+    configService.addRecentProject({
+      id: projectId,
+      name: projectName,
+      path: filePath
+    })
+
+    this.sendProgress(window, {
+      jobId: workflowJobId,
+      stage: 'completed',
+      progress: 100,
+      stageProgress: 100,
+      message: `Found ${workerResult.analysis.potentialClips.length} potential clips!`
+    })
+
+    const processingTime = (Date.now() - startedAt) / 1000
+    const result: ProcessingResultPayload = {
+      jobId: workflowJobId,
+      projectId,
+      episodeId,
+      clipsFound: workerResult.analysis.potentialClips.length,
+      processingTime,
+      aiAnalysisSucceeded: workerResult.aiAnalysisSucceeded,
+      hasTranscript: true
+    }
+
+    window?.webContents.send('processing-complete', result)
+
+    const finalMessage = workerResult.aiAnalysisSucceeded
+      ? `Found ${workerResult.analysis.potentialClips.length} potential clips!`
+      : workerResult.analysis.potentialClips.length > 0
+        ? `Generated ${workerResult.analysis.potentialClips.length} heuristic clip suggestions.`
+        : 'Transcription completed, but no clips were identified.'
+
+    this.sendProgress(window, {
+      jobId: workflowJobId,
+      stage: 'completed',
+      progress: 100,
+      stageProgress: 100,
+      message: finalMessage
+    })
+
+    return result
+  }
+
+  private parseStepOutput<T>(workflowJobId: string, stepKey: PipelineStepKey): T | null {
+    const step = database.getWorkflowStepRunsByJob(workflowJobId)
+      .find((candidate: any) => candidate.stepKey === stepKey) as { outputJson?: string | null } | undefined
+
+    if (!step?.outputJson) {
+      return null
+    }
+
+    try {
+      return JSON.parse(step.outputJson) as T
+    } catch {
+      return null
+    }
+  }
+
+  private getPipelineArtifactPath(workflowJobId: string, artifactType: string): string | null {
+    const artifact = database.getArtifactsByWorkflowJob(workflowJobId, artifactType)
+      .find((candidate: any) => candidate.status === 'complete') as { filePath?: string } | undefined
+
+    if (!artifact?.filePath || !existsSync(artifact.filePath)) {
+      return null
+    }
+
+    return artifact.filePath
+  }
+
+  private isCompletedStep(workflowJobId: string, stepKey: PipelineStepKey) {
+    const step = database.getWorkflowStepRunsByJob(workflowJobId)
+      .find((candidate: any) => candidate.stepKey === stepKey) as { status?: string } | undefined
+    return step?.status === 'completed'
+  }
+
+  private async resumePipelineJob(workflowJobId: string, window?: BrowserWindow) {
+    const workflowJob = database.getWorkflowJob(workflowJobId) as {
+      id: string
+      projectId: string | null
+      episodeId: string | null
+      inputJson: string
+      status: string
+      createdAt: string
+    } | undefined
+
+    if (!workflowJob?.projectId || !workflowJob.episodeId) {
+      return
+    }
+
+    let parsedInput: { filePath?: string; projectName?: string } = {}
+    try {
+      parsedInput = JSON.parse(workflowJob.inputJson)
+    } catch {
+      parsedInput = {}
+    }
+
+    const filePath = parsedInput.filePath
+    if (!filePath || !existsSync(filePath)) {
+      return
+    }
+
+    const audioPath = this.getPipelineArtifactPath(workflowJobId, 'extracted_audio')
+    if (!audioPath) {
+      return
+    }
+
+    const mediaProbeOutput = this.parseStepOutput<{
+      duration?: number
+      resolution?: { width: number; height: number } | null
+    }>(workflowJobId, 'media_probe')
+
+    if (!mediaProbeOutput?.duration) {
+      return
+    }
+
+    const transcriptionOutput = this.parseStepOutput<{ transcription?: PipelineWorkerCompletedEvent['transcription'] }>(
+      workflowJobId,
+      'transcription'
+    )
+    const clipGenerationOutput = this.parseStepOutput<{ candidates?: PipelineWorkerCandidate[] }>(
+      workflowJobId,
+      'clip_generation'
+    )
+    const clipRankingOutput = this.parseStepOutput<{
+      analysis?: PipelineWorkerCompletedEvent['analysis']
+      aiAnalysisSucceeded?: boolean
+    }>(workflowJobId, 'clip_ranking')
+    const contentPackagesOutput = this.parseStepOutput<{
+      contentPackages?: PipelineWorkerContentPackage[]
+      skipped?: boolean
+    }>(
+      workflowJobId,
+      'content_package_generation'
+    )
+
+    const hasTranscription = this.isCompletedStep(workflowJobId, 'transcription') && !!transcriptionOutput?.transcription
+    const hasCandidates = this.isCompletedStep(workflowJobId, 'clip_generation') && Array.isArray(clipGenerationOutput?.candidates)
+    const hasAnalysis = this.isCompletedStep(workflowJobId, 'clip_ranking') && !!clipRankingOutput?.analysis
+    const hasContentPackages = this.isCompletedStep(workflowJobId, 'content_package_generation')
+      && (Array.isArray(contentPackagesOutput?.contentPackages) || contentPackagesOutput?.skipped === true)
+
+    const now = new Date().toISOString()
+    database.updateWorkflowJob(workflowJobId, {
+      status: 'running',
+      stage: hasTranscription ? (hasCandidates ? (hasAnalysis ? 'generating' : 'analyzing') : 'analyzing') : 'transcribing',
+      message: 'Resuming processing...',
+      updatedAt: now
+    })
+
+    if (hasTranscription && hasCandidates && hasAnalysis && hasContentPackages) {
+      await this.finalizePipelineResult(
+        workflowJobId,
+        workflowJob.projectId,
+        workflowJob.episodeId,
+        filePath,
+        parsedInput.projectName || basename(filePath),
+        mediaProbeOutput.resolution ?? undefined,
+        {
+          type: 'pipeline_completed',
+          workflowJobId,
+          transcription: transcriptionOutput!.transcription!,
+          analysis: clipRankingOutput!.analysis!,
+          aiAnalysisSucceeded: clipRankingOutput?.aiAnalysisSucceeded ?? false,
+          contentPackages: contentPackagesOutput?.contentPackages ?? []
+        },
+        Date.parse(workflowJob.createdAt) || Date.now(),
+        window
+      )
+      return
+    }
+
+    const workerResult = await this.runHeavyPipelineStages(
+      workflowJobId,
+      audioPath,
+      mediaProbeOutput.duration,
+      !hasTranscription
+        ? 'transcription'
+        : !hasCandidates
+          ? 'clip_generation'
+          : !hasAnalysis
+            ? 'clip_ranking'
+            : 'content_package_generation',
+      {
+        transcription: transcriptionOutput?.transcription,
+        candidates: clipGenerationOutput?.candidates,
+        analysis: clipRankingOutput?.analysis,
+        aiAnalysisSucceeded: clipRankingOutput?.aiAnalysisSucceeded,
+        contentPackages: contentPackagesOutput?.contentPackages
+      },
+      window
+    )
+
+    await this.finalizePipelineResult(
+      workflowJobId,
+      workflowJob.projectId,
+      workflowJob.episodeId,
+      filePath,
+      parsedInput.projectName || basename(filePath),
+      mediaProbeOutput.resolution ?? undefined,
+      workerResult,
+      Date.parse(workflowJob.createdAt) || Date.now(),
+      window
+    )
   }
   
   private async createProject(name: string): Promise<string> {
@@ -402,6 +645,11 @@ class ProcessingPipeline {
     episodeId: string,
     transcription: PipelineWorkerCompletedEvent['transcription']
   ) {
+    const existingSegments = database.getTranscriptSegments(episodeId) as Array<unknown>
+    if (existingSegments.length > 0) {
+      return
+    }
+
     const segments = transcription.segments.map((segment: any) => ({
       id: randomUUID(),
       episodeId,
@@ -421,6 +669,21 @@ class ProcessingPipeline {
     clips: PipelineWorkerPotentialClip[],
     sourceResolution?: { width: number; height: number }
   ): Promise<Array<{ id: string } & PipelineWorkerPotentialClip>> {
+    const existingClips = database.getClips(episodeId) as Array<any>
+    if (existingClips.length > 0) {
+      return existingClips.map((clip) => ({
+        id: clip.id,
+        startTime: Number(clip.start_time ?? clip.startTime) || 0,
+        endTime: Number(clip.end_time ?? clip.endTime) || 0,
+        duration: Number(clip.duration) || 0,
+        contentType: clip.content_type ?? clip.contentType,
+        shareabilityScore: Number(clip.shareability_score ?? clip.shareabilityScore) || 0,
+        keyQuote: clip.key_quote ?? clip.keyQuote ?? '',
+        reason: clip.reason ?? '',
+        contextNeeded: clip.context_needed ?? clip.contextNeeded ?? 'low'
+      }))
+    }
+
     console.log(`Storing ${clips.length} clips for episode ${episodeId}`)
 
     const clipsWithIds = clips.map(clip => ({

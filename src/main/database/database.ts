@@ -1867,6 +1867,17 @@ class DatabaseManager {
     return (stmt.all() as any[]).map((row) => this.mapWorkflowJob(row))
   }
 
+  listRecoverablePipelineWorkflowJobs(): WorkflowJobRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM workflow_jobs
+      WHERE job_type = 'pipeline'
+        AND status IN ('pending', 'running', 'cancel_requested', 'pending_resume')
+      ORDER BY created_at ASC
+    `)
+    return (stmt.all() as any[]).map((row) => this.mapWorkflowJob(row))
+  }
+
   getActivePipelineWorkflowJob(episodeId?: string, projectId?: string): WorkflowJobRecord | undefined {
     let row: unknown
 
@@ -1876,7 +1887,7 @@ class DatabaseManager {
         FROM workflow_jobs
         WHERE job_type = 'pipeline'
           AND episode_id = ?
-          AND status IN ('pending', 'running')
+          AND status IN ('pending', 'running', 'pending_resume', 'cancel_requested')
         ORDER BY updated_at DESC, created_at DESC
         LIMIT 1
       `)
@@ -1887,7 +1898,7 @@ class DatabaseManager {
         FROM workflow_jobs
         WHERE job_type = 'pipeline'
           AND project_id = ?
-          AND status IN ('pending', 'running')
+          AND status IN ('pending', 'running', 'pending_resume', 'cancel_requested')
         ORDER BY updated_at DESC, created_at DESC
         LIMIT 1
       `)
@@ -1897,7 +1908,7 @@ class DatabaseManager {
         SELECT *
         FROM workflow_jobs
         WHERE job_type = 'pipeline'
-          AND status IN ('pending', 'running')
+          AND status IN ('pending', 'running', 'pending_resume', 'cancel_requested')
         ORDER BY updated_at DESC, created_at DESC
         LIMIT 1
       `)
@@ -2092,6 +2103,28 @@ class DatabaseManager {
     const stmt = this.db.prepare('SELECT * FROM artifacts WHERE file_path = ? LIMIT 1')
     const row = stmt.get(filePath)
     return row ? this.mapArtifact(row) : undefined
+  }
+
+  getArtifactsByWorkflowJob(workflowJobId: string, artifactType?: string): ArtifactRecord[] {
+    const stmt = artifactType
+      ? this.db.prepare(`
+          SELECT *
+          FROM artifacts
+          WHERE workflow_job_id = ? AND artifact_type = ?
+          ORDER BY created_at ASC
+        `)
+      : this.db.prepare(`
+          SELECT *
+          FROM artifacts
+          WHERE workflow_job_id = ?
+          ORDER BY created_at ASC
+        `)
+
+    const rows = artifactType
+      ? stmt.all(workflowJobId, artifactType)
+      : stmt.all(workflowJobId)
+
+    return (rows as any[]).map((row) => this.mapArtifact(row))
   }
 
   getArtifactById(artifactId: string): ArtifactRecord | undefined {

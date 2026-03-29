@@ -324,8 +324,8 @@ async function downloadWithMediaExtractor(sourceUrl: string) {
 }
 
 async function runProcessingJob(filePath: string, projectName?: string) {
-  if (activeProcessingJob) {
-    throw new Error(`Processing already in progress for job ${activeProcessingJob.jobId}`);
+  if (activeProcessingJob || processingPipeline.hasLiveWorker()) {
+    throw new Error(`Processing already in progress for job ${activeProcessingJob?.jobId || 'recovered-job'}`);
   }
 
   const jobId = randomUUID();
@@ -507,6 +507,10 @@ app.whenReady().then(async () => {
     mainWindow?.webContents.send('export-progress', job)
   }).catch((error) => {
     console.error('Export recovery failed:', error)
+  })
+
+  processingPipeline.recoverPipelines(mainWindow || undefined).catch((error) => {
+    console.error('Pipeline recovery failed:', error)
   })
 
   backfillClipDimensions().catch((error) => {

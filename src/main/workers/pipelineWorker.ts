@@ -6,6 +6,7 @@ import clipCandidateService from '../services/clipCandidateService'
 import LocalWhisperService from '../services/localWhisperService'
 import type { AudioChunk } from '../services/clipSelectionTypes'
 import type {
+  PipelineWorkerCandidate,
   PipelineWorkerCommand,
   PipelineWorkerCompletedEvent,
   PipelineWorkerContentPackage,
@@ -73,13 +74,7 @@ function postStageCompleted(
 }
 
 function buildHeuristicAnalysis(
-  candidates: Array<{
-    startTime: number
-    endTime: number
-    duration: number
-    text: string
-    heuristicScore: number
-  }>
+  candidates: PipelineWorkerCandidate[]
 ) {
   return {
     potentialClips: candidates.slice(0, 8).map((candidate, index) => ({
@@ -264,164 +259,205 @@ async function generateContentPackages(
 async function runPipeline(command: StartPipelineWorkerCommand) {
   const whisperService = new LocalWhisperService()
   const aiService = command.apiConfig?.openRouterKey ? new AIService(command.apiConfig) : null
-  let currentStage: PipelineWorkerStageKey = 'transcription'
+  const stageOrder: PipelineWorkerStageKey[] = [
+    'transcription',
+    'clip_generation',
+    'clip_ranking',
+    'content_package_generation'
+  ]
+  const startStageIndex = stageOrder.indexOf(command.startStage)
 
-  postStageStarted(command.workflowJobId, currentStage, 'Transcribing audio with Whisper...')
+  let currentStage: PipelineWorkerStageKey = command.startStage
+  let transcription = command.resumeData?.transcription
+  let candidates = command.resumeData?.candidates
+  let analysis = command.resumeData?.analysis
+  let aiAnalysisSucceeded = command.resumeData?.aiAnalysisSucceeded ?? false
+  let contentPackages = command.resumeData?.contentPackages ?? []
 
-  const transcriptionStartedAt = Date.now()
-  const audioStats = await fs.stat(command.audioPath)
-  const maxSize = 20 * 1024 * 1024
+  if (startStageIndex <= stageOrder.indexOf('transcription')) {
+    currentStage = 'transcription'
+    postStageStarted(command.workflowJobId, currentStage, 'Transcribing audio with Whisper...')
 
-  let transcription: PipelineWorkerTranscription
+    const transcriptionStartedAt = Date.now()
+    const audioStats = await fs.stat(command.audioPath)
+    const maxSize = 20 * 1024 * 1024
 
-  if (audioStats.size > maxSize) {
-    postProgress(
-      command.workflowJobId,
-      'transcription',
-      0,
-      'Large file detected, splitting into chunks...',
-      { timeRemaining: estimateTranscriptionTime(command.mediaDuration) }
-    )
+    if (audioStats.size > maxSize) {
+      postProgress(
+        command.workflowJobId,
+        currentStage,
+        0,
+        'Large file detected, splitting into chunks...',
+        { timeRemaining: estimateTranscriptionTime(command.mediaDuration) }
+      )
 
-    const chunks = await splitAudioFile(command.audioPath, command.mediaDuration)
-    try {
-      transcription = await whisperService.transcribeInChunks(
-        chunks,
+      const chunks = await splitAudioFile(command.audioPath, command.mediaDuration)
+      try {
+        transcription = await whisperService.transcribeInChunks(
+          chunks,
+          {
+            model: 'base',
+            wordTimestamps: true
+          },
+          (chunkIndex, _chunkProgress, totalProgress, partialText) => {
+            postProgress(
+              command.workflowJobId,
+              currentStage,
+              totalProgress,
+              `Transcribing chunk ${chunkIndex + 1}/${chunks.length}...`,
+              {
+                partialTranscript: partialText,
+                recentTranscriptLines: partialText ? extractRecentLines(partialText) : undefined,
+                timeRemaining: estimateRemainingFromProgress(
+                  transcriptionStartedAt,
+                  totalProgress / 100,
+                  command.mediaDuration
+                )
+              }
+            )
+          }
+        )
+      } finally {
+        await cleanupChunks(chunks)
+      }
+    } else {
+      transcription = await whisperService.transcribe(
+        command.audioPath,
         {
           model: 'base',
           wordTimestamps: true
         },
-        (chunkIndex, _chunkProgress, totalProgress, partialText) => {
+        (progress, partialText) => {
           postProgress(
             command.workflowJobId,
             currentStage,
-            totalProgress,
-            `Transcribing chunk ${chunkIndex + 1}/${chunks.length}...`,
+            progress,
+            'Transcribing audio...',
             {
               partialTranscript: partialText,
               recentTranscriptLines: partialText ? extractRecentLines(partialText) : undefined,
               timeRemaining: estimateRemainingFromProgress(
                 transcriptionStartedAt,
-                totalProgress / 100,
+                progress / 100,
                 command.mediaDuration
               )
             }
           )
         }
       )
-    } finally {
-      await cleanupChunks(chunks)
     }
-  } else {
-    transcription = await whisperService.transcribe(
-      command.audioPath,
-      {
-        model: 'base',
-        wordTimestamps: true
-      },
-      (progress, partialText) => {
-        postProgress(
-          command.workflowJobId,
-          currentStage,
-          progress,
-          'Transcribing audio...',
-          {
-            partialTranscript: partialText,
-            recentTranscriptLines: partialText ? extractRecentLines(partialText) : undefined,
-            timeRemaining: estimateRemainingFromProgress(
-              transcriptionStartedAt,
-              progress / 100,
-              command.mediaDuration
-            )
+
+    postStageCompleted(command.workflowJobId, currentStage, {
+      segmentCount: transcription.segments.length,
+      transcriptLength: transcription.text.length,
+      transcription
+    })
+  }
+
+  if (!transcription) {
+    throw new Error('Missing transcription data for pipeline resume')
+  }
+
+  if (startStageIndex <= stageOrder.indexOf('clip_generation')) {
+    currentStage = 'clip_generation'
+    postStageStarted(command.workflowJobId, currentStage, aiService
+      ? 'Generating clip candidates from transcript...'
+      : 'Generating heuristic clip candidates...')
+    postProgress(command.workflowJobId, currentStage, 0, aiService
+      ? 'Generating clip candidates from transcript...'
+      : 'Generating heuristic clip candidates...')
+
+    candidates = clipCandidateService.generateCandidates(transcription.segments).slice(0, 36)
+
+    postStageCompleted(command.workflowJobId, currentStage, {
+      candidateCount: candidates.length,
+      candidates
+    })
+  }
+
+  if (!candidates) {
+    throw new Error('Missing clip candidate data for pipeline resume')
+  }
+
+  if (startStageIndex <= stageOrder.indexOf('clip_ranking')) {
+    currentStage = 'clip_ranking'
+    postStageStarted(command.workflowJobId, currentStage, aiService
+      ? 'Ranking clip suggestions...'
+      : 'Ranking heuristic clip suggestions...')
+
+    if (!aiService) {
+      analysis = buildHeuristicAnalysis(candidates)
+      aiAnalysisSucceeded = false
+      postProgress(command.workflowJobId, currentStage, 100, 'AI unavailable. Using heuristic clip suggestions.')
+      postStageCompleted(command.workflowJobId, currentStage, {
+        clipCount: analysis.potentialClips.length,
+        mode: 'heuristic',
+        aiAnalysisSucceeded,
+        analysis
+      })
+    } else {
+      try {
+        analysis = await aiService.analyzeTranscript(
+          transcription,
+          command.mediaDuration,
+          (progress) => {
+            postProgress(command.workflowJobId, currentStage, progress, 'AI analyzing content...')
           }
         )
+        aiAnalysisSucceeded = true
+        postStageCompleted(command.workflowJobId, currentStage, {
+          clipCount: analysis.potentialClips.length,
+          mode: 'ai',
+          aiAnalysisSucceeded,
+          analysis
+        })
+      } catch (error) {
+        analysis = buildHeuristicAnalysis(candidates)
+        aiAnalysisSucceeded = false
+        postProgress(command.workflowJobId, currentStage, 100, 'AI analysis failed. Using heuristic clip suggestions.')
+        postStageCompleted(command.workflowJobId, currentStage, {
+          clipCount: analysis.potentialClips.length,
+          mode: 'heuristic_fallback',
+          aiAnalysisSucceeded,
+          analysis,
+          aiError: error instanceof Error ? error.message : 'Unknown error'
+        })
       }
-    )
-  }
-
-  postStageCompleted(command.workflowJobId, currentStage, {
-    segmentCount: transcription.segments.length,
-    transcriptLength: transcription.text.length
-  })
-
-  currentStage = 'clip_generation'
-  postStageStarted(command.workflowJobId, currentStage, aiService
-    ? 'Generating clip candidates from transcript...'
-    : 'Generating heuristic clip candidates...')
-  postProgress(command.workflowJobId, currentStage, 0, aiService
-    ? 'Generating clip candidates from transcript...'
-    : 'Generating heuristic clip candidates...')
-
-  const candidates = clipCandidateService.generateCandidates(transcription.segments).slice(0, 36)
-
-  postStageCompleted(command.workflowJobId, currentStage, {
-    candidateCount: candidates.length
-  })
-
-  currentStage = 'clip_ranking'
-  postStageStarted(command.workflowJobId, currentStage, aiService
-    ? 'Ranking clip suggestions...'
-    : 'Ranking heuristic clip suggestions...')
-
-  let analysis: { potentialClips: PipelineWorkerPotentialClip[] }
-  let aiAnalysisSucceeded = false
-
-  if (!aiService) {
-    analysis = buildHeuristicAnalysis(candidates)
-    postProgress(command.workflowJobId, currentStage, 100, 'AI unavailable. Using heuristic clip suggestions.')
-    postStageCompleted(command.workflowJobId, currentStage, {
-      clipCount: analysis.potentialClips.length,
-      mode: 'heuristic'
-    })
-  } else {
-    try {
-      analysis = await aiService.analyzeTranscript(
-        transcription,
-        command.mediaDuration,
-        (progress) => {
-          postProgress(command.workflowJobId, currentStage, progress, 'AI analyzing content...')
-        }
-      )
-      aiAnalysisSucceeded = true
-      postStageCompleted(command.workflowJobId, currentStage, {
-        clipCount: analysis.potentialClips.length,
-        mode: 'ai'
-      })
-    } catch (error) {
-      analysis = buildHeuristicAnalysis(candidates)
-      postProgress(command.workflowJobId, currentStage, 100, 'AI analysis failed. Using heuristic clip suggestions.')
-      postStageCompleted(command.workflowJobId, currentStage, {
-        clipCount: analysis.potentialClips.length,
-        mode: 'heuristic_fallback',
-        aiError: error instanceof Error ? error.message : 'Unknown error'
-      })
     }
   }
 
-  currentStage = 'content_package_generation'
-  postStageStarted(command.workflowJobId, currentStage, aiAnalysisSucceeded && analysis.potentialClips.length > 0
-    ? 'Generating titles and descriptions...'
-    : 'Skipping content package generation')
+  if (!analysis) {
+    throw new Error('Missing ranked clip analysis for pipeline resume')
+  }
 
-  let contentPackages: PipelineWorkerContentPackage[] = []
-  if (aiAnalysisSucceeded && analysis.potentialClips.length > 0 && aiService) {
-    contentPackages = await generateContentPackages(
-      command.workflowJobId,
-      aiService,
-      transcription,
-      analysis.potentialClips,
-      command.brandVoiceExamples
-    )
-    postStageCompleted(command.workflowJobId, currentStage, {
-      clipCount: contentPackages.length
-    })
-  } else {
-    postProgress(command.workflowJobId, currentStage, 100, 'Transcript processing completed')
-    postStageCompleted(command.workflowJobId, currentStage, {
-      skipped: true,
-      aiAnalysisSucceeded,
-      clipCount: analysis.potentialClips.length
-    })
+  if (startStageIndex <= stageOrder.indexOf('content_package_generation')) {
+    currentStage = 'content_package_generation'
+    postStageStarted(command.workflowJobId, currentStage, aiAnalysisSucceeded && analysis.potentialClips.length > 0
+      ? 'Generating titles and descriptions...'
+      : 'Skipping content package generation')
+
+    if (aiAnalysisSucceeded && analysis.potentialClips.length > 0 && aiService) {
+      contentPackages = await generateContentPackages(
+        command.workflowJobId,
+        aiService,
+        transcription,
+        analysis.potentialClips,
+        command.brandVoiceExamples
+      )
+      postStageCompleted(command.workflowJobId, currentStage, {
+        clipCount: contentPackages.length,
+        contentPackages
+      })
+    } else {
+      contentPackages = []
+      postProgress(command.workflowJobId, currentStage, 100, 'Transcript processing completed')
+      postStageCompleted(command.workflowJobId, currentStage, {
+        skipped: true,
+        aiAnalysisSucceeded,
+        clipCount: analysis.potentialClips.length,
+        contentPackages
+      })
+    }
   }
 
   const completedEvent: PipelineWorkerCompletedEvent = {

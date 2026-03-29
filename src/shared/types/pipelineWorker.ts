@@ -38,6 +38,14 @@ export interface PipelineWorkerPotentialClip {
   contextNeeded: 'low' | 'medium' | 'high'
 }
 
+export interface PipelineWorkerCandidate {
+  startTime: number
+  endTime: number
+  duration: number
+  text: string
+  heuristicScore: number
+}
+
 export interface PipelineWorkerContentPackage {
   clipIndex: number
   titles: string[]
@@ -51,6 +59,16 @@ export interface StartPipelineWorkerCommand {
   mediaDuration: number
   apiConfig: APIConfig | null
   brandVoiceExamples: string[]
+  startStage: PipelineWorkerStageKey
+  resumeData?: {
+    transcription?: PipelineWorkerTranscription
+    candidates?: PipelineWorkerCandidate[]
+    analysis?: {
+      potentialClips: PipelineWorkerPotentialClip[]
+    }
+    aiAnalysisSucceeded?: boolean
+    contentPackages?: PipelineWorkerContentPackage[]
+  }
 }
 
 export interface PipelineWorkerStageStartedEvent {

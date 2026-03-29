@@ -30,6 +30,14 @@ const WORKER_STAGE_KEYS: PipelineWorkerStageKey[] = [
 class PipelineWorkerSupervisor {
   private workers: Map<string, ChildProcess> = new Map()
 
+  hasLiveWorker(workflowJobId: string) {
+    return this.workers.has(workflowJobId)
+  }
+
+  hasAnyLiveWorker() {
+    return this.workers.size > 0
+  }
+
   async runPipeline(
     command: StartPipelineWorkerCommand,
     options: RunPipelineOptions = {}
