@@ -3,16 +3,18 @@ import { basename, join } from 'path'
 import { BrowserWindow } from 'electron'
 import { database } from '../database/database'
 import { ffmpegService } from './ffmpegService'
-import AIService from './aiService'
-import clipCandidateService from './clipCandidateService'
-import LocalWhisperService from './localWhisperService'
 import { configService } from './configService'
+import { pipelineWorkerSupervisor } from './pipelineWorkerSupervisor'
 import type {
   ProcessingErrorPayload,
   ProcessingProgress,
   ProcessingResultPayload
 } from '@shared/types'
-import type { AudioChunk } from './clipSelectionTypes'
+import type {
+  PipelineWorkerCompletedEvent,
+  PipelineWorkerContentPackage,
+  PipelineWorkerPotentialClip
+} from '@shared/types/pipelineWorker'
 
 export interface ProcessingResult {
   projectId: string
@@ -41,29 +43,6 @@ const PIPELINE_STEP_ORDER: PipelineStepKey[] = [
 ]
 
 class ProcessingPipeline {
-  private aiService?: AIService
-  private whisperService?: LocalWhisperService
-  
-  constructor() {
-    this.initializeServices()
-  }
-  
-  private initializeServices() {
-    const config = configService.getApiConfig()
-    
-    if (config.openRouterKey) {
-      this.aiService = new AIService(config)
-    }
-    
-    // Local Whisper service doesn't need API keys
-    try {
-      this.whisperService = new LocalWhisperService()
-      console.log('Local Whisper service initialized successfully')
-    } catch (error) {
-      console.error('Failed to initialize Local Whisper service:', error)
-    }
-  }
-
   private getFriendlyMediaError(filePath: string, error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
 
@@ -77,25 +56,6 @@ class ProcessingPipeline {
 
     return `Failed to analyze media file: ${message}`
   }
-
-  private buildHeuristicAnalysis(transcriptData: { text: string; segments: Array<{ id: number; start: number; end: number; text: string }> }) {
-    const candidates = clipCandidateService.generateCandidates(transcriptData.segments).slice(0, 8)
-
-    return {
-      potentialClips: candidates.map((candidate, index) => ({
-        id: `heuristic_${index + 1}`,
-        startTime: candidate.startTime,
-        endTime: candidate.endTime,
-        duration: candidate.duration,
-        contentType: 'insight' as const,
-        shareabilityScore: Number(Math.max(1, Math.min(10, candidate.heuristicScore * 1.6)).toFixed(1)),
-        keyQuote: candidate.text.slice(0, 180),
-        reason: 'Generated from local heuristic ranking because AI ranking was unavailable.',
-        contextNeeded: 'low' as const
-      }))
-    }
-  }
-  
   /**
    * Process a podcast file through the complete pipeline
    */
@@ -113,15 +73,8 @@ class ProcessingPipeline {
     let currentStep: PipelineStepKey | null = null
     
     try {
-      // Ensure services are initialized
-      this.initializeServices()
-
       this.initializeWorkflowJob(workflowJobId, filePath, projectName)
       this.createPipelineStepRuns(workflowJobId)
-      
-      if (!this.whisperService) {
-        throw new Error('Whisper service not available. Please install whisper with: pipx install openai-whisper')
-      }
       
       // Step 1: Create project and episode records
       currentStep = 'source_resolve_or_import'
@@ -215,282 +168,30 @@ class ProcessingPipeline {
         throw new Error(`Failed to extract audio: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
       
-      // Step 3: Transcribe audio (with chunking for large files)
-      console.log('Starting transcription stage...')
-      const transcriptionStartedAt = Date.now()
-      currentStep = 'transcription'
-      this.startPipelineStep(workflowJobId, currentStep, 'Transcribing audio with Whisper...')
-      this.sendProgress(window, {
-        jobId: workflowJobId,
-        stage: 'transcribing',
-        progress: 30,
-        stageProgress: 0,
-        message: 'Transcribing audio with Whisper...',
-        timeRemaining: this.estimateTranscriptionTime(mediaInfo.duration),
-        thinkingMessage: 'listening carefully...'
-      })
-      
-      let transcription;
-      const audioStats = await import('fs').then(fs => fs.promises.stat(audioPath));
-      const maxSize = 20 * 1024 * 1024; // 20MB to be safe (Whisper limit is 25MB)
-      console.log(`Audio file size: ${audioStats.size} bytes (${(audioStats.size / 1024 / 1024).toFixed(2)} MB)`)
-      
-      if (audioStats.size > maxSize) {
-        // Split large audio file into chunks
-        console.log('Large file detected, will split into chunks')
-        this.sendProgress(window, {
-          jobId: workflowJobId,
-          stage: 'transcribing',
-          progress: 30,
-          stageProgress: 0,
-          message: 'Large file detected, splitting into chunks...',
-          thinkingMessage: 'preparing audio segments...'
-        });
-        
-        console.log('Starting audio file splitting...')
-        const chunks = await this.splitAudioFile(audioPath, mediaInfo.duration);
-        console.log(`Created ${chunks.length} chunks:`, chunks)
-        
-        transcription = await this.whisperService.transcribeInChunks(
-          chunks,
-          {
-            model: 'base',
-            wordTimestamps: true
-          },
-          (chunkIndex, chunkProgress, totalProgress, partialText) => {
-            this.updatePipelineStepProgress(
-              workflowJobId,
-              currentStep!,
-              totalProgress,
-              `Transcribing chunk ${chunkIndex + 1}/${chunks.length}...`
-            )
-            const timeRemaining = this.estimateRemainingFromProgress(
-              transcriptionStartedAt,
-              totalProgress / 100,
-              mediaInfo.duration
-            )
-            this.sendProgress(window, {
-              jobId: workflowJobId,
-              stage: 'transcribing',
-              progress: 30 + (totalProgress * 0.35 / 100), // 30-65%
-              stageProgress: totalProgress,
-              message: `Transcribing chunk ${chunkIndex + 1}/${chunks.length}...`,
-              timeRemaining,
-              thinkingMessage: this.getThinkingMessage('chunked', chunkIndex),
-              partialTranscript: partialText,
-              recentTranscriptLines: partialText ? this.extractRecentLines(partialText) : undefined
-            })
-          }
-        );
-        
-        // Clean up chunk files
-        await this.cleanupChunks(chunks);
-        
-      } else {
-        // Small file, process normally
-        transcription = await this.whisperService.transcribe(
+      currentStep = null
+      const workerResult = await pipelineWorkerSupervisor.runPipeline(
+        {
+          type: 'start_pipeline',
+          workflowJobId,
           audioPath,
-          {
-            model: 'base',
-            wordTimestamps: true
-          },
-          (progress, partialText) => {
-            this.updatePipelineStepProgress(workflowJobId, currentStep!, progress, 'Transcribing audio...')
-            const timeRemaining = this.estimateRemainingFromProgress(
-              transcriptionStartedAt,
-              progress / 100,
-              mediaInfo.duration
-            )
-            this.sendProgress(window, {
-              jobId: workflowJobId,
-              stage: 'transcribing',
-              progress: 30 + (progress * 0.35), // 30-65%
-              stageProgress: progress,
-              message: 'Transcribing audio...',
-              timeRemaining,
-              thinkingMessage: this.getThinkingMessage('transcribing'),
-              partialTranscript: partialText,
-              recentTranscriptLines: partialText ? this.extractRecentLines(partialText) : undefined
-            })
-          }
-        );
-      }
-      
-      // Step 4: Store transcript in database
-      await this.storeTranscript(episodeId, transcription)
-      this.completePipelineStep(workflowJobId, currentStep, {
-        segmentCount: transcription.segments?.length ?? 0,
-        transcriptLength: transcription.text?.length ?? 0
-      })
-      
-      // Step 5: AI content analysis with graceful degradation
-      currentStep = 'clip_generation'
-      this.startPipelineStep(
-        workflowJobId,
-        currentStep,
-        this.aiService
-          ? 'Generating clip candidates from transcript...'
-          : 'Generating heuristic clip candidates...'
+          mediaDuration: mediaInfo.duration,
+          apiConfig: configService.getApiConfig().openRouterKey ? configService.getApiConfig() : null,
+          brandVoiceExamples: configService.getBrandVoice().examples
+        },
+        { window }
       )
-      this.sendProgress(window, {
-        jobId: workflowJobId,
-        stage: 'analyzing',
-        progress: 65,
-        stageProgress: 0,
-        message: this.aiService
-          ? 'Analyzing content for clip suggestions...'
-          : 'Transcription completed. Skipping AI clip analysis...'
-      })
-      
-      let analysis: any = null
-      let aiAnalysisSucceeded = false
-      
-      if (!this.aiService) {
-        analysis = this.buildHeuristicAnalysis(transcription)
-        this.completePipelineStep(workflowJobId, currentStep, {
-          clipCount: analysis.potentialClips.length,
-          mode: 'heuristic'
-        })
-        currentStep = 'clip_ranking'
-        this.startPipelineStep(workflowJobId, currentStep, 'Ranking heuristic clip suggestions...')
-        this.completePipelineStep(workflowJobId, currentStep, {
-          clipCount: analysis.potentialClips.length,
-          mode: 'heuristic'
-        })
-        this.sendProgress(window, {
-          jobId: workflowJobId,
-          stage: 'analyzing',
-          progress: 90,
-          stageProgress: 100,
-          message: 'AI unavailable. Using heuristic clip suggestions.'
-        })
-      } else {
-        try {
-          analysis = await this.aiService.analyzeTranscript(
-            transcription, // Pass full transcription object with segments
-            mediaInfo.duration,
-            (progress) => {
-              this.updatePipelineStepProgress(
-                workflowJobId,
-                currentStep!,
-                Math.min(progress, 100),
-                'Generating clip candidates from transcript...'
-              )
-              this.sendProgress(window, {
-                jobId: workflowJobId,
-                stage: 'analyzing',
-                progress: 65 + (progress * 0.25), // 65-90%
-                stageProgress: progress,
-                message: 'AI analyzing content...'
-              })
-            }
-          )
-          aiAnalysisSucceeded = true
-          console.log('AI analysis completed successfully')
-          this.completePipelineStep(workflowJobId, currentStep, {
-            clipCount: analysis.potentialClips.length,
-            mode: 'ai'
-          })
-          currentStep = 'clip_ranking'
-          this.startPipelineStep(workflowJobId, currentStep, 'Ranking clip suggestions...')
-          this.completePipelineStep(workflowJobId, currentStep, {
-            clipCount: analysis.potentialClips.length,
-            mode: 'ai'
-          })
-        } catch (aiError) {
-          console.error('AI analysis failed, proceeding with transcript-only mode:', aiError)
-          
-          analysis = this.buildHeuristicAnalysis(transcription)
-          aiAnalysisSucceeded = false
-          this.completePipelineStep(workflowJobId, currentStep, {
-            clipCount: analysis.potentialClips.length,
-            mode: 'heuristic_fallback',
-            aiError: aiError instanceof Error ? aiError.message : 'Unknown error'
-          })
-          currentStep = 'clip_ranking'
-          this.startPipelineStep(workflowJobId, currentStep, 'Ranking heuristic clip suggestions...')
-          this.completePipelineStep(workflowJobId, currentStep, {
-            clipCount: analysis.potentialClips.length,
-            mode: 'heuristic_fallback'
-          })
-          
-          this.sendProgress(window, {
-            jobId: workflowJobId,
-            stage: 'analyzing',
-            progress: 90,
-            stageProgress: 100,
-            message: 'AI analysis failed. Using heuristic clip suggestions.'
-          })
-        }
-      }
-      
-      // Step 6: Store clips in database (even if empty)
-      const storedClips = await this.storeClips(episodeId, analysis.potentialClips, mediaInfo.resolution)
 
-      // Step 7: Generate content packages (only if we have clips)
-      currentStep = 'content_package_generation'
-      if (aiAnalysisSucceeded && storedClips.length > 0) {
-        this.startPipelineStep(workflowJobId, currentStep, 'Generating titles and descriptions...')
-        this.sendProgress(window, {
-          jobId: workflowJobId,
-          stage: 'generating',
-          progress: 90,
-          stageProgress: 0,
-          message: 'Generating titles and descriptions...'
-        })
-
-        try {
-          await this.generateContentPackages(
-            storedClips.slice(0, 10), // Top 10 clips with IDs
-            (progress) => {
-              this.updatePipelineStepProgress(
-                workflowJobId,
-                currentStep!,
-                progress,
-                'Generating content packages...'
-              )
-              this.sendProgress(window, {
-                jobId: workflowJobId,
-                stage: 'generating',
-                progress: 90 + (progress * 0.1), // 90-100%
-                stageProgress: progress,
-                message: 'Generating content packages...'
-              })
-            }
-          )
-          this.completePipelineStep(workflowJobId, currentStep, {
-            clipCount: Math.min(storedClips.length, 10)
-          })
-        } catch (contentError) {
-          console.error('Content generation failed, but clips are preserved:', contentError)
-          this.failPipelineStep(
-            workflowJobId,
-            currentStep,
-            contentError instanceof Error ? contentError.message : 'Unknown error',
-            'content_generation_failed'
-          )
-          // Continue processing - clips exist even without enhanced content packages
-        }
-      } else {
-        console.log('Skipping content generation - no clips available')
-        this.startPipelineStep(workflowJobId, currentStep, 'Skipping content package generation')
-        this.completePipelineStep(workflowJobId, currentStep, {
-          skipped: true,
-          aiAnalysisSucceeded,
-          clipCount: storedClips.length
-        })
-        this.sendProgress(window, {
-          jobId: workflowJobId,
-          stage: 'generating',
-          progress: 95,
-          stageProgress: 100,
-          message: 'Transcript processing completed'
-        })
-      }
+      await this.storeTranscript(episodeId, workerResult.transcription)
+      const storedClips = await this.storeClips(
+        episodeId,
+        workerResult.analysis.potentialClips,
+        mediaInfo.resolution
+      )
+      await this.storeGeneratedContentPackages(storedClips, workerResult.contentPackages)
       
       // Step 8: Update episode status
       database.updateEpisodeStatus(episodeId, 'completed')
-      this.completeWorkflowJob(workflowJobId, projectId, episodeId, analysis.potentialClips.length)
+      this.completeWorkflowJob(workflowJobId, projectId, episodeId, workerResult.analysis.potentialClips.length)
       
       // Step 9: Add to recent projects
       configService.addRecentProject({
@@ -504,7 +205,7 @@ class ProcessingPipeline {
         stage: 'completed',
         progress: 100,
         stageProgress: 100,
-        message: `Found ${analysis.potentialClips.length} potential clips!`
+        message: `Found ${workerResult.analysis.potentialClips.length} potential clips!`
       })
       
       const processingTime = (Date.now() - startTime) / 1000
@@ -513,9 +214,9 @@ class ProcessingPipeline {
         jobId: workflowJobId,
         projectId,
         episodeId,
-        clipsFound: analysis.potentialClips.length,
+        clipsFound: workerResult.analysis.potentialClips.length,
         processingTime,
-        aiAnalysisSucceeded,
+        aiAnalysisSucceeded: workerResult.aiAnalysisSucceeded,
         hasTranscript: true
       }
       
@@ -524,10 +225,10 @@ class ProcessingPipeline {
       window?.webContents.send('processing-complete', result)
       
       // Update final progress message based on what was accomplished
-      const finalMessage = aiAnalysisSucceeded 
-        ? `Found ${analysis.potentialClips.length} potential clips!`
-        : analysis.potentialClips.length > 0
-          ? `Generated ${analysis.potentialClips.length} heuristic clip suggestions.`
+      const finalMessage = workerResult.aiAnalysisSucceeded 
+        ? `Found ${workerResult.analysis.potentialClips.length} potential clips!`
+        : workerResult.analysis.potentialClips.length > 0
+          ? `Generated ${workerResult.analysis.potentialClips.length} heuristic clip suggestions.`
           : `Transcription completed, but no clips were identified.`
         
       this.sendProgress(window, {
@@ -542,12 +243,14 @@ class ProcessingPipeline {
       
     } catch (error) {
       console.error('Processing pipeline failed:', error)
+      const workflowJob = database.getWorkflowJob(workflowJobId) as { status?: string } | undefined
+      const alreadyFailed = workflowJob?.status === 'failed'
       
       // Update episode status to error if we got that far
       if (episodeId!) {
         database.updateEpisodeStatus(episodeId, 'error')
       }
-      if (currentStep) {
+      if (currentStep && !alreadyFailed) {
         this.failPipelineStep(
           workflowJobId,
           currentStep,
@@ -555,19 +258,21 @@ class ProcessingPipeline {
           'pipeline_step_failed'
         )
       }
-      this.failWorkflowJob(
-        workflowJobId,
-        projectId,
-        episodeId,
-        error instanceof Error ? error.message : 'Unknown processing error'
-      )
-      
-      const errorPayload: ProcessingErrorPayload = {
-        jobId: workflowJobId,
-        message: error instanceof Error ? error.message : 'Unknown processing error'
-      }
+      if (!alreadyFailed) {
+        this.failWorkflowJob(
+          workflowJobId,
+          projectId,
+          episodeId,
+          error instanceof Error ? error.message : 'Unknown processing error'
+        )
 
-      window?.webContents.send('processing-error', errorPayload)
+        const errorPayload: ProcessingErrorPayload = {
+          jobId: workflowJobId,
+          message: error instanceof Error ? error.message : 'Unknown processing error'
+        }
+
+        window?.webContents.send('processing-error', errorPayload)
+      }
       
       throw error
     }
@@ -615,7 +320,10 @@ class ProcessingPipeline {
     return episodeId
   }
   
-  private async storeTranscript(episodeId: string, transcription: any) {
+  private async storeTranscript(
+    episodeId: string,
+    transcription: PipelineWorkerCompletedEvent['transcription']
+  ) {
     const segments = transcription.segments.map((segment: any) => ({
       id: randomUUID(),
       episodeId,
@@ -632,9 +340,9 @@ class ProcessingPipeline {
   
   private async storeClips(
     episodeId: string,
-    clips: any[],
+    clips: PipelineWorkerPotentialClip[],
     sourceResolution?: { width: number; height: number }
-  ): Promise<any[]> {
+  ): Promise<Array<{ id: string } & PipelineWorkerPotentialClip>> {
     console.log(`Storing ${clips.length} clips for episode ${episodeId}`)
 
     const clipsWithIds = clips.map(clip => ({
@@ -659,52 +367,24 @@ class ProcessingPipeline {
     return clipsWithIds
   }
   
-  private async generateContentPackages(
-    clips: any[],
-    onProgress?: (progress: number) => void
+  private async storeGeneratedContentPackages(
+    clips: Array<{ id: string } & PipelineWorkerPotentialClip>,
+    contentPackages: PipelineWorkerContentPackage[]
   ) {
-    if (!this.aiService) return
+    for (const contentPackage of contentPackages) {
+      const clip = clips[contentPackage.clipIndex]
+      if (!clip) {
+        continue
+      }
 
-    const brandVoice = configService.getBrandVoice()
+      if (contentPackage.titles.length > 0) {
+        database.insertClipTitles(clip.id, contentPackage.titles)
+      }
 
-    for (let i = 0; i < clips.length; i++) {
-      const clip = clips[i]
-
-      try {
-        const clipText = this.extractClipText(clip.id)
-
-        const contentPackage = await this.aiService.generateContentPackage(
-          clipText,
-          clip.contentType,
-          brandVoice.examples.length > 0 ? brandVoice.examples : undefined
-        )
-
-        console.log('Generated content package for clip:', clip.id, contentPackage)
-
-        // Store titles in database
-        if (contentPackage.titles && contentPackage.titles.length > 0) {
-          database.insertClipTitles(clip.id, contentPackage.titles)
-          console.log(`Stored ${contentPackage.titles.length} titles for clip ${clip.id}`)
-        }
-
-        // Store description in database
-        if (contentPackage.description) {
-          database.insertClipDescription(clip.id, contentPackage.description, 'general')
-          console.log(`Stored description for clip ${clip.id}`)
-        }
-
-        onProgress?.(((i + 1) / clips.length) * 100)
-
-      } catch (error) {
-        console.error(`Failed to generate content package for clip ${clip.id}:`, error)
-        // Continue with other clips
+      if (contentPackage.description) {
+        database.insertClipDescription(clip.id, contentPackage.description, 'general')
       }
     }
-  }
-  
-  private extractClipText(clipId: string): string {
-    const segments = database.getClipTranscriptSegments(clipId) as Array<{ text: string }>
-    return segments.map(segment => segment.text).join(' ').trim()
   }
   
   private sendProgress(window: BrowserWindow | undefined, progress: ProcessingProgress) {
@@ -726,7 +406,7 @@ class ProcessingPipeline {
       id: workflowJobId,
       jobType: 'pipeline',
       status: 'pending',
-      workerKind: 'main_process',
+      workerKind: 'pipeline_worker',
       projectId: null,
       episodeId: null,
       clipId: null,
@@ -886,158 +566,6 @@ class ProcessingPipeline {
       updatedAt: new Date().toISOString(),
       completedAt: new Date().toISOString()
     })
-  }
-  
-  private estimateTranscriptionTime(durationInSeconds: number): number {
-    // Rough estimate: Whisper processes about 10x faster than real-time
-    return Math.ceil(durationInSeconds / 10)
-  }
-
-  private estimateRemainingFromProgress(
-    startedAt: number,
-    progressFraction: number,
-    mediaDurationInSeconds: number
-  ): number {
-    const clampedFraction = Math.max(0.01, Math.min(progressFraction, 0.99))
-    const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
-
-    if (progressFraction <= 0.02) {
-      return this.estimateTranscriptionTime(mediaDurationInSeconds)
-    }
-
-    const estimatedTotalSeconds = elapsedSeconds / clampedFraction
-    return Math.max(1, Math.ceil(estimatedTotalSeconds - elapsedSeconds))
-  }
-
-  private getThinkingMessage(stage: string, chunkIndex?: number): string {
-    const messages = {
-      transcribing: [
-        'listening carefully...',
-        'processing audio waves...',
-        'understanding speech patterns...',
-        'decoding audio signals...',
-        'capturing every word...',
-        'analyzing vocal patterns...',
-        'interpreting language nuances...'
-      ],
-      chunked: [
-        'processing segment...',
-        'analyzing audio chunk...',
-        'transcribing section...',
-        'decoding audio data...',
-        'understanding context...'
-      ]
-    }
-    
-    const messageArray = stage === 'chunked' ? messages.chunked : messages.transcribing
-    const index = chunkIndex !== undefined ? chunkIndex % messageArray.length : Math.floor(Math.random() * messageArray.length)
-    return messageArray[index]
-  }
-
-  /**
-   * Extract the most recent 2-3 lines from transcript for display
-   */
-  private extractRecentLines(fullText: string): string[] {
-    // Split into sentences and take the last 2-3
-    const sentences = fullText
-      .split(/[.!?]+/)
-      .map(s => s.trim())
-      .filter(s => s.length > 0)
-    
-    // Return last 2-3 sentences, but limit total length
-    const recentSentences = sentences.slice(-3)
-    const lines: string[] = []
-    
-    for (const sentence of recentSentences) {
-      // Wrap long sentences
-      if (sentence.length > 80) {
-        const words = sentence.split(' ')
-        let currentLine = ''
-        
-        for (const word of words) {
-          if ((currentLine + ' ' + word).length > 80) {
-            if (currentLine) lines.push(currentLine)
-            currentLine = word
-          } else {
-            currentLine = currentLine ? currentLine + ' ' + word : word
-          }
-        }
-        if (currentLine) lines.push(currentLine)
-      } else {
-        lines.push(sentence)
-      }
-    }
-    
-    return lines.slice(-2) // Return max 2 lines for clean display
-  }
-
-  /**
-   * Split large audio file into chunks for Whisper processing
-   */
-  private async splitAudioFile(audioPath: string, durationInSeconds: number): Promise<AudioChunk[]> {
-    const chunkDurationMinutes = 10; // 10-minute chunks
-    const chunkDurationSeconds = chunkDurationMinutes * 60;
-    const numChunks = Math.ceil(durationInSeconds / chunkDurationSeconds);
-    const chunks: AudioChunk[] = [];
-
-    const tempDir = join(require('os').tmpdir(), 'ariadne-chunks-' + Date.now());
-    await import('fs').then(fs => fs.promises.mkdir(tempDir, { recursive: true }));
-
-    for (let i = 0; i < numChunks; i++) {
-      const startTime = i * chunkDurationSeconds;
-      const chunkPath = join(tempDir, `chunk_${i}.wav`);
-      const chunkDuration = Math.min(chunkDurationSeconds, durationInSeconds - startTime)
-      
-      // Extract audio chunk using FFmpeg directly
-      await new Promise<void>((resolve, reject) => {
-        const ffmpeg = require('fluent-ffmpeg');
-        ffmpeg(audioPath)
-          .seekInput(startTime)
-          .duration(chunkDuration)
-          .audioCodec('pcm_s16le')
-          .audioChannels(1)
-          .audioFrequency(16000)
-          .format('wav')
-          .output(chunkPath)
-          .on('end', () => resolve())
-          .on('error', (error: Error) => reject(error))
-          .run();
-      });
-      
-      chunks.push({
-        path: chunkPath,
-        startTime,
-        duration: chunkDuration
-      });
-    }
-
-    return chunks;
-  }
-
-  /**
-   * Clean up temporary chunk files
-   */
-  private async cleanupChunks(chunks: AudioChunk[]): Promise<void> {
-    const fs = await import('fs');
-    
-    for (const chunk of chunks) {
-      const chunkPath = chunk.path
-      try {
-        await fs.promises.unlink(chunkPath);
-      } catch (error) {
-        console.warn('Failed to cleanup chunk file:', chunkPath, error);
-      }
-    }
-
-    // Try to cleanup the temp directory
-    if (chunks.length > 0) {
-      const tempDir = require('path').dirname(chunks[0].path);
-      try {
-        await fs.promises.rmdir(tempDir);
-      } catch (error) {
-        console.warn('Failed to cleanup temp directory:', tempDir, error);
-      }
-    }
   }
   
   /**
