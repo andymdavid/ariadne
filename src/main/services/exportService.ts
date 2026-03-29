@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
-import { join, basename } from 'path'
-import { BrowserWindow, dialog } from 'electron'
+import { join } from 'path'
+import { dialog } from 'electron'
 import { existsSync, mkdirSync } from 'fs'
 import { database } from '../database/database'
 import { ffmpegService } from './ffmpegService'
@@ -73,6 +73,7 @@ export interface ExportJob {
 
 class ExportService {
   private activeJobs: Map<string, ExportJob> = new Map()
+  private cancelledJobs: Set<string> = new Set()
 
   /**
    * Export approved clips from an episode
@@ -88,7 +89,7 @@ class ExportService {
       throw new Error(`Episode not found: ${episodeId}`)
     }
 
-    const approvedClips = database.getApprovedClips(episodeId)
+    const approvedClips = database.getApprovedClips(episodeId) as any[]
     if (approvedClips.length === 0) {
       throw new Error('No approved clips to export')
     }
@@ -113,12 +114,112 @@ class ExportService {
       mkdirSync(outputDirectory, { recursive: true })
     }
 
-    // Create export job
+    const now = new Date().toISOString()
     const jobId = randomUUID()
+    const clipIds = approvedClips.map((c: any) => c.id)
+    const aspectRatio = options.aspectRatio || '9:16'
+    const includeCaptions = options.includeCaptions !== false
+    const workflowJobId = randomUUID()
+
+    database.createWorkflowJob({
+      id: workflowJobId,
+      jobType: 'export',
+      status: 'pending',
+      workerKind: 'main_process',
+      projectId: (episode as any).project_id ?? null,
+      episodeId,
+      clipId: null,
+      parentJobId: null,
+      progress: 0,
+      stage: 'queued',
+      message: 'Queued for export',
+      inputJson: JSON.stringify({
+        episodeId,
+        clipIds,
+        outputDirectory,
+        aspectRatio,
+        includeCaptions
+      }),
+      configSnapshotJson: null,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      heartbeatAt: null,
+      attemptCount: 0,
+      maxAttempts: 1,
+      startedAt: null,
+      completedAt: null,
+      createdAt: now,
+      updatedAt: now
+    })
+
+    database.createExportJob({
+      id: jobId,
+      workflowJobId,
+      episodeId,
+      status: 'pending',
+      outputDirectory,
+      aspectRatio,
+      includeCaptions,
+      currentClipIndex: 0,
+      totalClips: approvedClips.length,
+      progress: 0,
+      clipIdsJson: JSON.stringify(clipIds),
+      errorMessage: null,
+      createdAt: now,
+      startedAt: null,
+      completedAt: null,
+      updatedAt: now
+    })
+
+    for (let i = 0; i < approvedClips.length; i++) {
+      const clip = approvedClips[i]
+      database.createWorkflowStepRun({
+        id: randomUUID(),
+        jobId: workflowJobId,
+        stepKey: 'export_clip',
+        status: 'pending',
+        stepOrder: i,
+        clipId: clip.id,
+        attempt: 1,
+        progress: 0,
+        message: null,
+        inputJson: JSON.stringify({
+          clipId: clip.id,
+          startTime: clip.start_time,
+          duration: clip.duration
+        }),
+        outputJson: null,
+        errorCode: null,
+        errorMessage: null,
+        startedAt: null,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now
+      })
+
+      database.createExportOutput({
+        id: randomUUID(),
+        exportJobId: jobId,
+        clipId: clip.id,
+        artifactId: null,
+        filePath: '',
+        format: 'mp4',
+        resolution: aspectRatio,
+        metadata: JSON.stringify({
+          aspectRatio,
+          includeCaptions
+        }),
+        status: 'pending',
+        errorMessage: null,
+        createdAt: now
+      })
+    }
+
+    // Create export job view for runtime compatibility
     const job: ExportJob = {
       id: jobId,
       episodeId,
-      clipIds: approvedClips.map((c: any) => c.id),
+      clipIds,
       status: 'pending',
       progress: 0,
       currentClipIndex: 0,
@@ -129,14 +230,32 @@ class ExportService {
     this.activeJobs.set(jobId, job)
 
     // Start export process
-    this.processExportJob(job, episode, approvedClips, outputDirectory, options, onProgress)
+    this.processExportJob(job, workflowJobId, episode, approvedClips, outputDirectory, options, onProgress)
       .catch(error => {
-        job.status = 'failed'
-        job.error = error.message
-        onProgress?.(job)
+        const failedAt = new Date().toISOString()
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        database.updateWorkflowJob(workflowJobId, {
+          status: 'failed',
+          stage: 'failed',
+          message,
+          completedAt: failedAt,
+          updatedAt: failedAt
+        })
+        database.updateExportJob(job.id, {
+          status: 'failed',
+          errorMessage: message,
+          completedAt: failedAt,
+          updatedAt: failedAt
+        })
+
+        const currentJob = this.getJob(job.id)
+        if (currentJob) {
+          this.activeJobs.set(job.id, currentJob)
+          onProgress?.(currentJob)
+        }
       })
 
-    return job
+    return this.getJob(job.id) || job
   }
 
   /**
@@ -144,21 +263,62 @@ class ExportService {
    */
   private async processExportJob(
     job: ExportJob,
+    workflowJobId: string,
     episode: any,
     clips: any[],
     outputDirectory: string,
     options: ExportOptions,
     onProgress?: (job: ExportJob) => void
   ): Promise<void> {
-    job.status = 'processing'
-    onProgress?.(job)
+    const startedAt = new Date().toISOString()
+    database.updateWorkflowJob(workflowJobId, {
+      status: 'running',
+      stage: 'rendering',
+      message: 'Export started',
+      startedAt,
+      updatedAt: startedAt
+    })
+    database.updateExportJob(job.id, {
+      status: 'running',
+      startedAt,
+      updatedAt: startedAt
+    })
+    this.emitProgress(job.id, onProgress)
 
     const inputPath = episode.file_path
     const includeCaptions = options.includeCaptions !== false // Default true
 
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i]
-      job.currentClipIndex = i
+      const stepStartedAt = new Date().toISOString()
+
+      if (this.cancelledJobs.has(job.id)) {
+        throw new Error('Cancelled by user')
+      }
+
+      database.updateWorkflowJob(workflowJobId, {
+        progress: Math.round((i / clips.length) * 100),
+        stage: 'rendering',
+        message: `Exporting clip ${i + 1} of ${clips.length}`,
+        updatedAt: stepStartedAt
+      })
+      database.updateExportJob(job.id, {
+        status: 'running',
+        currentClipIndex: i,
+        progress: Math.round((i / clips.length) * 100),
+        updatedAt: stepStartedAt
+      })
+      database.updateWorkflowStepRunByJobAndClip(workflowJobId, clip.id, {
+        status: 'running',
+        progress: 0,
+        startedAt: stepStartedAt,
+        updatedAt: stepStartedAt
+      })
+      database.updateExportOutputByJobAndClip(job.id, clip.id, {
+        status: 'rendering',
+        errorMessage: null
+      })
+      this.emitProgress(job.id, onProgress)
 
       try {
         // Get clip edits from database
@@ -291,47 +451,210 @@ class ExportService {
             musicSettings,
             frameSettings,
             onProgress: (clipProgress) => {
+              if (this.cancelledJobs.has(job.id)) {
+                return
+              }
               // Calculate overall progress
               const overallProgress = ((i + (clipProgress / 100)) / clips.length) * 100
-              job.progress = Math.round(overallProgress)
-              onProgress?.(job)
+              const progressAt = new Date().toISOString()
+              database.updateWorkflowJob(workflowJobId, {
+                progress: Math.round(overallProgress),
+                stage: 'rendering',
+                message: `Exporting clip ${i + 1} of ${clips.length}`,
+                updatedAt: progressAt
+              })
+              database.updateExportJob(job.id, {
+                status: 'running',
+                currentClipIndex: i,
+                progress: Math.round(overallProgress),
+                updatedAt: progressAt
+              })
+              database.updateWorkflowStepRunByJobAndClip(workflowJobId, clip.id, {
+                status: 'running',
+                progress: Math.round(clipProgress),
+                updatedAt: progressAt
+              })
+              database.updateExportOutputByJobAndClip(job.id, clip.id, {
+                status: 'rendering'
+              })
+              this.emitProgress(job.id, onProgress)
             }
           }
         )
 
-        job.outputPaths.push(outputPath)
+        const completedAt = new Date().toISOString()
+        const artifactId = randomUUID()
+        database.createArtifact({
+          id: artifactId,
+          artifactType: 'export_mp4',
+          status: 'complete',
+          projectId: (episode as any).project_id ?? null,
+          episodeId: episode.id ?? job.episodeId,
+          clipId: clip.id,
+          workflowJobId,
+          filePath: outputPath,
+          tempFilePath: null,
+          mimeType: 'video/mp4',
+          sizeBytes: null,
+          checksum: null,
+          metadataJson: JSON.stringify({
+            exportJobId: job.id,
+            clipId: clip.id,
+            aspectRatio: options.aspectRatio || '9:16'
+          }),
+          createdAt: completedAt,
+          updatedAt: completedAt,
+          completedAt
+        })
+        database.updateExportOutputByJobAndClip(job.id, clip.id, {
+          artifactId,
+          filePath: outputPath,
+          format: 'mp4',
+          resolution: options.aspectRatio || '9:16',
+          status: 'completed',
+          errorMessage: null
+        })
+        database.updateWorkflowStepRunByJobAndClip(workflowJobId, clip.id, {
+          status: 'completed',
+          progress: 100,
+          outputJson: JSON.stringify({ outputPath, artifactId }),
+          completedAt,
+          updatedAt: completedAt
+        })
+        database.updateExportJob(job.id, {
+          currentClipIndex: i,
+          progress: Math.round(((i + 1) / clips.length) * 100),
+          updatedAt: completedAt
+        })
+        database.updateWorkflowJob(workflowJobId, {
+          progress: Math.round(((i + 1) / clips.length) * 100),
+          updatedAt: completedAt
+        })
+        this.emitProgress(job.id, onProgress)
+
+        if (this.cancelledJobs.has(job.id)) {
+          throw new Error('Cancelled by user')
+        }
 
       } catch (error) {
+        const failedAt = new Date().toISOString()
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        database.updateWorkflowStepRunByJobAndClip(workflowJobId, clip.id, {
+          status: 'failed',
+          errorCode: this.cancelledJobs.has(job.id) ? 'cancelled' : 'export_failed',
+          errorMessage: message,
+          completedAt: failedAt,
+          updatedAt: failedAt
+        })
+        database.updateExportOutputByJobAndClip(job.id, clip.id, {
+          status: 'failed',
+          errorMessage: message
+        })
         console.error(`Failed to export clip ${clip.id}:`, error)
         throw new Error(`Failed to export clip ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     }
 
     // Mark job as completed
-    job.status = 'completed'
-    job.progress = 100
-    onProgress?.(job)
+    const completedAt = new Date().toISOString()
+    database.updateWorkflowJob(workflowJobId, {
+      status: 'completed',
+      progress: 100,
+      stage: 'completed',
+      message: 'Export complete',
+      completedAt,
+      updatedAt: completedAt
+    })
+    database.updateExportJob(job.id, {
+      status: 'completed',
+      progress: 100,
+      completedAt,
+      updatedAt: completedAt
+    })
+    this.cancelledJobs.delete(job.id)
+    this.emitProgress(job.id, onProgress)
   }
 
   /**
    * Get export job status
    */
   getJob(jobId: string): ExportJob | undefined {
-    return this.activeJobs.get(jobId)
+    const view = database.getDurableExportView(jobId)
+    if (!view.job) {
+      return undefined
+    }
+
+    const outputPaths = view.outputs
+      .filter((output) => output.status === 'completed' && output.filePath)
+      .map((output) => output.filePath)
+
+    let status: ExportJob['status']
+    switch (view.job.status) {
+      case 'running':
+        status = 'processing'
+        break
+      case 'completed':
+        status = 'completed'
+        break
+      case 'failed':
+      case 'cancelled':
+      case 'cancel_requested':
+        status = 'failed'
+        break
+      default:
+        status = 'pending'
+        break
+    }
+
+    const job: ExportJob = {
+      id: view.job.id,
+      episodeId: view.job.episodeId,
+      clipIds: JSON.parse(view.job.clipIdsJson || '[]'),
+      status,
+      progress: view.job.progress,
+      currentClipIndex: view.job.currentClipIndex,
+      totalClips: view.job.totalClips,
+      outputPaths,
+      error: view.job.errorMessage || undefined
+    }
+
+    this.activeJobs.set(jobId, job)
+    return job
   }
 
   /**
    * Cancel export job
    */
   cancelJob(jobId: string): boolean {
-    const job = this.activeJobs.get(jobId)
+    const job = this.getJob(jobId)
     if (!job) {
       return false
     }
 
-    if (job.status === 'processing') {
-      job.status = 'failed'
-      job.error = 'Cancelled by user'
+    if (job.status === 'processing' || job.status === 'pending') {
+      const failedAt = new Date().toISOString()
+      this.cancelledJobs.add(jobId)
+      const durableView = database.getDurableExportView(jobId)
+      if (durableView.job) {
+        database.updateWorkflowJob(durableView.job.workflowJobId, {
+          status: 'failed',
+          stage: 'failed',
+          message: 'Cancelled by user',
+          completedAt: failedAt,
+          updatedAt: failedAt
+        })
+      }
+      database.updateExportJob(jobId, {
+        status: 'failed',
+        errorMessage: 'Cancelled by user',
+        completedAt: failedAt,
+        updatedAt: failedAt
+      })
+      this.activeJobs.set(jobId, {
+        ...job,
+        status: 'failed',
+        error: 'Cancelled by user'
+      })
       return true
     }
 
@@ -343,9 +666,18 @@ class ExportService {
    */
   clearCompletedJobs(): void {
     for (const [jobId, job] of this.activeJobs.entries()) {
-      if (job.status === 'completed' || job.status === 'failed') {
+      const currentJob = this.getJob(jobId) || job
+      if (currentJob.status === 'completed' || currentJob.status === 'failed') {
         this.activeJobs.delete(jobId)
+        this.cancelledJobs.delete(jobId)
       }
+    }
+  }
+
+  private emitProgress(jobId: string, onProgress?: (job: ExportJob) => void) {
+    const currentJob = this.getJob(jobId)
+    if (currentJob) {
+      onProgress?.(currentJob)
     }
   }
 
