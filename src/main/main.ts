@@ -15,6 +15,10 @@ import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,
+  GetPipelineRunComparisonRequestDTO,
+  GetPipelineRunComparisonResponseDTO,
+  GetPipelineRunEvaluationsRequestDTO,
+  GetPipelineRunEvaluationsResponseDTO,
   GetPipelineRunRequestDTO,
   GetPipelineRunResponseDTO,
   GetPipelineRunsForEpisodeRequestDTO,
@@ -22,7 +26,9 @@ import type {
   ProcessEpisodeRequestDTO,
   ProcessEpisodeResponseDTO,
   ProcessSourceRequestDTO,
-  ProcessSourceResponseDTO
+  ProcessSourceResponseDTO,
+  SavePipelineRunEvaluationRequestDTO,
+  SavePipelineRunEvaluationResponseDTO
 } from '@shared/types/pipelineIpc';
 import type {
   GetFailureEventsRequestDTO,
@@ -591,6 +597,23 @@ ipcMain.handle('get-pipeline-run', (_event, request: GetPipelineRunRequestDTO): 
 
 ipcMain.handle('get-pipeline-runs-for-episode', (_event, request: GetPipelineRunsForEpisodeRequestDTO): GetPipelineRunsForEpisodeResponseDTO => {
   return workflowReadModel.getPipelineRunsForEpisode(request.episodeId)
+})
+
+ipcMain.handle('get-pipeline-run-comparison', (_event, request: GetPipelineRunComparisonRequestDTO): GetPipelineRunComparisonResponseDTO => {
+  return workflowReadModel.getPipelineRunComparison(request.episodeId, request.jobIds)
+})
+
+ipcMain.handle('save-pipeline-run-evaluation', (_event, request: SavePipelineRunEvaluationRequestDTO): SavePipelineRunEvaluationResponseDTO => {
+  return workflowReadModel.savePipelineRunEvaluation(
+    request.episodeId,
+    request.baselineJobId,
+    request.candidateJobId,
+    request.notes
+  )
+})
+
+ipcMain.handle('get-pipeline-run-evaluations', (_event, request: GetPipelineRunEvaluationsRequestDTO): GetPipelineRunEvaluationsResponseDTO => {
+  return workflowReadModel.getPipelineRunEvaluationsForEpisode(request.episodeId)
 })
 
 ipcMain.handle('get-workflow-job', (_event, request: GetWorkflowJobRequestDTO): GetWorkflowJobResponseDTO => {

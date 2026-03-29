@@ -1,13 +1,16 @@
 import type { BrandTemplate, ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
 import type {
   GetActivePipelineJobResponseDTO,
+  GetPipelineRunComparisonResponseDTO,
+  GetPipelineRunEvaluationsResponseDTO,
   GetPipelineRunResponseDTO,
   GetPipelineRunsForEpisodeResponseDTO,
   ProcessEpisodeResponseDTO,
   ProcessSourceResponseDTO,
   ProcessingCompleteEventDTO,
   ProcessingErrorEventDTO,
-  ProcessingUpdateEventDTO
+  ProcessingUpdateEventDTO,
+  SavePipelineRunEvaluationResponseDTO
 } from '@shared/types/pipelineIpc'
 import type {
   CancelExportJobResponseDTO,
@@ -40,6 +43,9 @@ declare global {
       getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
       getPipelineRun: (jobId: string) => Promise<GetPipelineRunResponseDTO>;
       getPipelineRunsForEpisode: (episodeId: string) => Promise<GetPipelineRunsForEpisodeResponseDTO>;
+      getPipelineRunComparison: (episodeId: string, jobIds?: string[]) => Promise<GetPipelineRunComparisonResponseDTO>;
+      savePipelineRunEvaluation: (episodeId: string, baselineJobId: string, candidateJobId: string, notes?: string) => Promise<SavePipelineRunEvaluationResponseDTO>;
+      getPipelineRunEvaluations: (episodeId: string) => Promise<GetPipelineRunEvaluationsResponseDTO>;
       getWorkflowJob: (jobId: string) => Promise<GetWorkflowJobResponseDTO>;
       getWorkflowEvents: (jobId: string) => Promise<GetWorkflowEventsResponseDTO>;
       getFailureEvents: (jobId: string) => Promise<GetFailureEventsResponseDTO>;

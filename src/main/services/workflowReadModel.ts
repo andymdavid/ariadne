@@ -1,11 +1,16 @@
+import { randomUUID } from 'crypto'
 import { database } from '../database/database'
 import type { ExportJobDTO } from '@shared/types/exportIpc'
 import type {
+  GetPipelineRunComparisonResponseDTO,
   GetPipelineRunResponseDTO,
   GetPipelineRunsForEpisodeResponseDTO,
+  GetPipelineRunEvaluationsResponseDTO,
   PipelineJobViewDTO,
+  PipelineComparableRunSummaryDTO,
   PipelineRunArtifactDTO,
   PipelineRunDetailDTO,
+  PipelineRunEvaluationDTO,
   PipelineRunStageDTO,
   PipelineRunSummaryDTO
 } from '@shared/types/pipelineIpc'
@@ -153,6 +158,61 @@ class WorkflowReadModel {
       .map((workflowJob) => this.mapPipelineRunSummary(workflowJob))
   }
 
+  getPipelineRunComparison(episodeId: string, jobIds?: string[]): GetPipelineRunComparisonResponseDTO {
+    const candidateRuns = database
+      .getPipelineWorkflowJobsForEpisode(episodeId)
+      .filter((workflowJob) => !jobIds || jobIds.includes(workflowJob.id))
+      .map((workflowJob) => this.mapPipelineComparableRunSummary(workflowJob))
+
+    return {
+      episodeId,
+      runs: candidateRuns
+    }
+  }
+
+  savePipelineRunEvaluation(
+    episodeId: string,
+    baselineJobId: string,
+    candidateJobId: string,
+    notes?: string
+  ): PipelineRunEvaluationDTO {
+    const comparison = this.getPipelineRunComparison(episodeId, [baselineJobId, candidateJobId])
+    const createdAt = new Date().toISOString()
+    const record = {
+      id: randomUUID(),
+      episodeId,
+      baselineJobId,
+      candidateJobId,
+      summaryJson: JSON.stringify(comparison),
+      notes: notes ?? null,
+      createdAt
+    }
+
+    database.createPipelineRunEvaluation(record)
+
+    return {
+      id: record.id,
+      episodeId: record.episodeId,
+      baselineJobId: record.baselineJobId,
+      candidateJobId: record.candidateJobId,
+      summaryJson: record.summaryJson,
+      notes: record.notes,
+      createdAt: record.createdAt
+    }
+  }
+
+  getPipelineRunEvaluationsForEpisode(episodeId: string): GetPipelineRunEvaluationsResponseDTO {
+    return database.getPipelineRunEvaluationsForEpisode(episodeId).map((evaluation) => ({
+      id: evaluation.id,
+      episodeId: evaluation.episodeId,
+      baselineJobId: evaluation.baselineJobId,
+      candidateJobId: evaluation.candidateJobId,
+      summaryJson: evaluation.summaryJson,
+      notes: evaluation.notes,
+      createdAt: evaluation.createdAt
+    }))
+  }
+
   getWorkflowJobById(jobId: string): WorkflowJobViewDTO | null {
     const workflowJob = database.getWorkflowJob(jobId)
     if (!workflowJob) {
@@ -270,6 +330,61 @@ class WorkflowReadModel {
     }
   }
 
+  private mapPipelineComparableRunSummary(workflowJob: {
+    id: string
+    episodeId: string | null
+    status: PipelineJobViewDTO['status']
+    createdAt: string
+    completedAt: string | null
+    configSnapshotJson: string | null
+  }): PipelineComparableRunSummaryDTO {
+    const transcription = this.extractStageOutput(workflowJob.id, 'transcription')
+    const clipGeneration = this.extractStageOutput(workflowJob.id, 'clip_generation')
+    const clipRanking = this.extractStageOutput(workflowJob.id, 'clip_ranking')
+    const contentPackageGeneration = this.extractStageOutput(workflowJob.id, 'content_package_generation')
+
+    let configSnapshot: { apiModelId?: string | null; clipSelectionPlatform?: string | null } = {}
+    try {
+      configSnapshot = workflowJob.configSnapshotJson
+        ? JSON.parse(workflowJob.configSnapshotJson) as { apiModelId?: string | null; clipSelectionPlatform?: string | null }
+        : {}
+    } catch {
+      configSnapshot = {}
+    }
+
+    const analysis = clipRanking?.analysis as { potentialClips?: Array<{
+      id: string
+      shareabilityScore: number
+      keyQuote: string
+      contentType: string
+    }> } | undefined
+
+    return {
+      jobId: workflowJob.id,
+      episodeId: workflowJob.episodeId,
+      createdAt: workflowJob.createdAt,
+      completedAt: workflowJob.completedAt,
+      status: workflowJob.status,
+      transcriptSegmentCount: Number(transcription?.segmentCount ?? 0),
+      transcriptLength: Number(transcription?.transcriptLength ?? 0),
+      candidateCount: Number(clipGeneration?.candidateCount ?? 0),
+      finalClipCount: Array.isArray(analysis?.potentialClips) ? analysis.potentialClips.length : Number(clipRanking?.clipCount ?? 0),
+      contentPackageCount: Number(contentPackageGeneration?.clipCount ?? 0),
+      aiAnalysisSucceeded: Boolean(clipRanking?.aiAnalysisSucceeded),
+      rankingMode: typeof clipRanking?.mode === 'string' ? clipRanking.mode : null,
+      modelId: configSnapshot.apiModelId ?? null,
+      clipSelectionPlatform: configSnapshot.clipSelectionPlatform ?? null,
+      topClipPreview: Array.isArray(analysis?.potentialClips)
+        ? analysis.potentialClips.slice(0, 5).map((clip) => ({
+            id: clip.id,
+            shareabilityScore: clip.shareabilityScore,
+            keyQuote: clip.keyQuote,
+            contentType: clip.contentType
+          }))
+        : []
+    }
+  }
+
   private extractStageSummary(
     stepRuns: Array<{ stepKey: string; status: string; outputJson: string | null }>,
     stepKey: string
@@ -292,6 +407,19 @@ class WorkflowReadModel {
       }
     } catch {
       return { status: step.status }
+    }
+  }
+
+  private extractStageOutput(jobId: string, stepKey: string): Record<string, unknown> | null {
+    const step = database.getWorkflowStepRunsByJob(jobId).find((candidate) => candidate.stepKey === stepKey)
+    if (!step?.outputJson) {
+      return null
+    }
+
+    try {
+      return JSON.parse(step.outputJson) as Record<string, unknown>
+    } catch {
+      return null
     }
   }
 }

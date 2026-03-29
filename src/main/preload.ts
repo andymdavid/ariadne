@@ -3,6 +3,10 @@ import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingPr
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,
+  GetPipelineRunComparisonRequestDTO,
+  GetPipelineRunComparisonResponseDTO,
+  GetPipelineRunEvaluationsRequestDTO,
+  GetPipelineRunEvaluationsResponseDTO,
   GetPipelineRunRequestDTO,
   GetPipelineRunResponseDTO,
   GetPipelineRunsForEpisodeRequestDTO,
@@ -13,7 +17,9 @@ import type {
   ProcessSourceResponseDTO,
   ProcessingCompleteEventDTO,
   ProcessingErrorEventDTO,
-  ProcessingUpdateEventDTO
+  ProcessingUpdateEventDTO,
+  SavePipelineRunEvaluationRequestDTO,
+  SavePipelineRunEvaluationResponseDTO
 } from '@shared/types/pipelineIpc'
 import type {
   CancelExportJobRequestDTO,
@@ -78,6 +84,21 @@ const electronAPI = {
       'get-pipeline-runs-for-episode',
       { episodeId } satisfies GetPipelineRunsForEpisodeRequestDTO
     ) as Promise<GetPipelineRunsForEpisodeResponseDTO>,
+  getPipelineRunComparison: (episodeId: string, jobIds?: string[]) =>
+    ipcRenderer.invoke(
+      'get-pipeline-run-comparison',
+      { episodeId, jobIds } satisfies GetPipelineRunComparisonRequestDTO
+    ) as Promise<GetPipelineRunComparisonResponseDTO>,
+  savePipelineRunEvaluation: (episodeId: string, baselineJobId: string, candidateJobId: string, notes?: string) =>
+    ipcRenderer.invoke(
+      'save-pipeline-run-evaluation',
+      { episodeId, baselineJobId, candidateJobId, notes } satisfies SavePipelineRunEvaluationRequestDTO
+    ) as Promise<SavePipelineRunEvaluationResponseDTO>,
+  getPipelineRunEvaluations: (episodeId: string) =>
+    ipcRenderer.invoke(
+      'get-pipeline-run-evaluations',
+      { episodeId } satisfies GetPipelineRunEvaluationsRequestDTO
+    ) as Promise<GetPipelineRunEvaluationsResponseDTO>,
   getWorkflowJob: (jobId: string) =>
     ipcRenderer.invoke(
       'get-workflow-job',
@@ -232,6 +253,9 @@ declare global {
       getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
       getPipelineRun: (jobId: string) => Promise<GetPipelineRunResponseDTO>;
       getPipelineRunsForEpisode: (episodeId: string) => Promise<GetPipelineRunsForEpisodeResponseDTO>;
+      getPipelineRunComparison: (episodeId: string, jobIds?: string[]) => Promise<GetPipelineRunComparisonResponseDTO>;
+      savePipelineRunEvaluation: (episodeId: string, baselineJobId: string, candidateJobId: string, notes?: string) => Promise<SavePipelineRunEvaluationResponseDTO>;
+      getPipelineRunEvaluations: (episodeId: string) => Promise<GetPipelineRunEvaluationsResponseDTO>;
       getWorkflowJob: (jobId: string) => Promise<GetWorkflowJobResponseDTO>;
       getWorkflowEvents: (jobId: string) => Promise<GetWorkflowEventsResponseDTO>;
       getFailureEvents: (jobId: string) => Promise<GetFailureEventsResponseDTO>;

@@ -161,6 +161,16 @@ interface WorkflowEventRecord {
   createdAt: string
 }
 
+interface PipelineRunEvaluationRecord {
+  id: string
+  episodeId: string
+  baselineJobId: string
+  candidateJobId: string
+  summaryJson: string
+  notes: string | null
+  createdAt: string
+}
+
 class DatabaseManager {
   private db: Database.Database
   
@@ -326,6 +336,18 @@ class DatabaseManager {
     }
   }
 
+  private mapPipelineRunEvaluation(row: any): PipelineRunEvaluationRecord {
+    return {
+      id: row.id,
+      episodeId: row.episode_id,
+      baselineJobId: row.baseline_job_id,
+      candidateJobId: row.candidate_job_id,
+      summaryJson: row.summary_json,
+      notes: row.notes ?? null,
+      createdAt: row.created_at
+    }
+  }
+
   private migrateSchema() {
     // Version 1: Add any new tables (example for content_packages, exports, etc.)
     const migrations = [
@@ -467,6 +489,18 @@ class DatabaseManager {
         created_at TEXT NOT NULL,
         FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
         FOREIGN KEY (step_run_id) REFERENCES workflow_step_runs (id) ON DELETE SET NULL
+      );`,
+      `CREATE TABLE IF NOT EXISTS pipeline_run_evaluations (
+        id TEXT PRIMARY KEY,
+        episode_id TEXT NOT NULL,
+        baseline_job_id TEXT NOT NULL,
+        candidate_job_id TEXT NOT NULL,
+        summary_json TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE,
+        FOREIGN KEY (baseline_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+        FOREIGN KEY (candidate_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE
       );`,
       `CREATE TABLE IF NOT EXISTS clip_titles (
         id TEXT PRIMARY KEY,
@@ -998,6 +1032,33 @@ class DatabaseManager {
         this.db.pragma('user_version = 21')
       }
     }
+
+    if (preVersion <= 21) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS pipeline_run_evaluations (
+            id TEXT PRIMARY KEY,
+            episode_id TEXT NOT NULL,
+            baseline_job_id TEXT NOT NULL,
+            candidate_job_id TEXT NOT NULL,
+            summary_json TEXT NOT NULL,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE,
+            FOREIGN KEY (baseline_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+            FOREIGN KEY (candidate_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_pipeline_run_evaluations_episode ON pipeline_run_evaluations (episode_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_pipeline_run_evaluations_baseline ON pipeline_run_evaluations (baseline_job_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_pipeline_run_evaluations_candidate ON pipeline_run_evaluations (candidate_job_id, created_at DESC);
+        `)
+        console.log('✅ Added pipeline run evaluations table (v22)')
+        this.db.pragma('user_version = 22')
+      } catch (error) {
+        console.log('Pipeline run evaluations migration skipped (may already exist)')
+        this.db.pragma('user_version = 22')
+      }
+    }
   }
   
   private initializeSchema() {
@@ -1229,6 +1290,16 @@ class DatabaseManager {
           event_type TEXT NOT NULL,
           message TEXT,
           detail_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pipeline_run_evaluations (
+          id TEXT PRIMARY KEY,
+          episode_id TEXT NOT NULL,
+          baseline_job_id TEXT NOT NULL,
+          candidate_job_id TEXT NOT NULL,
+          summary_json TEXT NOT NULL,
+          notes TEXT,
           created_at TEXT NOT NULL
       );
     `
@@ -2639,6 +2710,34 @@ class DatabaseManager {
       ORDER BY created_at DESC
     `)
     return (stmt.all(jobId) as any[]).map((row) => this.mapWorkflowEvent(row))
+  }
+
+  createPipelineRunEvaluation(record: PipelineRunEvaluationRecord) {
+    const stmt = this.db.prepare(`
+      INSERT INTO pipeline_run_evaluations (
+        id, episode_id, baseline_job_id, candidate_job_id, summary_json, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      record.id,
+      record.episodeId,
+      record.baselineJobId,
+      record.candidateJobId,
+      record.summaryJson,
+      record.notes,
+      record.createdAt
+    )
+  }
+
+  getPipelineRunEvaluationsForEpisode(episodeId: string): PipelineRunEvaluationRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM pipeline_run_evaluations
+      WHERE episode_id = ?
+      ORDER BY created_at DESC
+    `)
+    return (stmt.all(episodeId) as any[]).map((row) => this.mapPipelineRunEvaluation(row))
   }
   
   // Settings operations

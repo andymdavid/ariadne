@@ -229,6 +229,19 @@ CREATE TABLE IF NOT EXISTS workflow_events (
     FOREIGN KEY (step_run_id) REFERENCES workflow_step_runs (id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS pipeline_run_evaluations (
+    id TEXT PRIMARY KEY,
+    episode_id TEXT NOT NULL,
+    baseline_job_id TEXT NOT NULL,
+    candidate_job_id TEXT NOT NULL,
+    summary_json TEXT NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE,
+    FOREIGN KEY (baseline_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE
+);
+
 -- Exports table
 CREATE TABLE IF NOT EXISTS exports (
     id TEXT PRIMARY KEY,
@@ -278,6 +291,9 @@ CREATE INDEX IF NOT EXISTS idx_failure_events_scope ON failure_events (scope, cr
 CREATE INDEX IF NOT EXISTS idx_workflow_events_job ON workflow_events (job_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workflow_events_step ON workflow_events (step_run_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workflow_events_scope ON workflow_events (scope, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_run_evaluations_episode ON pipeline_run_evaluations (episode_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_run_evaluations_baseline ON pipeline_run_evaluations (baseline_job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_run_evaluations_candidate ON pipeline_run_evaluations (candidate_job_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_exports_clip_id ON exports (clip_id);
 CREATE INDEX IF NOT EXISTS idx_exports_export_job ON exports (export_job_id, clip_id);
 CREATE INDEX IF NOT EXISTS idx_exports_artifact ON exports (artifact_id);

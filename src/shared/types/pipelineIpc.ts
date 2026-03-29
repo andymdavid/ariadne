@@ -93,6 +93,29 @@ export interface PipelineRunSummaryDTO {
   heavyStageOutputSummaryJson: string
 }
 
+export interface PipelineComparableRunSummaryDTO {
+  jobId: string
+  episodeId: string | null
+  createdAt: string
+  completedAt: string | null
+  status: PipelineJobStatus
+  transcriptSegmentCount: number
+  transcriptLength: number
+  candidateCount: number
+  finalClipCount: number
+  contentPackageCount: number
+  aiAnalysisSucceeded: boolean
+  rankingMode: string | null
+  modelId: string | null
+  clipSelectionPlatform: string | null
+  topClipPreview: Array<{
+    id: string
+    shareabilityScore: number
+    keyQuote: string
+    contentType: string
+  }>
+}
+
 export interface PipelineRunDetailDTO {
   summary: PipelineRunSummaryDTO
   steps: PipelineRunStageDTO[]
@@ -110,3 +133,40 @@ export interface GetPipelineRunRequestDTO {
 }
 
 export type GetPipelineRunResponseDTO = PipelineRunDetailDTO | null
+
+export interface GetPipelineRunComparisonRequestDTO {
+  episodeId: string
+  jobIds?: string[]
+}
+
+export interface PipelineRunComparisonDTO {
+  episodeId: string
+  runs: PipelineComparableRunSummaryDTO[]
+}
+
+export type GetPipelineRunComparisonResponseDTO = PipelineRunComparisonDTO
+
+export interface PipelineRunEvaluationDTO {
+  id: string
+  episodeId: string
+  baselineJobId: string
+  candidateJobId: string
+  summaryJson: string
+  notes: string | null
+  createdAt: string
+}
+
+export interface SavePipelineRunEvaluationRequestDTO {
+  episodeId: string
+  baselineJobId: string
+  candidateJobId: string
+  notes?: string
+}
+
+export type SavePipelineRunEvaluationResponseDTO = PipelineRunEvaluationDTO
+
+export interface GetPipelineRunEvaluationsRequestDTO {
+  episodeId: string
+}
+
+export type GetPipelineRunEvaluationsResponseDTO = PipelineRunEvaluationDTO[]
