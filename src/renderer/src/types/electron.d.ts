@@ -1,4 +1,13 @@
 import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types'
+import type {
+  CancelExportJobResponseDTO,
+  ClearCompletedExportsResponseDTO,
+  ExportOptionsDTO,
+  ExportProgressEventDTO,
+  GetActiveExportJobResponseDTO,
+  GetExportJobResponseDTO,
+  StartExportResponseDTO
+} from '@shared/types/exportIpc'
 
 // Electron API types for renderer process
 
@@ -49,10 +58,11 @@ declare global {
       validateConfig: () => Promise<{ isValid: boolean; errors: string[] }>;
 
       // Export operations
-      exportApprovedClips: (episodeId: string, options: any) => Promise<any>;
-      getExportJob: (jobId: string) => Promise<any>;
-      cancelExportJob: (jobId: string) => Promise<boolean>;
-      clearCompletedExports: () => Promise<{ success: boolean }>;
+      exportApprovedClips: (episodeId: string, options: ExportOptionsDTO) => Promise<StartExportResponseDTO>;
+      getExportJob: (jobId: string) => Promise<GetExportJobResponseDTO>;
+      getActiveExportJob: (episodeId: string) => Promise<GetActiveExportJobResponseDTO>;
+      cancelExportJob: (jobId: string) => Promise<CancelExportJobResponseDTO>;
+      clearCompletedExports: () => Promise<ClearCompletedExportsResponseDTO>;
 
       // Content package operations
       getClipTitles: (clipId: string) => Promise<any[]>;
@@ -73,7 +83,7 @@ declare global {
       onProcessingComplete: (callback: (data: ProcessingResultPayload) => void) => () => void;
       onProcessingError: (callback: (error: ProcessingErrorPayload | string) => void) => () => void;
       onClipExtractionProgress: (callback: (data: any) => void) => () => void;
-      onExportProgress: (callback: (job: any) => void) => () => void;
+      onExportProgress: (callback: (job: ExportProgressEventDTO) => void) => () => void;
       onDatabaseCleaned: (callback: (result: any) => void) => () => void;
     };
   }

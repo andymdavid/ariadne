@@ -7,6 +7,8 @@ import type {
   ExportJobDTO,
   ExportOptionsDTO,
   ExportProgressEventDTO,
+  GetActiveExportJobRequestDTO,
+  GetActiveExportJobResponseDTO,
   GetExportJobRequestDTO,
   GetExportJobResponseDTO,
   StartExportRequestDTO,
@@ -79,6 +81,11 @@ const electronAPI = {
       'get-export-job',
       { jobId } satisfies GetExportJobRequestDTO
     ) as Promise<GetExportJobResponseDTO>,
+  getActiveExportJob: (episodeId: string) =>
+    ipcRenderer.invoke(
+      'get-active-export-job',
+      { episodeId } satisfies GetActiveExportJobRequestDTO
+    ) as Promise<GetActiveExportJobResponseDTO>,
   cancelExportJob: (jobId: string) =>
     ipcRenderer.invoke(
       'cancel-export-job',
@@ -201,6 +208,7 @@ declare global {
       // Export operations
       exportApprovedClips: (episodeId: string, options: ExportOptionsDTO) => Promise<StartExportResponseDTO>;
       getExportJob: (jobId: string) => Promise<GetExportJobResponseDTO>;
+      getActiveExportJob: (episodeId: string) => Promise<GetActiveExportJobResponseDTO>;
       cancelExportJob: (jobId: string) => Promise<CancelExportJobResponseDTO>;
       clearCompletedExports: () => Promise<ClearCompletedExportsResponseDTO>;
 

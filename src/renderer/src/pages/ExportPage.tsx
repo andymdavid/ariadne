@@ -108,6 +108,12 @@ export function ExportPage() {
       }
       setClipTitles(titlesMap)
 
+      const activeJob = await window.electronAPI?.getActiveExportJob?.(episodeId!)
+      if (activeJob) {
+        setExportJob(activeJob)
+        setIsExporting(activeJob.status === 'processing' || activeJob.status === 'pending')
+      }
+
       setLoading(false)
     } catch (err) {
       console.error('Failed to load approved clips:', err)
@@ -133,7 +139,9 @@ export function ExportPage() {
       })
 
       console.log('Export job created:', job)
-      setExportJob(job)
+      if (job) {
+        setExportJob(job)
+      }
     } catch (err) {
       console.error('Export failed:', err)
       setError(err instanceof Error ? err.message : 'Export failed')

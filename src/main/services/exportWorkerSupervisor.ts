@@ -14,10 +14,18 @@ import type {
 class ExportWorkerSupervisor {
   private workers: Map<string, ChildProcess> = new Map()
 
+  hasLiveWorker(exportJobId: string) {
+    return this.workers.has(exportJobId)
+  }
+
   async startExport(
     command: StartExportWorkerCommand,
     onJobUpdated?: (exportJobId: string) => void
   ) {
+    if (this.hasLiveWorker(command.exportJobId)) {
+      return
+    }
+
     const workerPath = this.resolveWorkerPath()
     const worker = fork(workerPath, {
       env: {

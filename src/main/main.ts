@@ -15,6 +15,8 @@ import type {
   CancelExportJobRequestDTO,
   CancelExportJobResponseDTO,
   ClearCompletedExportsResponseDTO,
+  GetActiveExportJobRequestDTO,
+  GetActiveExportJobResponseDTO,
   GetExportJobRequestDTO,
   GetExportJobResponseDTO,
   StartExportRequestDTO,
@@ -459,7 +461,7 @@ async function createWindow() {
 }
 
 // Register custom protocol for serving local files
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Register the app-file protocol to serve local files securely
   protocol.registerFileProtocol('app-file', (request, callback) => {
     const rawPath = request.url.replace('app-file://', '')
@@ -491,7 +493,13 @@ app.whenReady().then(() => {
     console.error('Database cleanup failed:', error)
   }
 
-  createWindow();
+  await createWindow();
+
+  exportService.recoverExports((job) => {
+    mainWindow?.webContents.send('export-progress', job)
+  }).catch((error) => {
+    console.error('Export recovery failed:', error)
+  })
 
   backfillClipDimensions().catch((error) => {
     console.error('[ClipDimensions] Backfill task error:', error)
@@ -765,6 +773,10 @@ ipcMain.handle('export-approved-clips', async (_event, request: StartExportReque
 
 ipcMain.handle('get-export-job', (_event, request: GetExportJobRequestDTO): GetExportJobResponseDTO => {
   return exportService.getJob(request.jobId)
+});
+
+ipcMain.handle('get-active-export-job', (_event, request: GetActiveExportJobRequestDTO): GetActiveExportJobResponseDTO => {
+  return exportService.getActiveJobForEpisode(request.episodeId)
 });
 
 ipcMain.handle('cancel-export-job', (_event, request: CancelExportJobRequestDTO): CancelExportJobResponseDTO => {

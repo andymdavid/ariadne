@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { dialog } from 'electron'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, statSync } from 'fs'
 import { database } from '../database/database'
 import { exportWorkerSupervisor } from './exportWorkerSupervisor'
 import type {
@@ -284,6 +284,48 @@ class ExportService {
     return this.getJob(job.id) || job
   }
 
+  async recoverExports(onProgress?: (job: ExportJob) => void) {
+    const workflowJobs = database.listRecoverableExportWorkflowJobs()
+
+    for (const workflowJob of workflowJobs) {
+      const exportJob = database.getExportJobByWorkflowJobId(workflowJob.id)
+      if (!exportJob) {
+        continue
+      }
+
+      if (exportWorkerSupervisor.hasLiveWorker(exportJob.id)) {
+        continue
+      }
+
+      let shouldResume = workflowJob.status === 'pending_resume' || exportJob.status === 'pending_resume'
+
+      if (workflowJob.status === 'running' || exportJob.status === 'running') {
+        const normalizedAt = new Date().toISOString()
+        database.updateWorkflowJob(workflowJob.id, {
+          status: 'pending_resume',
+          stage: 'pending_resume',
+          message: 'Waiting to resume export',
+          updatedAt: normalizedAt
+        })
+        database.updateExportJob(exportJob.id, {
+          status: 'pending_resume',
+          updatedAt: normalizedAt
+        })
+        shouldResume = true
+      }
+
+      if (workflowJob.status === 'cancel_requested' || exportJob.status === 'cancel_requested') {
+        continue
+      }
+
+      if (!shouldResume) {
+        continue
+      }
+
+      await this.resumeExportJob(exportJob.id, onProgress)
+    }
+  }
+
   private buildRenderTasks(
     episode: any,
     clips: any[],
@@ -497,6 +539,15 @@ class ExportService {
     return job
   }
 
+  getActiveJobForEpisode(episodeId: string): ExportJob | undefined {
+    const exportJob = database.getActiveExportJobForEpisode(episodeId)
+    if (!exportJob) {
+      return undefined
+    }
+
+    return this.getJob(exportJob.id)
+  }
+
   /**
    * Cancel export job
    */
@@ -546,6 +597,164 @@ class ExportService {
         this.activeJobs.delete(jobId)
       }
     }
+  }
+
+  private async resumeExportJob(jobId: string, onProgress?: (job: ExportJob) => void) {
+    const durableView = database.getDurableExportView(jobId)
+    if (!durableView.job) {
+      return
+    }
+
+    const episode = database.getEpisode(durableView.job.episodeId)
+    if (!episode) {
+      return
+    }
+
+    const clipIds = JSON.parse(durableView.job.clipIdsJson || '[]') as string[]
+    const completedClipIds = new Set<string>()
+
+    for (const clipId of clipIds) {
+      const output = durableView.outputs.find((candidate) => candidate.clipId === clipId)
+      if (!output) {
+        continue
+      }
+
+      const isComplete = this.isOutputComplete(output)
+      if (isComplete) {
+        completedClipIds.add(clipId)
+        continue
+      }
+
+      this.normalizeIncompleteOutput(durableView.job.workflowJobId, output)
+    }
+
+    const remainingClips = clipIds
+      .map((clipId) => database.getClip(clipId) as any)
+      .filter((clip) => clip && !completedClipIds.has(clip.id))
+
+    if (remainingClips.length === 0) {
+      const completedAt = new Date().toISOString()
+      database.updateWorkflowJob(durableView.job.workflowJobId, {
+        status: 'completed',
+        stage: 'completed',
+        message: 'Export complete',
+        progress: 100,
+        completedAt,
+        updatedAt: completedAt
+      })
+      database.updateExportJob(jobId, {
+        status: 'completed',
+        progress: 100,
+        completedAt,
+        updatedAt: completedAt
+      })
+      this.emitProgress(jobId, onProgress)
+      return
+    }
+
+    const resumedAt = new Date().toISOString()
+    database.updateWorkflowJob(durableView.job.workflowJobId, {
+      status: 'running',
+      stage: 'rendering',
+      message: 'Resuming export',
+      updatedAt: resumedAt
+    })
+    database.updateExportJob(jobId, {
+      status: 'running',
+      progress: Math.round((completedClipIds.size / clipIds.length) * 100),
+      updatedAt: resumedAt
+    })
+
+    const tasks = this.buildRenderTasks(
+      episode,
+      remainingClips,
+      durableView.job.outputDirectory,
+      {
+        aspectRatio: durableView.job.aspectRatio as '9:16' | '1:1' | '16:9',
+        includeCaptions: durableView.job.includeCaptions
+      }
+    )
+
+    exportWorkerSupervisor.startExport(
+      {
+        type: 'start_export',
+        exportJobId: durableView.job.id,
+        workflowJobId: durableView.job.workflowJobId,
+        tasks
+      },
+      (updatedJobId) => this.emitProgress(updatedJobId, onProgress)
+    ).catch((error) => {
+      const failedAt = new Date().toISOString()
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      database.updateWorkflowJob(durableView.job!.workflowJobId, {
+        status: 'failed',
+        stage: 'failed',
+        message,
+        completedAt: failedAt,
+        updatedAt: failedAt
+      })
+      database.updateExportJob(jobId, {
+        status: 'failed',
+        errorMessage: message,
+        completedAt: failedAt,
+        updatedAt: failedAt
+      })
+      this.emitProgress(jobId, onProgress)
+    })
+  }
+
+  private isOutputComplete(output: { artifactId: string | null; filePath: string; status: string }) {
+    if (output.status !== 'completed' || !output.artifactId || !output.filePath) {
+      return false
+    }
+
+    const artifact = database.getArtifactById(output.artifactId)
+    if (!artifact || artifact.status !== 'complete') {
+      return false
+    }
+
+    try {
+      return existsSync(output.filePath) && statSync(output.filePath).size > 0
+    } catch {
+      return false
+    }
+  }
+
+  private normalizeIncompleteOutput(workflowJobId: string, output: {
+    exportJobId: string | null
+    clipId: string
+    artifactId: string | null
+    filePath: string
+    status: string
+  }) {
+    if (output.artifactId) {
+      const artifact = database.getArtifactById(output.artifactId)
+      if (artifact) {
+        let shouldInvalidate = false
+        try {
+          shouldInvalidate = !artifact.filePath || !existsSync(artifact.filePath) || statSync(artifact.filePath).size <= 0
+        } catch {
+          shouldInvalidate = true
+        }
+
+        if (shouldInvalidate) {
+          database.updateArtifact(artifact.id, {
+            status: 'invalid',
+            updatedAt: new Date().toISOString()
+          })
+        }
+      }
+    }
+
+    database.updateExportOutputByJobAndClip(output.exportJobId || '', output.clipId, {
+      status: 'pending',
+      errorMessage: null
+    })
+    database.updateWorkflowStepRunByJobAndClip(workflowJobId, output.clipId, {
+      status: 'pending',
+      progress: 0,
+      updatedAt: new Date().toISOString()
+    })
   }
 
   private emitProgress(jobId: string, onProgress?: (job: ExportJob) => void) {

@@ -2054,6 +2054,12 @@ class DatabaseManager {
     return row ? this.mapArtifact(row) : undefined
   }
 
+  getArtifactById(artifactId: string): ArtifactRecord | undefined {
+    const stmt = this.db.prepare('SELECT * FROM artifacts WHERE id = ? LIMIT 1')
+    const row = stmt.get(artifactId)
+    return row ? this.mapArtifact(row) : undefined
+  }
+
   createExportJob(record: ExportJobRecord) {
     const stmt = this.db.prepare(`
       INSERT INTO export_jobs (
@@ -2092,6 +2098,19 @@ class DatabaseManager {
   getExportJobByWorkflowJobId(workflowJobId: string): ExportJobRecord | undefined {
     const stmt = this.db.prepare('SELECT * FROM export_jobs WHERE workflow_job_id = ? LIMIT 1')
     const row = stmt.get(workflowJobId)
+    return row ? this.mapExportJob(row) : undefined
+  }
+
+  getActiveExportJobForEpisode(episodeId: string): ExportJobRecord | undefined {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM export_jobs
+      WHERE episode_id = ?
+        AND status IN ('pending', 'running', 'pending_resume', 'cancel_requested')
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT 1
+    `)
+    const row = stmt.get(episodeId)
     return row ? this.mapExportJob(row) : undefined
   }
 

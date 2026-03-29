@@ -49,6 +49,12 @@ export interface GetExportJobRequestDTO {
 
 export type GetExportJobResponseDTO = ExportJobDTO | undefined
 
+export interface GetActiveExportJobRequestDTO {
+  episodeId: string
+}
+
+export type GetActiveExportJobResponseDTO = ExportJobDTO | undefined
+
 export interface CancelExportJobRequestDTO {
   jobId: string
 }
