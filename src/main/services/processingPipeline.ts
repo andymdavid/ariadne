@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { BrowserWindow } from 'electron'
 import { database } from '../database/database'
@@ -452,15 +452,43 @@ class ProcessingPipeline {
     }
   }
 
-  private getPipelineArtifactPath(workflowJobId: string, artifactType: string): string | null {
-    const artifact = database.getArtifactsByWorkflowJob(workflowJobId, artifactType)
-      .find((candidate: any) => candidate.status === 'complete') as { filePath?: string } | undefined
+  private getPipelineArtifactPath(
+    workflowJobId: string,
+    artifactType: string,
+    stepKey: PipelineStepKey,
+    expectedPath?: string
+  ): string | null {
+    const artifacts = database.getArtifactsByWorkflowJob(workflowJobId, artifactType) as Array<{
+      id: string
+      filePath: string
+    }>
 
-    if (!artifact?.filePath || !existsSync(artifact.filePath)) {
-      return null
+    for (const artifact of artifacts) {
+      const validation = database.validateArtifact(artifact as any, expectedPath)
+      if (validation.isValid) {
+        return artifact.filePath
+      }
+
+      const now = new Date().toISOString()
+      database.invalidateArtifact(artifact.id, now)
+      database.createFailureEvent({
+        id: randomUUID(),
+        jobId: workflowJobId,
+        stepRunId: `${workflowJobId}-${stepKey}`,
+        scope: `pipeline_resume_validation.${artifactType}`,
+        errorCode: validation.errorCode || 'artifact_invalid',
+        message: validation.message || 'Pipeline artifact is invalid during resume',
+        detailJson: JSON.stringify({
+          artifactId: artifact.id,
+          artifactType,
+          filePath: artifact.filePath,
+          expectedPath: expectedPath ?? null
+        }),
+        createdAt: now
+      })
     }
 
-    return artifact.filePath
+    return null
   }
 
   private isCompletedStep(workflowJobId: string, stepKey: PipelineStepKey) {
@@ -491,11 +519,23 @@ class ProcessingPipeline {
     }
 
     const filePath = parsedInput.filePath
-    if (!filePath || !existsSync(filePath)) {
+    const sourceMediaPath = filePath
+      ? this.getPipelineArtifactPath(workflowJobId, 'source_media', 'source_resolve_or_import', filePath) || filePath
+      : null
+
+    if (!sourceMediaPath || !existsSync(sourceMediaPath)) {
       return
     }
 
-    const audioPath = this.getPipelineArtifactPath(workflowJobId, 'extracted_audio')
+    try {
+      if (statSync(sourceMediaPath).size <= 0) {
+        return
+      }
+    } catch {
+      return
+    }
+
+    const audioPath = this.getPipelineArtifactPath(workflowJobId, 'extracted_audio', 'audio_extract')
     if (!audioPath) {
       return
     }
@@ -548,8 +588,8 @@ class ProcessingPipeline {
         workflowJobId,
         workflowJob.projectId,
         workflowJob.episodeId,
-        filePath,
-        parsedInput.projectName || basename(filePath),
+        sourceMediaPath,
+        parsedInput.projectName || basename(sourceMediaPath),
         mediaProbeOutput.resolution ?? undefined,
         {
           type: 'pipeline_completed',
@@ -590,8 +630,8 @@ class ProcessingPipeline {
       workflowJobId,
       workflowJob.projectId,
       workflowJob.episodeId,
-      filePath,
-      parsedInput.projectName || basename(filePath),
+      sourceMediaPath,
+      parsedInput.projectName || basename(sourceMediaPath),
       mediaProbeOutput.resolution ?? undefined,
       workerResult,
       Date.parse(workflowJob.createdAt) || Date.now(),

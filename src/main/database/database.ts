@@ -144,6 +144,12 @@ interface FailureEventRecord {
   createdAt: string
 }
 
+interface ArtifactValidationResult {
+  isValid: boolean
+  errorCode: string | null
+  message: string | null
+}
+
 class DatabaseManager {
   private db: Database.Database
   
@@ -2226,6 +2232,77 @@ class DatabaseManager {
     const stmt = this.db.prepare('SELECT * FROM artifacts WHERE id = ? LIMIT 1')
     const row = stmt.get(artifactId)
     return row ? this.mapArtifact(row) : undefined
+  }
+
+  validateArtifact(artifact: ArtifactRecord | undefined, expectedPath?: string): ArtifactValidationResult {
+    if (!artifact) {
+      return {
+        isValid: false,
+        errorCode: 'artifact_missing',
+        message: 'Artifact record is missing'
+      }
+    }
+
+    if (artifact.status !== 'complete') {
+      return {
+        isValid: false,
+        errorCode: 'artifact_not_complete',
+        message: `Artifact status is ${artifact.status}`
+      }
+    }
+
+    if (!artifact.filePath) {
+      return {
+        isValid: false,
+        errorCode: 'artifact_missing_path',
+        message: 'Artifact file path is missing'
+      }
+    }
+
+    if (expectedPath && artifact.filePath !== expectedPath) {
+      return {
+        isValid: false,
+        errorCode: 'artifact_path_mismatch',
+        message: 'Artifact path does not match expected path'
+      }
+    }
+
+    if (!existsSync(artifact.filePath)) {
+      return {
+        isValid: false,
+        errorCode: 'artifact_file_missing',
+        message: 'Artifact file is missing'
+      }
+    }
+
+    try {
+      if (statSync(artifact.filePath).size <= 0) {
+        return {
+          isValid: false,
+          errorCode: 'artifact_file_empty',
+          message: 'Artifact file is empty'
+        }
+      }
+    } catch {
+      return {
+        isValid: false,
+        errorCode: 'artifact_file_unreadable',
+        message: 'Artifact file could not be inspected'
+      }
+    }
+
+    return {
+      isValid: true,
+      errorCode: null,
+      message: null
+    }
+  }
+
+  invalidateArtifact(artifactId: string, updatedAt?: string) {
+    return this.updateArtifact(artifactId, {
+      status: 'invalid',
+      updatedAt: updatedAt ?? new Date().toISOString()
+    })
   }
 
   createExportJob(record: ExportJobRecord) {

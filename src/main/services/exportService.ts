@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { dialog } from 'electron'
-import { existsSync, mkdirSync, statSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { database } from '../database/database'
 import { exportWorkerSupervisor } from './exportWorkerSupervisor'
 import type {
@@ -748,15 +748,7 @@ class ExportService {
     }
 
     const artifact = database.getArtifactById(output.artifactId)
-    if (!artifact || artifact.status !== 'complete') {
-      return false
-    }
-
-    try {
-      return existsSync(output.filePath) && statSync(output.filePath).size > 0
-    } catch {
-      return false
-    }
+    return database.validateArtifact(artifact, output.filePath).isValid
   }
 
   private normalizeIncompleteOutput(workflowJobId: string, output: {
@@ -772,30 +764,22 @@ class ExportService {
     if (output.artifactId) {
       const artifact = database.getArtifactById(output.artifactId)
       if (artifact) {
-        let shouldInvalidate = false
-        try {
-          shouldInvalidate = !artifact.filePath || !existsSync(artifact.filePath) || statSync(artifact.filePath).size <= 0
-        } catch {
-          shouldInvalidate = true
-        }
-
-        if (shouldInvalidate) {
-          database.updateArtifact(artifact.id, {
-            status: 'invalid',
-            updatedAt: now
-          })
+        const validation = database.validateArtifact(artifact, output.filePath || undefined)
+        if (!validation.isValid) {
+          database.invalidateArtifact(artifact.id, now)
           database.createFailureEvent({
             id: randomUUID(),
             jobId: workflowJobId,
             stepRunId: stepRun?.id ?? null,
             scope: 'export_resume_validation.artifact',
-            errorCode: 'artifact_invalid',
-            message: 'Stored export artifact is missing or invalid during resume',
+            errorCode: validation.errorCode || 'artifact_invalid',
+            message: validation.message || 'Stored export artifact is missing or invalid during resume',
             detailJson: JSON.stringify({
               exportJobId: output.exportJobId,
               clipId: output.clipId,
               artifactId: artifact.id,
-              filePath: artifact.filePath
+              filePath: artifact.filePath,
+              expectedPath: output.filePath
             }),
             createdAt: now
           })
