@@ -32,11 +32,12 @@ export function ExportPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [exportJob, setExportJob] = useState<ExportJobDTO | null>(null)
-  const [isExporting, setIsExporting] = useState(false)
 
   // Export settings
   const [aspectRatio, setAspectRatio] = useState<'9:16' | '1:1' | '16:9'>('9:16')
   const [includeCaptions, setIncludeCaptions] = useState(true)
+  const isExporting = exportJob?.status === 'processing' || exportJob?.status === 'pending'
+  const exportError = exportJob?.status === 'failed' ? (exportJob.error || 'Export failed') : null
 
   useEffect(() => {
     if (!episodeId) {
@@ -54,12 +55,8 @@ export function ExportPage() {
     const cleanup = window.electronAPI?.onExportProgress?.((job) => {
       console.log('Export progress:', job)
       setExportJob(job)
-
-      if (job.status === 'completed') {
-        setIsExporting(false)
-      } else if (job.status === 'failed') {
-        setIsExporting(false)
-        setError(job.error || 'Export failed')
+      if (job.status !== 'failed') {
+        setError(null)
       }
     })
 
@@ -129,7 +126,6 @@ export function ExportPage() {
       }
 
       setExportJob(activeJob)
-      setIsExporting(activeJob.status === 'processing' || activeJob.status === 'pending')
       setError(null)
     } catch (err) {
       console.error('Failed to load active export job:', err)
@@ -142,7 +138,6 @@ export function ExportPage() {
     }
 
     try {
-      setIsExporting(true)
       setError(null)
 
       console.log('Starting export with settings:', { aspectRatio, includeCaptions })
@@ -159,7 +154,6 @@ export function ExportPage() {
     } catch (err) {
       console.error('Export failed:', err)
       setError(err instanceof Error ? err.message : 'Export failed')
-      setIsExporting(false)
     }
   }
 
@@ -168,8 +162,7 @@ export function ExportPage() {
 
     try {
       await window.electronAPI?.cancelExportJob(exportJob.id)
-      setIsExporting(false)
-      setExportJob(null)
+      await loadActiveExportJob()
     } catch (err) {
       console.error('Failed to cancel export:', err)
     }
@@ -320,7 +313,6 @@ export function ExportPage() {
                 <button
                   onClick={() => {
                     setExportJob(null)
-                    setIsExporting(false)
                   }}
                   className="btn-primary flex items-center space-x-2"
                 >
@@ -362,7 +354,7 @@ export function ExportPage() {
                     <>
                       <IoWarning className="text-xl text-accent-danger" />
                       <span className="text-sm text-accent-danger">
-                        {exportJob.error || 'Export failed'}
+                        {exportError}
                       </span>
                     </>
                   )}
