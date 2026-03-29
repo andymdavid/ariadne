@@ -1,14 +1,5 @@
 import { MainContentPanel } from '../components/MainContentPanel'
 
-const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const weeks = [
-  ['Mar 1', 'Mar 2', 'Mar 3', 'Mar 4', 'Mar 5', 'Mar 6', 'Mar 7'],
-  ['Mar 8', 'Mar 9', 'Mar 10', 'Mar 11', 'Mar 12', 'Mar 13', 'Mar 14'],
-  ['Mar 15', 'Mar 16', 'Mar 17', 'Mar 18', 'Mar 19', 'Mar 20', 'Mar 21'],
-  ['Mar 22', 'Mar 23', 'Mar 24', 'Mar 25', 'Mar 26', 'Mar 27', 'Mar 28'],
-  ['Mar 29', 'Mar 30', 'Mar 31', 'Apr 1', 'Apr 2', 'Apr 3', 'Apr 4']
-]
-
 export function CalendarPage() {
   return (
     <MainContentPanel>
@@ -19,35 +10,36 @@ export function CalendarPage() {
               <div className="app-page-header-content">
                 <div className="app-page-title">Calendar</div>
                 <div className="app-page-separator">|</div>
-                <div className="app-page-subtitle">Schedule and review upcoming posts.</div>
+                <div className="app-page-subtitle">Scheduling is not available in the local app yet.</div>
               </div>
             </div>
           </div>
 
           <div className="mx-auto flex w-full max-w-6xl items-center justify-end gap-3">
-            <button className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black">Schedule post</button>
-            <button className="rounded-xl border border-border-default bg-bg-secondary px-4 py-2 text-sm text-text-primary">Upload local video</button>
+            <button
+              disabled
+              className="cursor-not-allowed rounded-xl bg-white/50 px-4 py-2 text-sm font-medium text-black/60"
+            >
+              Schedule post
+            </button>
+            <button
+              disabled
+              className="cursor-not-allowed rounded-xl border border-border-default bg-bg-secondary/60 px-4 py-2 text-sm text-text-muted"
+            >
+              Upload local video
+            </button>
           </div>
 
-          <div className="mx-auto w-full max-w-6xl rounded-2xl border border-border-default bg-bg-secondary/50 overflow-hidden">
-            <div className="grid grid-cols-7 border-b border-border-default">
-              {days.map((day) => (
-                <div key={day} className="px-4 py-3 text-sm font-medium text-text-secondary">
-                  {day}
-                </div>
-              ))}
+          <div className="mx-auto w-full max-w-4xl rounded-2xl border border-border-default bg-bg-secondary/50 p-8">
+            <div className="text-lg font-semibold text-text-primary">Coming Soon</div>
+            <div className="mt-3 max-w-2xl text-sm leading-6 text-text-secondary">
+              Ariadne does not currently publish or schedule posts from the desktop app. This surface is
+              reserved for a future scheduling workflow once real calendar-backed actions exist.
             </div>
-
-            <div>
-              {weeks.map((week, weekIndex) => (
-                <div key={weekIndex} className="grid grid-cols-7 border-b border-border-default last:border-b-0">
-                  {week.map((day) => (
-                    <div key={day} className="min-h-[120px] border-r border-border-default last:border-r-0 px-4 py-3 text-sm text-text-muted">
-                      {day}
-                    </div>
-                  ))}
-                </div>
-              ))}
+            <div className="mt-6 rounded-xl border border-border-default bg-bg-primary/60 p-4 text-sm text-text-muted">
+              The current local platform supports pipeline processing, review, content package generation,
+              export, and workflow diagnostics. Scheduling controls stay disabled until they can perform
+              real work.
             </div>
           </div>
         </div>

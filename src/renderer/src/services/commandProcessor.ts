@@ -237,11 +237,10 @@ export class CommandProcessor {
     const findMatch = command.match(/^find clips? (?:about )?(.+)/)
     if (findMatch) {
       const topic = findMatch[1]
-      return { 
-        success: true, 
-        message: `Searching for clips about "${topic}"`, 
-        action: 'filter', 
-        data: { action: 'searchClips', topic } 
+      return {
+        success: false,
+        message: `Clip search commands are not available yet. Review clips directly in the workspace instead of searching for "${topic}".`,
+        action: 'error'
       }
     }
 
@@ -249,11 +248,10 @@ export class CommandProcessor {
     const showMatch = command.match(/^show me (.+) moments?/)
     if (showMatch) {
       const emotion = showMatch[1]
-      return { 
-        success: true, 
-        message: `Filtering for ${emotion} moments`, 
-        action: 'filter', 
-        data: { action: 'filterByEmotion', emotion } 
+      return {
+        success: false,
+        message: `Moment filtering is not available yet. Browse clips directly in the workspace to inspect ${emotion} moments.`,
+        action: 'error'
       }
     }
 
@@ -262,35 +260,27 @@ export class CommandProcessor {
     if (durationMatch) {
       const duration = parseInt(durationMatch[1])
       const unit = durationMatch[2] || 'seconds'
-      const seconds = unit.startsWith('min') ? duration * 60 : duration
-      return { 
-        success: true, 
-        message: `Showing clips under ${duration} ${unit}`, 
-        action: 'filter', 
-        data: { action: 'filterByDuration', maxDuration: seconds } 
+      return {
+        success: false,
+        message: `Duration filtering is not available yet. Review clips directly instead of filtering under ${duration} ${unit}.`,
+        action: 'error'
       }
     }
 
     // Bulk actions
     if (command.includes('approve all')) {
-      const scoreMatch = command.match(/approve all (?:clips? )?(?:with )?(?:high )?scores?(?: (?:above|over) (\d+))?/)
-      const minScore = scoreMatch ? parseInt(scoreMatch[1]) || 7 : 7
-      return { 
-        success: true, 
-        message: `Approving all clips with scores ${minScore}+`, 
-        action: 'execute', 
-        data: { action: 'approveHighScores', minScore } 
+      return {
+        success: false,
+        message: 'Bulk approve commands are not available yet. Approve clips individually in the review workspace.',
+        action: 'error'
       }
     }
 
     if (command.includes('reject') && (command.includes('low') || command.includes('bad'))) {
-      const scoreMatch = command.match(/reject (?:all )?(?:clips? )?(?:with )?(?:low )?scores?(?: (?:below|under) (\d+))?/)
-      const maxScore = scoreMatch ? parseInt(scoreMatch[1]) || 5 : 5
-      return { 
-        success: true, 
-        message: `Rejecting clips with scores ${maxScore} and below`, 
-        action: 'execute', 
-        data: { action: 'rejectLowScores', maxScore } 
+      return {
+        success: false,
+        message: 'Bulk reject commands are not available yet. Reject clips individually in the review workspace.',
+        action: 'error'
       }
     }
 
@@ -299,7 +289,7 @@ export class CommandProcessor {
       return { success: true, message: 'Click a clip to preview it', action: 'execute' }
     }
 
-    return { success: false, message: 'Try: "find clips about AI", "approve all high scores", "clips under 30 seconds"', action: 'error' }
+    return { success: false, message: 'Try: "preview" or use "next" to continue to export once review is complete.', action: 'error' }
   }
 
   private handleGeneralCommands(command: string): CommandResult {
@@ -348,7 +338,7 @@ export class CommandProcessor {
       case 'brand-template':
         return 'Available commands: "go to asset library", "go to calendar", "go to analytics", "validate system"'
       case 'review':
-        return 'Available commands: "find clips about [topic]", "approve all high scores", "clips under [duration]", "next", "validate system"'
+        return 'Available commands: "preview", "next", "back", "go to export", "validate system"'
       default:
         return 'Available commands: "help", "go to home", "go to brand template", "go to asset library", "go to calendar", "go to analytics", "validate system"'
     }

@@ -346,12 +346,6 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
       'asset-library': [
         { id: 'logos', command: '/logos', description: 'Manage reusable logos and overlays' },
         { id: 'music', command: '/music', description: 'Manage reusable music assets' },
-      ],
-      calendar: [
-        { id: 'schedule', command: '/schedule post', description: 'Schedule a clip for publishing' },
-      ],
-      analytics: [
-        { id: 'top', command: '/top clips', description: 'View top-performing clips' },
       ]
     }
 
