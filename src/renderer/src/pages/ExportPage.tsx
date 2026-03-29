@@ -45,6 +45,7 @@ export function ExportPage() {
       return
     }
 
+    loadActiveExportJob()
     loadApprovedClips()
   }, [episodeId])
 
@@ -108,17 +109,30 @@ export function ExportPage() {
       }
       setClipTitles(titlesMap)
 
-      const activeJob = await window.electronAPI?.getActiveExportJob?.(episodeId!)
-      if (activeJob) {
-        setExportJob(activeJob)
-        setIsExporting(activeJob.status === 'processing' || activeJob.status === 'pending')
-      }
-
       setLoading(false)
     } catch (err) {
       console.error('Failed to load approved clips:', err)
       setError(err instanceof Error ? err.message : 'Failed to load clips')
       setLoading(false)
+    }
+  }
+
+  const loadActiveExportJob = async () => {
+    if (!episodeId || !window.electronAPI?.getActiveExportJob) {
+      return
+    }
+
+    try {
+      const activeJob = await window.electronAPI.getActiveExportJob(episodeId)
+      if (!activeJob) {
+        return
+      }
+
+      setExportJob(activeJob)
+      setIsExporting(activeJob.status === 'processing' || activeJob.status === 'pending')
+      setError(null)
+    } catch (err) {
+      console.error('Failed to load active export job:', err)
     }
   }
 
