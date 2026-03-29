@@ -3,12 +3,14 @@ import { useEffect, useState } from 'react'
 import { IoArrowBack } from 'react-icons/io5'
 import { ClipCarousel } from '../components/ClipCarousel'
 import { MainContentPanel } from '../components/MainContentPanel'
+import { PipelineRunInspector } from '../components/PipelineRunInspector'
 import { useClipsData, useProjectStore } from '../stores/projectStore'
 import type { Clip as ProjectClip } from '@shared/types'
 
 export function ReviewPage() {
   const navigate = useNavigate()
   const { id: episodeId } = useParams<{ id: string }>()
+  const [resolvedEpisodeId, setResolvedEpisodeId] = useState<string | null>(episodeId ?? null)
   const [clips, setClips] = useState<ProjectClip[]>([])
   const [selectedClip, setSelectedClip] = useState<ProjectClip | null>(null)
   const [loading, setLoading] = useState(true)
@@ -50,8 +52,10 @@ export function ReviewPage() {
             return
           }
           console.log('Found episode via project ID fallback:', episodeByProject)
+          setResolvedEpisodeId(episodeByProject.id)
         } else {
           console.log('Episode validated:', episode)
+          setResolvedEpisodeId(episode.id)
         }
       } catch (err) {
         console.error('Failed to validate episode:', err)
@@ -250,6 +254,7 @@ export function ReviewPage() {
   return (
     <MainContentPanel>
       <div className="relative h-full w-full">
+        {resolvedEpisodeId && <PipelineRunInspector episodeId={resolvedEpisodeId} />}
         <button
           type="button"
           onClick={() => navigate('/')}
