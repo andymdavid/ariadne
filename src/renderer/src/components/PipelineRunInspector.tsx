@@ -5,6 +5,11 @@ import type {
   PipelineComparableRunSummaryDTO,
   PipelineRunDetailDTO
 } from '@shared/types/pipelineIpc'
+import type {
+  FailureEventDTO,
+  WorkflowEventDTO,
+  WorkflowJobViewDTO
+} from '@shared/types/workflowReadIpc'
 
 interface PipelineRunInspectorProps {
   episodeId: string
@@ -45,6 +50,9 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
   const [evaluations, setEvaluations] = useState<GetPipelineRunEvaluationsResponseDTO>([])
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [selectedRun, setSelectedRun] = useState<PipelineRunDetailDTO | null>(null)
+  const [selectedWorkflowJob, setSelectedWorkflowJob] = useState<WorkflowJobViewDTO | null>(null)
+  const [workflowEvents, setWorkflowEvents] = useState<WorkflowEventDTO[]>([])
+  const [failureEvents, setFailureEvents] = useState<FailureEventDTO[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -96,13 +104,24 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
     const loadRunDetail = async () => {
       if (!selectedJobId || !window.electronAPI?.getPipelineRun) {
         setSelectedRun(null)
+        setSelectedWorkflowJob(null)
+        setWorkflowEvents([])
+        setFailureEvents([])
         return
       }
 
       try {
-        const run = await window.electronAPI.getPipelineRun(selectedJobId)
+        const [run, workflowJob, events, failures] = await Promise.all([
+          window.electronAPI.getPipelineRun(selectedJobId),
+          window.electronAPI.getWorkflowJob(selectedJobId),
+          window.electronAPI.getWorkflowEvents(selectedJobId),
+          window.electronAPI.getFailureEvents(selectedJobId)
+        ])
         if (!cancelled) {
           setSelectedRun(run)
+          setSelectedWorkflowJob(workflowJob)
+          setWorkflowEvents(events)
+          setFailureEvents(failures)
         }
       } catch (error) {
         console.error('Failed to load pipeline run detail:', error)
@@ -122,6 +141,8 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
   )
 
   const selectedConfig = parseJson<Record<string, unknown>>(selectedRun?.summary.configSnapshotJson)
+  const recentWorkflowEvents = workflowEvents.slice(0, 5)
+  const recentFailureEvents = failureEvents.slice(0, 5)
 
   return (
     <aside className="absolute right-8 top-8 z-20 w-[360px] max-w-[calc(100%-4rem)] rounded-3xl border border-white/8 bg-[#12151b]/92 p-4 text-sm text-text-secondary shadow-2xl backdrop-blur">
@@ -225,6 +246,70 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                   {selectedRun.steps.length} durable step records · {selectedRun.artifacts.length} artifacts
                 </div>
               )}
+            </div>
+          )}
+
+          {selectedWorkflowJob && (
+            <div className="rounded-2xl border border-white/8 bg-[#141820] p-3">
+              <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Workflow Diagnostics</div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                <span>Job ID</span>
+                <span className="font-mono text-right text-text-primary">{shortId(selectedWorkflowJob.jobId)}</span>
+                <span>Job Type</span>
+                <span className="text-right text-text-primary">{selectedWorkflowJob.jobType}</span>
+                <span>Status</span>
+                <span className="text-right text-text-primary">{selectedWorkflowJob.status}</span>
+                <span>Stage</span>
+                <span className="text-right text-text-primary">{selectedWorkflowJob.stage || 'n/a'}</span>
+                <span>Progress</span>
+                <span className="text-right text-text-primary">{selectedWorkflowJob.progress}%</span>
+                <span>Worker</span>
+                <span className="text-right text-text-primary">{selectedWorkflowJob.workerKind}</span>
+                <span>Created</span>
+                <span className="text-right text-text-primary">{formatDateTime(selectedWorkflowJob.createdAt)}</span>
+                <span>Started</span>
+                <span className="text-right text-text-primary">{formatDateTime(selectedWorkflowJob.startedAt)}</span>
+                <span>Completed</span>
+                <span className="text-right text-text-primary">{formatDateTime(selectedWorkflowJob.completedAt)}</span>
+              </div>
+
+              <div className="mt-3">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Recent Events</div>
+                {recentWorkflowEvents.length === 0 ? (
+                  <div className="text-[11px] text-text-muted">No workflow events recorded.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {recentWorkflowEvents.map((event) => (
+                      <div key={event.id} className="rounded-xl bg-black/20 p-2 text-[11px]">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-text-primary">{event.eventType}</span>
+                          <span className="text-text-muted">{formatDateTime(event.createdAt)}</span>
+                        </div>
+                        <div className="mt-1 text-text-secondary">{event.message || event.scope}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Recent Failures</div>
+                {recentFailureEvents.length === 0 ? (
+                  <div className="text-[11px] text-text-muted">No failure events recorded.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {recentFailureEvents.map((event) => (
+                      <div key={event.id} className="rounded-xl bg-black/20 p-2 text-[11px]">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-text-primary">{event.errorCode}</span>
+                          <span className="text-text-muted">{formatDateTime(event.createdAt)}</span>
+                        </div>
+                        <div className="mt-1 text-text-secondary">{event.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
