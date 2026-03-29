@@ -54,6 +54,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEventDTO[]>([])
   const [failureEvents, setFailureEvents] = useState<FailureEventDTO[]>([])
   const [loading, setLoading] = useState(true)
+  const [isExpanded, setIsExpanded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -146,12 +147,27 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
 
   return (
     <aside className="absolute right-8 top-8 z-20 w-[360px] max-w-[calc(100%-4rem)] rounded-3xl border border-white/8 bg-[#12151b]/92 p-4 text-sm text-text-secondary shadow-2xl backdrop-blur">
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.24em] text-text-primary">Pipeline Runs</h3>
-        <p className="mt-1 text-xs text-text-muted">Read-only inspection for durable runs and saved evaluations.</p>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.24em] text-text-primary">Run Inspection</h3>
+          <p className="mt-1 text-xs text-text-muted">
+            Inspect durable pipeline runs, saved evaluations, and workflow diagnostics for this episode.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsExpanded((current) => !current)}
+          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:border-white/15 hover:bg-white/8 hover:text-text-primary"
+        >
+          {isExpanded ? 'Hide' : 'Inspect'}
+        </button>
       </div>
 
-      {loading ? (
+      {!isExpanded ? (
+        <div className="rounded-2xl border border-white/8 bg-[#141820] p-3 text-[11px] text-text-muted">
+          Open this panel to compare recorded runs, inspect workflow events, and review saved evaluation summaries.
+        </div>
+      ) : loading ? (
         <div className="text-xs text-text-muted">Loading run inspection...</div>
       ) : runs.length === 0 ? (
         <div className="text-xs text-text-muted">No recorded pipeline runs for this episode yet.</div>

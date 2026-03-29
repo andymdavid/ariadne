@@ -263,6 +263,9 @@ export function ReviewPage() {
           <IoArrowBack size={15} />
           <span>Back</span>
         </button>
+        <div className="absolute left-8 top-24 z-20 max-w-xs rounded-2xl border border-white/8 bg-[#12151b]/80 px-4 py-3 text-xs text-text-muted backdrop-blur">
+          Use the inspection panel on the right to review pipeline runs, saved evaluations, and workflow diagnostics for this episode.
+        </div>
         <ClipCarousel
           clips={clips}
           selectedClip={selectedClip}
