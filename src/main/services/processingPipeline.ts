@@ -21,6 +21,25 @@ export interface ProcessingResult {
   processingTime: number
 }
 
+type PipelineStepKey =
+  | 'source_resolve_or_import'
+  | 'media_probe'
+  | 'audio_extract'
+  | 'transcription'
+  | 'clip_generation'
+  | 'clip_ranking'
+  | 'content_package_generation'
+
+const PIPELINE_STEP_ORDER: PipelineStepKey[] = [
+  'source_resolve_or_import',
+  'media_probe',
+  'audio_extract',
+  'transcription',
+  'clip_generation',
+  'clip_ranking',
+  'content_package_generation'
+]
+
 class ProcessingPipeline {
   private aiService?: AIService
   private whisperService?: LocalWhisperService
@@ -86,22 +105,29 @@ class ProcessingPipeline {
     window?: BrowserWindow,
     jobId?: string
   ): Promise<ProcessingResult> {
+    const workflowJobId = jobId || randomUUID()
     console.log('Starting processEpisode with file:', filePath)
     const startTime = Date.now()
-    let projectId: string
-    let episodeId: string
+    let projectId: string | undefined
+    let episodeId: string | undefined
+    let currentStep: PipelineStepKey | null = null
     
     try {
       // Ensure services are initialized
       this.initializeServices()
+
+      this.initializeWorkflowJob(workflowJobId, filePath, projectName)
+      this.createPipelineStepRuns(workflowJobId)
       
       if (!this.whisperService) {
         throw new Error('Whisper service not available. Please install whisper with: pipx install openai-whisper')
       }
       
       // Step 1: Create project and episode records
+      currentStep = 'source_resolve_or_import'
+      this.startPipelineStep(workflowJobId, currentStep, 'Creating project and episode records...')
       this.sendProgress(window, {
-        jobId,
+        jobId: workflowJobId,
         stage: 'uploading',
         progress: 5,
         stageProgress: 5,
@@ -110,11 +136,23 @@ class ProcessingPipeline {
       
       projectId = await this.createProject(projectName || basename(filePath))
       episodeId = await this.createEpisode(projectId, filePath)
+      this.updateWorkflowJobContext(workflowJobId, projectId, episodeId)
+      this.createPipelineArtifact(workflowJobId, projectId, episodeId, null, filePath, 'source_media', {
+        imported: filePath.includes(`${join(require('os').homedir(), '')}`) ? false : undefined,
+        originalFileName: basename(filePath)
+      })
+      this.completePipelineStep(workflowJobId, currentStep, {
+        filePath,
+        projectId,
+        episodeId
+      })
       
       // Step 2: Extract audio and get media info
       console.log('Starting media info extraction for:', filePath)
+      currentStep = 'media_probe'
+      this.startPipelineStep(workflowJobId, currentStep, 'Analyzing media file...')
       this.sendProgress(window, {
-        jobId,
+        jobId: workflowJobId,
         stage: 'extracting',
         progress: 10,
         stageProgress: 0,
@@ -125,13 +163,22 @@ class ProcessingPipeline {
       try {
         mediaInfo = await ffmpegService.getMediaInfo(filePath)
         console.log('Media info retrieved:', mediaInfo)
+        this.completePipelineStep(workflowJobId, currentStep, {
+          duration: mediaInfo.duration,
+          hasVideo: mediaInfo.hasVideo,
+          hasAudio: mediaInfo.hasAudio,
+          resolution: mediaInfo.resolution ?? null,
+          frameRate: mediaInfo.frameRate ?? null
+        })
       } catch (error) {
         console.error('Failed to get media info:', error)
         throw new Error(this.getFriendlyMediaError(filePath, error))
       }
       
+      currentStep = 'audio_extract'
+      this.startPipelineStep(workflowJobId, currentStep, 'Extracting audio for transcription...')
       this.sendProgress(window, {
-        jobId,
+        jobId: workflowJobId,
         stage: 'extracting',
         progress: 15,
         stageProgress: 33,
@@ -146,8 +193,9 @@ class ProcessingPipeline {
           filePath,
           undefined,
           (progress) => {
+            this.updatePipelineStepProgress(workflowJobId, currentStep!, progress, 'Extracting audio...')
             this.sendProgress(window, {
-              jobId,
+              jobId: workflowJobId,
               stage: 'extracting',
               progress: 15 + (progress * 0.15), // 15-30%
               stageProgress: progress,
@@ -156,6 +204,12 @@ class ProcessingPipeline {
           }
         )
         console.log('Audio extraction completed. Audio file at:', audioPath)
+        this.createPipelineArtifact(workflowJobId, projectId, episodeId, null, audioPath, 'extracted_audio', {
+          sourceFilePath: filePath
+        })
+        this.completePipelineStep(workflowJobId, currentStep, {
+          audioPath
+        })
       } catch (error) {
         console.error('Audio extraction failed:', error)
         throw new Error(`Failed to extract audio: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -164,8 +218,10 @@ class ProcessingPipeline {
       // Step 3: Transcribe audio (with chunking for large files)
       console.log('Starting transcription stage...')
       const transcriptionStartedAt = Date.now()
+      currentStep = 'transcription'
+      this.startPipelineStep(workflowJobId, currentStep, 'Transcribing audio with Whisper...')
       this.sendProgress(window, {
-        jobId,
+        jobId: workflowJobId,
         stage: 'transcribing',
         progress: 30,
         stageProgress: 0,
@@ -183,7 +239,7 @@ class ProcessingPipeline {
         // Split large audio file into chunks
         console.log('Large file detected, will split into chunks')
         this.sendProgress(window, {
-          jobId,
+          jobId: workflowJobId,
           stage: 'transcribing',
           progress: 30,
           stageProgress: 0,
@@ -202,13 +258,19 @@ class ProcessingPipeline {
             wordTimestamps: true
           },
           (chunkIndex, chunkProgress, totalProgress, partialText) => {
+            this.updatePipelineStepProgress(
+              workflowJobId,
+              currentStep!,
+              totalProgress,
+              `Transcribing chunk ${chunkIndex + 1}/${chunks.length}...`
+            )
             const timeRemaining = this.estimateRemainingFromProgress(
               transcriptionStartedAt,
               totalProgress / 100,
               mediaInfo.duration
             )
             this.sendProgress(window, {
-              jobId,
+              jobId: workflowJobId,
               stage: 'transcribing',
               progress: 30 + (totalProgress * 0.35 / 100), // 30-65%
               stageProgress: totalProgress,
@@ -233,13 +295,14 @@ class ProcessingPipeline {
             wordTimestamps: true
           },
           (progress, partialText) => {
+            this.updatePipelineStepProgress(workflowJobId, currentStep!, progress, 'Transcribing audio...')
             const timeRemaining = this.estimateRemainingFromProgress(
               transcriptionStartedAt,
               progress / 100,
               mediaInfo.duration
             )
             this.sendProgress(window, {
-              jobId,
+              jobId: workflowJobId,
               stage: 'transcribing',
               progress: 30 + (progress * 0.35), // 30-65%
               stageProgress: progress,
@@ -255,10 +318,22 @@ class ProcessingPipeline {
       
       // Step 4: Store transcript in database
       await this.storeTranscript(episodeId, transcription)
+      this.completePipelineStep(workflowJobId, currentStep, {
+        segmentCount: transcription.segments?.length ?? 0,
+        transcriptLength: transcription.text?.length ?? 0
+      })
       
       // Step 5: AI content analysis with graceful degradation
+      currentStep = 'clip_generation'
+      this.startPipelineStep(
+        workflowJobId,
+        currentStep,
+        this.aiService
+          ? 'Generating clip candidates from transcript...'
+          : 'Generating heuristic clip candidates...'
+      )
       this.sendProgress(window, {
-        jobId,
+        jobId: workflowJobId,
         stage: 'analyzing',
         progress: 65,
         stageProgress: 0,
@@ -272,8 +347,18 @@ class ProcessingPipeline {
       
       if (!this.aiService) {
         analysis = this.buildHeuristicAnalysis(transcription)
+        this.completePipelineStep(workflowJobId, currentStep, {
+          clipCount: analysis.potentialClips.length,
+          mode: 'heuristic'
+        })
+        currentStep = 'clip_ranking'
+        this.startPipelineStep(workflowJobId, currentStep, 'Ranking heuristic clip suggestions...')
+        this.completePipelineStep(workflowJobId, currentStep, {
+          clipCount: analysis.potentialClips.length,
+          mode: 'heuristic'
+        })
         this.sendProgress(window, {
-          jobId,
+          jobId: workflowJobId,
           stage: 'analyzing',
           progress: 90,
           stageProgress: 100,
@@ -285,8 +370,14 @@ class ProcessingPipeline {
             transcription, // Pass full transcription object with segments
             mediaInfo.duration,
             (progress) => {
+              this.updatePipelineStepProgress(
+                workflowJobId,
+                currentStep!,
+                Math.min(progress, 100),
+                'Generating clip candidates from transcript...'
+              )
               this.sendProgress(window, {
-                jobId,
+                jobId: workflowJobId,
                 stage: 'analyzing',
                 progress: 65 + (progress * 0.25), // 65-90%
                 stageProgress: progress,
@@ -296,14 +387,35 @@ class ProcessingPipeline {
           )
           aiAnalysisSucceeded = true
           console.log('AI analysis completed successfully')
+          this.completePipelineStep(workflowJobId, currentStep, {
+            clipCount: analysis.potentialClips.length,
+            mode: 'ai'
+          })
+          currentStep = 'clip_ranking'
+          this.startPipelineStep(workflowJobId, currentStep, 'Ranking clip suggestions...')
+          this.completePipelineStep(workflowJobId, currentStep, {
+            clipCount: analysis.potentialClips.length,
+            mode: 'ai'
+          })
         } catch (aiError) {
           console.error('AI analysis failed, proceeding with transcript-only mode:', aiError)
           
           analysis = this.buildHeuristicAnalysis(transcription)
           aiAnalysisSucceeded = false
+          this.completePipelineStep(workflowJobId, currentStep, {
+            clipCount: analysis.potentialClips.length,
+            mode: 'heuristic_fallback',
+            aiError: aiError instanceof Error ? aiError.message : 'Unknown error'
+          })
+          currentStep = 'clip_ranking'
+          this.startPipelineStep(workflowJobId, currentStep, 'Ranking heuristic clip suggestions...')
+          this.completePipelineStep(workflowJobId, currentStep, {
+            clipCount: analysis.potentialClips.length,
+            mode: 'heuristic_fallback'
+          })
           
           this.sendProgress(window, {
-            jobId,
+            jobId: workflowJobId,
             stage: 'analyzing',
             progress: 90,
             stageProgress: 100,
@@ -316,9 +428,11 @@ class ProcessingPipeline {
       const storedClips = await this.storeClips(episodeId, analysis.potentialClips, mediaInfo.resolution)
 
       // Step 7: Generate content packages (only if we have clips)
+      currentStep = 'content_package_generation'
       if (aiAnalysisSucceeded && storedClips.length > 0) {
+        this.startPipelineStep(workflowJobId, currentStep, 'Generating titles and descriptions...')
         this.sendProgress(window, {
-          jobId,
+          jobId: workflowJobId,
           stage: 'generating',
           progress: 90,
           stageProgress: 0,
@@ -329,8 +443,14 @@ class ProcessingPipeline {
           await this.generateContentPackages(
             storedClips.slice(0, 10), // Top 10 clips with IDs
             (progress) => {
+              this.updatePipelineStepProgress(
+                workflowJobId,
+                currentStep!,
+                progress,
+                'Generating content packages...'
+              )
               this.sendProgress(window, {
-                jobId,
+                jobId: workflowJobId,
                 stage: 'generating',
                 progress: 90 + (progress * 0.1), // 90-100%
                 stageProgress: progress,
@@ -338,14 +458,29 @@ class ProcessingPipeline {
               })
             }
           )
+          this.completePipelineStep(workflowJobId, currentStep, {
+            clipCount: Math.min(storedClips.length, 10)
+          })
         } catch (contentError) {
           console.error('Content generation failed, but clips are preserved:', contentError)
+          this.failPipelineStep(
+            workflowJobId,
+            currentStep,
+            contentError instanceof Error ? contentError.message : 'Unknown error',
+            'content_generation_failed'
+          )
           // Continue processing - clips exist even without enhanced content packages
         }
       } else {
         console.log('Skipping content generation - no clips available')
+        this.startPipelineStep(workflowJobId, currentStep, 'Skipping content package generation')
+        this.completePipelineStep(workflowJobId, currentStep, {
+          skipped: true,
+          aiAnalysisSucceeded,
+          clipCount: storedClips.length
+        })
         this.sendProgress(window, {
-          jobId,
+          jobId: workflowJobId,
           stage: 'generating',
           progress: 95,
           stageProgress: 100,
@@ -355,6 +490,7 @@ class ProcessingPipeline {
       
       // Step 8: Update episode status
       database.updateEpisodeStatus(episodeId, 'completed')
+      this.completeWorkflowJob(workflowJobId, projectId, episodeId, analysis.potentialClips.length)
       
       // Step 9: Add to recent projects
       configService.addRecentProject({
@@ -364,7 +500,7 @@ class ProcessingPipeline {
       })
       
       this.sendProgress(window, {
-        jobId,
+        jobId: workflowJobId,
         stage: 'completed',
         progress: 100,
         stageProgress: 100,
@@ -374,7 +510,7 @@ class ProcessingPipeline {
       const processingTime = (Date.now() - startTime) / 1000
       
       const result: ProcessingResultPayload = {
-        jobId,
+        jobId: workflowJobId,
         projectId,
         episodeId,
         clipsFound: analysis.potentialClips.length,
@@ -395,7 +531,7 @@ class ProcessingPipeline {
           : `Transcription completed, but no clips were identified.`
         
       this.sendProgress(window, {
-        jobId,
+        jobId: workflowJobId,
         stage: 'completed',
         progress: 100,
         stageProgress: 100,
@@ -411,9 +547,23 @@ class ProcessingPipeline {
       if (episodeId!) {
         database.updateEpisodeStatus(episodeId, 'error')
       }
+      if (currentStep) {
+        this.failPipelineStep(
+          workflowJobId,
+          currentStep,
+          error instanceof Error ? error.message : 'Unknown processing error',
+          'pipeline_step_failed'
+        )
+      }
+      this.failWorkflowJob(
+        workflowJobId,
+        projectId,
+        episodeId,
+        error instanceof Error ? error.message : 'Unknown processing error'
+      )
       
       const errorPayload: ProcessingErrorPayload = {
-        jobId,
+        jobId: workflowJobId,
         message: error instanceof Error ? error.message : 'Unknown processing error'
       }
 
@@ -559,7 +709,183 @@ class ProcessingPipeline {
   
   private sendProgress(window: BrowserWindow | undefined, progress: ProcessingProgress) {
     console.log('Sending progress update:', progress)
+    if (progress.jobId) {
+      database.updateWorkflowJob(progress.jobId, {
+        progress: Math.round(progress.progress),
+        stage: progress.stage,
+        message: progress.message,
+        updatedAt: new Date().toISOString()
+      })
+    }
     window?.webContents.send('processing-update', progress)
+  }
+
+  private initializeWorkflowJob(workflowJobId: string, filePath: string, projectName?: string) {
+    const now = new Date().toISOString()
+    database.createWorkflowJob({
+      id: workflowJobId,
+      jobType: 'pipeline',
+      status: 'pending',
+      workerKind: 'main_process',
+      projectId: null,
+      episodeId: null,
+      clipId: null,
+      parentJobId: null,
+      progress: 0,
+      stage: 'queued',
+      message: 'Queued for processing',
+      inputJson: JSON.stringify({
+        filePath,
+        projectName: projectName || basename(filePath)
+      }),
+      configSnapshotJson: null,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      heartbeatAt: null,
+      attemptCount: 0,
+      maxAttempts: 1,
+      startedAt: now,
+      completedAt: null,
+      createdAt: now,
+      updatedAt: now
+    })
+  }
+
+  private createPipelineStepRuns(workflowJobId: string) {
+    const now = new Date().toISOString()
+    PIPELINE_STEP_ORDER.forEach((stepKey, index) => {
+      database.createWorkflowStepRun({
+        id: `${workflowJobId}-${stepKey}`,
+        jobId: workflowJobId,
+        stepKey,
+        status: 'pending',
+        stepOrder: index,
+        clipId: null,
+        attempt: 1,
+        progress: 0,
+        message: null,
+        inputJson: null,
+        outputJson: null,
+        errorCode: null,
+        errorMessage: null,
+        startedAt: null,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now
+      })
+    })
+  }
+
+  private updateWorkflowJobContext(workflowJobId: string, projectId?: string, episodeId?: string) {
+    database.updateWorkflowJob(workflowJobId, {
+      projectId: projectId ?? null,
+      episodeId: episodeId ?? null,
+      updatedAt: new Date().toISOString()
+    })
+  }
+
+  private startPipelineStep(workflowJobId: string, stepKey: PipelineStepKey, message: string) {
+    const now = new Date().toISOString()
+    database.updateWorkflowStepRun(`${workflowJobId}-${stepKey}`, {
+      status: 'running',
+      progress: 0,
+      message,
+      startedAt: now,
+      updatedAt: now
+    })
+    database.updateWorkflowJob(workflowJobId, {
+      status: 'running',
+      stage: stepKey,
+      message,
+      updatedAt: now
+    })
+  }
+
+  private updatePipelineStepProgress(workflowJobId: string, stepKey: PipelineStepKey, progress: number, message: string) {
+    database.updateWorkflowStepRun(`${workflowJobId}-${stepKey}`, {
+      status: 'running',
+      progress: Math.round(progress),
+      message,
+      updatedAt: new Date().toISOString()
+    })
+  }
+
+  private completePipelineStep(workflowJobId: string, stepKey: PipelineStepKey, output: Record<string, unknown>) {
+    const now = new Date().toISOString()
+    database.updateWorkflowStepRun(`${workflowJobId}-${stepKey}`, {
+      status: 'completed',
+      progress: 100,
+      outputJson: JSON.stringify(output),
+      completedAt: now,
+      updatedAt: now
+    })
+  }
+
+  private failPipelineStep(workflowJobId: string, stepKey: PipelineStepKey, message: string, errorCode: string) {
+    const now = new Date().toISOString()
+    database.updateWorkflowStepRun(`${workflowJobId}-${stepKey}`, {
+      status: 'failed',
+      errorCode,
+      errorMessage: message,
+      completedAt: now,
+      updatedAt: now
+    })
+  }
+
+  private completeWorkflowJob(workflowJobId: string, projectId: string, episodeId: string, clipsFound: number) {
+    const now = new Date().toISOString()
+    database.updateWorkflowJob(workflowJobId, {
+      status: 'completed',
+      projectId,
+      episodeId,
+      progress: 100,
+      stage: 'completed',
+      message: `Processing complete with ${clipsFound} clips`,
+      completedAt: now,
+      updatedAt: now
+    })
+  }
+
+  private failWorkflowJob(workflowJobId: string, projectId: string | undefined, episodeId: string | undefined, message: string) {
+    const now = new Date().toISOString()
+    database.updateWorkflowJob(workflowJobId, {
+      status: 'failed',
+      projectId: projectId ?? null,
+      episodeId: episodeId ?? null,
+      stage: 'failed',
+      message,
+      completedAt: now,
+      updatedAt: now
+    })
+  }
+
+  private createPipelineArtifact(
+    workflowJobId: string,
+    projectId: string,
+    episodeId: string,
+    clipId: string | null,
+    filePath: string,
+    artifactType: string,
+    metadata: Record<string, unknown>
+  ) {
+    database.createArtifact({
+      id: randomUUID(),
+      artifactType,
+      status: 'complete',
+      projectId,
+      episodeId,
+      clipId,
+      workflowJobId,
+      filePath,
+      tempFilePath: null,
+      mimeType: null,
+      sizeBytes: null,
+      checksum: null,
+      metadataJson: JSON.stringify(metadata),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString()
+    })
   }
   
   private estimateTranscriptionTime(durationInSeconds: number): number {
