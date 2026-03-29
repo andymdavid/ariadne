@@ -4,6 +4,135 @@ import { join } from 'path'
 import { readFileSync, existsSync, mkdirSync, statSync } from 'fs'
 import type { ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
 
+type WorkflowJobStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancel_requested'
+  | 'cancelled'
+  | 'pending_resume'
+
+type WorkflowStepStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+type ArtifactStatus =
+  | 'pending'
+  | 'writing'
+  | 'complete'
+  | 'invalid'
+  | 'deleted'
+
+type ExportJobStatus = WorkflowJobStatus
+
+type ExportOutputStatus =
+  | 'pending'
+  | 'rendering'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+interface WorkflowJobRecord {
+  id: string
+  jobType: string
+  status: WorkflowJobStatus
+  workerKind: string
+  projectId: string | null
+  episodeId: string | null
+  clipId: string | null
+  parentJobId: string | null
+  progress: number
+  stage: string | null
+  message: string | null
+  inputJson: string
+  configSnapshotJson: string | null
+  leaseOwner: string | null
+  leaseExpiresAt: string | null
+  heartbeatAt: string | null
+  attemptCount: number
+  maxAttempts: number
+  startedAt: string | null
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+interface WorkflowStepRunRecord {
+  id: string
+  jobId: string
+  stepKey: string
+  status: WorkflowStepStatus
+  stepOrder: number
+  clipId: string | null
+  attempt: number
+  progress: number
+  message: string | null
+  inputJson: string | null
+  outputJson: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  startedAt: string | null
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+interface ArtifactRecord {
+  id: string
+  artifactType: string
+  status: ArtifactStatus
+  projectId: string | null
+  episodeId: string | null
+  clipId: string | null
+  workflowJobId: string | null
+  filePath: string
+  tempFilePath: string | null
+  mimeType: string | null
+  sizeBytes: number | null
+  checksum: string | null
+  metadataJson: string
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+}
+
+interface ExportJobRecord {
+  id: string
+  workflowJobId: string
+  episodeId: string
+  status: ExportJobStatus
+  outputDirectory: string
+  aspectRatio: string
+  includeCaptions: boolean
+  currentClipIndex: number
+  totalClips: number
+  progress: number
+  clipIdsJson: string
+  errorMessage: string | null
+  createdAt: string
+  startedAt: string | null
+  completedAt: string | null
+  updatedAt: string
+}
+
+interface ExportOutputRecord {
+  id: string
+  exportJobId: string | null
+  clipId: string
+  artifactId: string | null
+  filePath: string
+  format: string
+  resolution: string
+  metadata: string
+  status: ExportOutputStatus
+  errorMessage: string | null
+  createdAt: string
+}
+
 class DatabaseManager {
   private db: Database.Database
   
@@ -23,6 +152,126 @@ class DatabaseManager {
     this.migrateSchema();
   }
 
+  private hasColumn(tableName: string, columnName: string) {
+    const columns = this.db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>
+    return columns.some((column) => column.name === columnName)
+  }
+
+  private addColumnIfMissing(tableName: string, columnName: string, columnDefinition: string) {
+    if (this.hasColumn(tableName, columnName)) {
+      return
+    }
+
+    this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`)
+  }
+
+  private mapWorkflowJob(row: any): WorkflowJobRecord {
+    return {
+      id: row.id,
+      jobType: row.job_type,
+      status: row.status,
+      workerKind: row.worker_kind,
+      projectId: row.project_id ?? null,
+      episodeId: row.episode_id ?? null,
+      clipId: row.clip_id ?? null,
+      parentJobId: row.parent_job_id ?? null,
+      progress: row.progress,
+      stage: row.stage ?? null,
+      message: row.message ?? null,
+      inputJson: row.input_json,
+      configSnapshotJson: row.config_snapshot_json ?? null,
+      leaseOwner: row.lease_owner ?? null,
+      leaseExpiresAt: row.lease_expires_at ?? null,
+      heartbeatAt: row.heartbeat_at ?? null,
+      attemptCount: row.attempt_count,
+      maxAttempts: row.max_attempts,
+      startedAt: row.started_at ?? null,
+      completedAt: row.completed_at ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapWorkflowStepRun(row: any): WorkflowStepRunRecord {
+    return {
+      id: row.id,
+      jobId: row.job_id,
+      stepKey: row.step_key,
+      status: row.status,
+      stepOrder: row.step_order,
+      clipId: row.clip_id ?? null,
+      attempt: row.attempt,
+      progress: row.progress,
+      message: row.message ?? null,
+      inputJson: row.input_json ?? null,
+      outputJson: row.output_json ?? null,
+      errorCode: row.error_code ?? null,
+      errorMessage: row.error_message ?? null,
+      startedAt: row.started_at ?? null,
+      completedAt: row.completed_at ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapArtifact(row: any): ArtifactRecord {
+    return {
+      id: row.id,
+      artifactType: row.artifact_type,
+      status: row.status,
+      projectId: row.project_id ?? null,
+      episodeId: row.episode_id ?? null,
+      clipId: row.clip_id ?? null,
+      workflowJobId: row.workflow_job_id ?? null,
+      filePath: row.file_path,
+      tempFilePath: row.temp_file_path ?? null,
+      mimeType: row.mime_type ?? null,
+      sizeBytes: row.size_bytes ?? null,
+      checksum: row.checksum ?? null,
+      metadataJson: row.metadata_json,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      completedAt: row.completed_at ?? null
+    }
+  }
+
+  private mapExportJob(row: any): ExportJobRecord {
+    return {
+      id: row.id,
+      workflowJobId: row.workflow_job_id,
+      episodeId: row.episode_id,
+      status: row.status,
+      outputDirectory: row.output_directory,
+      aspectRatio: row.aspect_ratio,
+      includeCaptions: row.include_captions === 1,
+      currentClipIndex: row.current_clip_index,
+      totalClips: row.total_clips,
+      progress: row.progress,
+      clipIdsJson: row.clip_ids_json,
+      errorMessage: row.error_message ?? null,
+      createdAt: row.created_at,
+      startedAt: row.started_at ?? null,
+      completedAt: row.completed_at ?? null,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapExportOutput(row: any): ExportOutputRecord {
+    return {
+      id: row.id,
+      exportJobId: row.export_job_id ?? null,
+      clipId: row.clip_id,
+      artifactId: row.artifact_id ?? null,
+      filePath: row.file_path,
+      format: row.format,
+      resolution: row.resolution,
+      metadata: row.metadata,
+      status: row.status,
+      errorMessage: row.error_message ?? null,
+      createdAt: row.created_at
+    }
+  }
+
   private migrateSchema() {
     // Version 1: Add any new tables (example for content_packages, exports, etc.)
     const migrations = [
@@ -39,12 +288,107 @@ class DatabaseManager {
       `CREATE TABLE IF NOT EXISTS exports (
         id TEXT PRIMARY KEY,
         clip_id TEXT NOT NULL,
+        export_job_id TEXT,
+        artifact_id TEXT,
         file_path TEXT NOT NULL,
         format TEXT NOT NULL,
         resolution TEXT NOT NULL,
         metadata TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'completed',
+        error_message TEXT,
         created_at TEXT NOT NULL,
         FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS workflow_jobs (
+        id TEXT PRIMARY KEY,
+        job_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        worker_kind TEXT NOT NULL,
+        project_id TEXT,
+        episode_id TEXT,
+        clip_id TEXT,
+        parent_job_id TEXT,
+        progress INTEGER NOT NULL DEFAULT 0,
+        stage TEXT,
+        message TEXT,
+        input_json TEXT NOT NULL,
+        config_snapshot_json TEXT,
+        lease_owner TEXT,
+        lease_expires_at TEXT,
+        heartbeat_at TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 1,
+        started_at TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL,
+        FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE SET NULL,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE SET NULL,
+        FOREIGN KEY (parent_job_id) REFERENCES workflow_jobs (id) ON DELETE SET NULL
+      );`,
+      `CREATE TABLE IF NOT EXISTS workflow_step_runs (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        step_key TEXT NOT NULL,
+        status TEXT NOT NULL,
+        step_order INTEGER NOT NULL DEFAULT 0,
+        clip_id TEXT,
+        attempt INTEGER NOT NULL DEFAULT 1,
+        progress INTEGER NOT NULL DEFAULT 0,
+        message TEXT,
+        input_json TEXT,
+        output_json TEXT,
+        error_code TEXT,
+        error_message TEXT,
+        started_at TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE SET NULL
+      );`,
+      `CREATE TABLE IF NOT EXISTS artifacts (
+        id TEXT PRIMARY KEY,
+        artifact_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        project_id TEXT,
+        episode_id TEXT,
+        clip_id TEXT,
+        workflow_job_id TEXT,
+        file_path TEXT NOT NULL,
+        temp_file_path TEXT,
+        mime_type TEXT,
+        size_bytes INTEGER,
+        checksum TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL,
+        FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE SET NULL,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE SET NULL,
+        FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE SET NULL
+      );`,
+      `CREATE TABLE IF NOT EXISTS export_jobs (
+        id TEXT PRIMARY KEY,
+        workflow_job_id TEXT NOT NULL,
+        episode_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        output_directory TEXT NOT NULL,
+        aspect_ratio TEXT NOT NULL,
+        include_captions INTEGER NOT NULL DEFAULT 1,
+        current_clip_index INTEGER NOT NULL DEFAULT 0,
+        total_clips INTEGER NOT NULL DEFAULT 0,
+        progress INTEGER NOT NULL DEFAULT 0,
+        clip_ids_json TEXT NOT NULL,
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+        FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
       );`,
       `CREATE TABLE IF NOT EXISTS clip_titles (
         id TEXT PRIMARY KEY,
@@ -147,8 +491,9 @@ class DatabaseManager {
     const preVersion = this.db.pragma('user_version', { simple: true }) as number
     console.log('Current database version:', preVersion)
 
-    // Update user_version to 3 for base migrations
-    this.db.pragma('user_version = 3');
+    if (preVersion < 3) {
+      this.db.pragma('user_version = 3');
+    }
 
     // Add custom position fields to clip_edits if we're upgrading from v3 or below (v4)
     if (preVersion <= 3) {
@@ -383,6 +728,138 @@ class DatabaseManager {
         this.db.pragma('user_version = 17')
       }
     }
+
+    if (preVersion <= 17) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS workflow_jobs (
+            id TEXT PRIMARY KEY,
+            job_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            worker_kind TEXT NOT NULL,
+            project_id TEXT,
+            episode_id TEXT,
+            clip_id TEXT,
+            parent_job_id TEXT,
+            progress INTEGER NOT NULL DEFAULT 0,
+            stage TEXT,
+            message TEXT,
+            input_json TEXT NOT NULL,
+            config_snapshot_json TEXT,
+            lease_owner TEXT,
+            lease_expires_at TEXT,
+            heartbeat_at TEXT,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            max_attempts INTEGER NOT NULL DEFAULT 1,
+            started_at TEXT,
+            completed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL,
+            FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE SET NULL,
+            FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE SET NULL,
+            FOREIGN KEY (parent_job_id) REFERENCES workflow_jobs (id) ON DELETE SET NULL
+          );
+          CREATE TABLE IF NOT EXISTS workflow_step_runs (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            step_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            step_order INTEGER NOT NULL DEFAULT 0,
+            clip_id TEXT,
+            attempt INTEGER NOT NULL DEFAULT 1,
+            progress INTEGER NOT NULL DEFAULT 0,
+            message TEXT,
+            input_json TEXT,
+            output_json TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+            FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE SET NULL
+          );
+          CREATE TABLE IF NOT EXISTS artifacts (
+            id TEXT PRIMARY KEY,
+            artifact_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            project_id TEXT,
+            episode_id TEXT,
+            clip_id TEXT,
+            workflow_job_id TEXT,
+            file_path TEXT NOT NULL,
+            temp_file_path TEXT,
+            mime_type TEXT,
+            size_bytes INTEGER,
+            checksum TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL,
+            FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE SET NULL,
+            FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE SET NULL,
+            FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE SET NULL
+          );
+          CREATE TABLE IF NOT EXISTS export_jobs (
+            id TEXT PRIMARY KEY,
+            workflow_job_id TEXT NOT NULL,
+            episode_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            output_directory TEXT NOT NULL,
+            aspect_ratio TEXT NOT NULL,
+            include_captions INTEGER NOT NULL DEFAULT 1,
+            current_clip_index INTEGER NOT NULL DEFAULT 0,
+            total_clips INTEGER NOT NULL DEFAULT 0,
+            progress INTEGER NOT NULL DEFAULT 0,
+            clip_ids_json TEXT NOT NULL,
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+            FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_workflow_jobs_type_status ON workflow_jobs (job_type, status);
+          CREATE INDEX IF NOT EXISTS idx_workflow_jobs_episode ON workflow_jobs (episode_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_workflow_jobs_lease ON workflow_jobs (status, lease_expires_at);
+          CREATE INDEX IF NOT EXISTS idx_workflow_step_runs_job ON workflow_step_runs (job_id, step_order);
+          CREATE INDEX IF NOT EXISTS idx_workflow_step_runs_job_status ON workflow_step_runs (job_id, status);
+          CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts (workflow_job_id, artifact_type);
+          CREATE INDEX IF NOT EXISTS idx_artifacts_clip ON artifacts (clip_id, artifact_type, status);
+          CREATE INDEX IF NOT EXISTS idx_artifacts_path ON artifacts (file_path);
+          CREATE INDEX IF NOT EXISTS idx_export_jobs_episode ON export_jobs (episode_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs (status, updated_at DESC);
+        `)
+        console.log('✅ Added export durability tables (v18)')
+        this.db.pragma('user_version = 18')
+      } catch (error) {
+        console.log('Export durability table migration skipped (may already exist)')
+        this.db.pragma('user_version = 18')
+      }
+    }
+
+    if (preVersion <= 18) {
+      try {
+        this.addColumnIfMissing('exports', 'export_job_id', 'TEXT')
+        this.addColumnIfMissing('exports', 'artifact_id', 'TEXT')
+        this.addColumnIfMissing('exports', 'status', "TEXT NOT NULL DEFAULT 'completed'")
+        this.addColumnIfMissing('exports', 'error_message', 'TEXT')
+        this.db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_exports_export_job ON exports (export_job_id, clip_id);
+          CREATE INDEX IF NOT EXISTS idx_exports_artifact ON exports (artifact_id);
+          CREATE INDEX IF NOT EXISTS idx_exports_status ON exports (status, created_at DESC);
+        `)
+        console.log('✅ Added export durability columns to exports (v19)')
+        this.db.pragma('user_version = 19')
+      } catch (error) {
+        console.log('Export durability column migration skipped (may already exist)')
+        this.db.pragma('user_version = 19')
+      }
+    }
   }
   
   private initializeSchema() {
@@ -496,6 +973,103 @@ class DatabaseManager {
           is_selected INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL,
           FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS workflow_jobs (
+          id TEXT PRIMARY KEY,
+          job_type TEXT NOT NULL,
+          status TEXT NOT NULL,
+          worker_kind TEXT NOT NULL,
+          project_id TEXT,
+          episode_id TEXT,
+          clip_id TEXT,
+          parent_job_id TEXT,
+          progress INTEGER NOT NULL DEFAULT 0,
+          stage TEXT,
+          message TEXT,
+          input_json TEXT NOT NULL,
+          config_snapshot_json TEXT,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          heartbeat_at TEXT,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          max_attempts INTEGER NOT NULL DEFAULT 1,
+          started_at TEXT,
+          completed_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS workflow_step_runs (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL,
+          step_key TEXT NOT NULL,
+          status TEXT NOT NULL,
+          step_order INTEGER NOT NULL DEFAULT 0,
+          clip_id TEXT,
+          attempt INTEGER NOT NULL DEFAULT 1,
+          progress INTEGER NOT NULL DEFAULT 0,
+          message TEXT,
+          input_json TEXT,
+          output_json TEXT,
+          error_code TEXT,
+          error_message TEXT,
+          started_at TEXT,
+          completed_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS artifacts (
+          id TEXT PRIMARY KEY,
+          artifact_type TEXT NOT NULL,
+          status TEXT NOT NULL,
+          project_id TEXT,
+          episode_id TEXT,
+          clip_id TEXT,
+          workflow_job_id TEXT,
+          file_path TEXT NOT NULL,
+          temp_file_path TEXT,
+          mime_type TEXT,
+          size_bytes INTEGER,
+          checksum TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS export_jobs (
+          id TEXT PRIMARY KEY,
+          workflow_job_id TEXT NOT NULL,
+          episode_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          output_directory TEXT NOT NULL,
+          aspect_ratio TEXT NOT NULL,
+          include_captions INTEGER NOT NULL DEFAULT 1,
+          current_clip_index INTEGER NOT NULL DEFAULT 0,
+          total_clips INTEGER NOT NULL DEFAULT 0,
+          progress INTEGER NOT NULL DEFAULT 0,
+          clip_ids_json TEXT NOT NULL,
+          error_message TEXT,
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS exports (
+          id TEXT PRIMARY KEY,
+          clip_id TEXT NOT NULL,
+          export_job_id TEXT,
+          artifact_id TEXT,
+          file_path TEXT NOT NULL,
+          format TEXT NOT NULL,
+          resolution TEXT NOT NULL,
+          metadata TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'completed',
+          error_message TEXT,
+          created_at TEXT NOT NULL
       );
     `
 
@@ -1189,6 +1763,472 @@ class DatabaseManager {
     // Select the chosen thumbnail
     const selectStmt = this.db.prepare('UPDATE clip_thumbnails SET is_selected = 1 WHERE id = ?')
     return selectStmt.run(thumbnailId)
+  }
+
+  createWorkflowJob(record: WorkflowJobRecord) {
+    const stmt = this.db.prepare(`
+      INSERT INTO workflow_jobs (
+        id, job_type, status, worker_kind, project_id, episode_id, clip_id, parent_job_id,
+        progress, stage, message, input_json, config_snapshot_json, lease_owner,
+        lease_expires_at, heartbeat_at, attempt_count, max_attempts, started_at,
+        completed_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      record.id,
+      record.jobType,
+      record.status,
+      record.workerKind,
+      record.projectId,
+      record.episodeId,
+      record.clipId,
+      record.parentJobId,
+      record.progress,
+      record.stage,
+      record.message,
+      record.inputJson,
+      record.configSnapshotJson,
+      record.leaseOwner,
+      record.leaseExpiresAt,
+      record.heartbeatAt,
+      record.attemptCount,
+      record.maxAttempts,
+      record.startedAt,
+      record.completedAt,
+      record.createdAt,
+      record.updatedAt
+    )
+  }
+
+  getWorkflowJob(jobId: string): WorkflowJobRecord | undefined {
+    const stmt = this.db.prepare('SELECT * FROM workflow_jobs WHERE id = ?')
+    const row = stmt.get(jobId)
+    return row ? this.mapWorkflowJob(row) : undefined
+  }
+
+  updateWorkflowJob(jobId: string, patch: Partial<WorkflowJobRecord>) {
+    const stmt = this.db.prepare(`
+      UPDATE workflow_jobs
+      SET status = COALESCE(?, status),
+          worker_kind = COALESCE(?, worker_kind),
+          project_id = COALESCE(?, project_id),
+          episode_id = COALESCE(?, episode_id),
+          clip_id = COALESCE(?, clip_id),
+          parent_job_id = COALESCE(?, parent_job_id),
+          progress = COALESCE(?, progress),
+          stage = COALESCE(?, stage),
+          message = COALESCE(?, message),
+          input_json = COALESCE(?, input_json),
+          config_snapshot_json = COALESCE(?, config_snapshot_json),
+          lease_owner = COALESCE(?, lease_owner),
+          lease_expires_at = COALESCE(?, lease_expires_at),
+          heartbeat_at = COALESCE(?, heartbeat_at),
+          attempt_count = COALESCE(?, attempt_count),
+          max_attempts = COALESCE(?, max_attempts),
+          started_at = COALESCE(?, started_at),
+          completed_at = COALESCE(?, completed_at),
+          updated_at = COALESCE(?, updated_at)
+      WHERE id = ?
+    `)
+
+    return stmt.run(
+      patch.status ?? null,
+      patch.workerKind ?? null,
+      patch.projectId ?? null,
+      patch.episodeId ?? null,
+      patch.clipId ?? null,
+      patch.parentJobId ?? null,
+      patch.progress ?? null,
+      patch.stage ?? null,
+      patch.message ?? null,
+      patch.inputJson ?? null,
+      patch.configSnapshotJson ?? null,
+      patch.leaseOwner ?? null,
+      patch.leaseExpiresAt ?? null,
+      patch.heartbeatAt ?? null,
+      patch.attemptCount ?? null,
+      patch.maxAttempts ?? null,
+      patch.startedAt ?? null,
+      patch.completedAt ?? null,
+      patch.updatedAt ?? null,
+      jobId
+    )
+  }
+
+  listRecoverableExportWorkflowJobs(): WorkflowJobRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM workflow_jobs
+      WHERE job_type = 'export'
+        AND status IN ('pending', 'running', 'cancel_requested', 'pending_resume')
+      ORDER BY created_at ASC
+    `)
+    return (stmt.all() as any[]).map((row) => this.mapWorkflowJob(row))
+  }
+
+  createWorkflowStepRun(record: WorkflowStepRunRecord) {
+    const stmt = this.db.prepare(`
+      INSERT INTO workflow_step_runs (
+        id, job_id, step_key, status, step_order, clip_id, attempt, progress,
+        message, input_json, output_json, error_code, error_message, started_at,
+        completed_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      record.id,
+      record.jobId,
+      record.stepKey,
+      record.status,
+      record.stepOrder,
+      record.clipId,
+      record.attempt,
+      record.progress,
+      record.message,
+      record.inputJson,
+      record.outputJson,
+      record.errorCode,
+      record.errorMessage,
+      record.startedAt,
+      record.completedAt,
+      record.createdAt,
+      record.updatedAt
+    )
+  }
+
+  updateWorkflowStepRun(stepRunId: string, patch: Partial<WorkflowStepRunRecord>) {
+    const stmt = this.db.prepare(`
+      UPDATE workflow_step_runs
+      SET status = COALESCE(?, status),
+          step_order = COALESCE(?, step_order),
+          clip_id = COALESCE(?, clip_id),
+          attempt = COALESCE(?, attempt),
+          progress = COALESCE(?, progress),
+          message = COALESCE(?, message),
+          input_json = COALESCE(?, input_json),
+          output_json = COALESCE(?, output_json),
+          error_code = COALESCE(?, error_code),
+          error_message = COALESCE(?, error_message),
+          started_at = COALESCE(?, started_at),
+          completed_at = COALESCE(?, completed_at),
+          updated_at = COALESCE(?, updated_at)
+      WHERE id = ?
+    `)
+
+    return stmt.run(
+      patch.status ?? null,
+      patch.stepOrder ?? null,
+      patch.clipId ?? null,
+      patch.attempt ?? null,
+      patch.progress ?? null,
+      patch.message ?? null,
+      patch.inputJson ?? null,
+      patch.outputJson ?? null,
+      patch.errorCode ?? null,
+      patch.errorMessage ?? null,
+      patch.startedAt ?? null,
+      patch.completedAt ?? null,
+      patch.updatedAt ?? null,
+      stepRunId
+    )
+  }
+
+  updateWorkflowStepRunByJobAndClip(jobId: string, clipId: string, patch: Partial<WorkflowStepRunRecord>) {
+    const stmt = this.db.prepare(`
+      UPDATE workflow_step_runs
+      SET status = COALESCE(?, status),
+          step_order = COALESCE(?, step_order),
+          attempt = COALESCE(?, attempt),
+          progress = COALESCE(?, progress),
+          message = COALESCE(?, message),
+          input_json = COALESCE(?, input_json),
+          output_json = COALESCE(?, output_json),
+          error_code = COALESCE(?, error_code),
+          error_message = COALESCE(?, error_message),
+          started_at = COALESCE(?, started_at),
+          completed_at = COALESCE(?, completed_at),
+          updated_at = COALESCE(?, updated_at)
+      WHERE job_id = ? AND clip_id = ?
+    `)
+
+    return stmt.run(
+      patch.status ?? null,
+      patch.stepOrder ?? null,
+      patch.attempt ?? null,
+      patch.progress ?? null,
+      patch.message ?? null,
+      patch.inputJson ?? null,
+      patch.outputJson ?? null,
+      patch.errorCode ?? null,
+      patch.errorMessage ?? null,
+      patch.startedAt ?? null,
+      patch.completedAt ?? null,
+      patch.updatedAt ?? null,
+      jobId,
+      clipId
+    )
+  }
+
+  getWorkflowStepRunsByJob(jobId: string): WorkflowStepRunRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM workflow_step_runs
+      WHERE job_id = ?
+      ORDER BY step_order ASC, created_at ASC
+    `)
+    return (stmt.all(jobId) as any[]).map((row) => this.mapWorkflowStepRun(row))
+  }
+
+  createArtifact(record: ArtifactRecord) {
+    const stmt = this.db.prepare(`
+      INSERT INTO artifacts (
+        id, artifact_type, status, project_id, episode_id, clip_id, workflow_job_id,
+        file_path, temp_file_path, mime_type, size_bytes, checksum, metadata_json,
+        created_at, updated_at, completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      record.id,
+      record.artifactType,
+      record.status,
+      record.projectId,
+      record.episodeId,
+      record.clipId,
+      record.workflowJobId,
+      record.filePath,
+      record.tempFilePath,
+      record.mimeType,
+      record.sizeBytes,
+      record.checksum,
+      record.metadataJson,
+      record.createdAt,
+      record.updatedAt,
+      record.completedAt
+    )
+  }
+
+  updateArtifact(artifactId: string, patch: Partial<ArtifactRecord>) {
+    const stmt = this.db.prepare(`
+      UPDATE artifacts
+      SET artifact_type = COALESCE(?, artifact_type),
+          status = COALESCE(?, status),
+          project_id = COALESCE(?, project_id),
+          episode_id = COALESCE(?, episode_id),
+          clip_id = COALESCE(?, clip_id),
+          workflow_job_id = COALESCE(?, workflow_job_id),
+          file_path = COALESCE(?, file_path),
+          temp_file_path = COALESCE(?, temp_file_path),
+          mime_type = COALESCE(?, mime_type),
+          size_bytes = COALESCE(?, size_bytes),
+          checksum = COALESCE(?, checksum),
+          metadata_json = COALESCE(?, metadata_json),
+          updated_at = COALESCE(?, updated_at),
+          completed_at = COALESCE(?, completed_at)
+      WHERE id = ?
+    `)
+
+    return stmt.run(
+      patch.artifactType ?? null,
+      patch.status ?? null,
+      patch.projectId ?? null,
+      patch.episodeId ?? null,
+      patch.clipId ?? null,
+      patch.workflowJobId ?? null,
+      patch.filePath ?? null,
+      patch.tempFilePath ?? null,
+      patch.mimeType ?? null,
+      patch.sizeBytes ?? null,
+      patch.checksum ?? null,
+      patch.metadataJson ?? null,
+      patch.updatedAt ?? null,
+      patch.completedAt ?? null,
+      artifactId
+    )
+  }
+
+  findArtifactByPath(filePath: string): ArtifactRecord | undefined {
+    const stmt = this.db.prepare('SELECT * FROM artifacts WHERE file_path = ? LIMIT 1')
+    const row = stmt.get(filePath)
+    return row ? this.mapArtifact(row) : undefined
+  }
+
+  createExportJob(record: ExportJobRecord) {
+    const stmt = this.db.prepare(`
+      INSERT INTO export_jobs (
+        id, workflow_job_id, episode_id, status, output_directory, aspect_ratio,
+        include_captions, current_clip_index, total_clips, progress, clip_ids_json,
+        error_message, created_at, started_at, completed_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      record.id,
+      record.workflowJobId,
+      record.episodeId,
+      record.status,
+      record.outputDirectory,
+      record.aspectRatio,
+      record.includeCaptions ? 1 : 0,
+      record.currentClipIndex,
+      record.totalClips,
+      record.progress,
+      record.clipIdsJson,
+      record.errorMessage,
+      record.createdAt,
+      record.startedAt,
+      record.completedAt,
+      record.updatedAt
+    )
+  }
+
+  getExportJobRecord(exportJobId: string): ExportJobRecord | undefined {
+    const stmt = this.db.prepare('SELECT * FROM export_jobs WHERE id = ?')
+    const row = stmt.get(exportJobId)
+    return row ? this.mapExportJob(row) : undefined
+  }
+
+  getExportJobByWorkflowJobId(workflowJobId: string): ExportJobRecord | undefined {
+    const stmt = this.db.prepare('SELECT * FROM export_jobs WHERE workflow_job_id = ? LIMIT 1')
+    const row = stmt.get(workflowJobId)
+    return row ? this.mapExportJob(row) : undefined
+  }
+
+  updateExportJob(exportJobId: string, patch: Partial<ExportJobRecord>) {
+    const stmt = this.db.prepare(`
+      UPDATE export_jobs
+      SET workflow_job_id = COALESCE(?, workflow_job_id),
+          episode_id = COALESCE(?, episode_id),
+          status = COALESCE(?, status),
+          output_directory = COALESCE(?, output_directory),
+          aspect_ratio = COALESCE(?, aspect_ratio),
+          include_captions = COALESCE(?, include_captions),
+          current_clip_index = COALESCE(?, current_clip_index),
+          total_clips = COALESCE(?, total_clips),
+          progress = COALESCE(?, progress),
+          clip_ids_json = COALESCE(?, clip_ids_json),
+          error_message = COALESCE(?, error_message),
+          started_at = COALESCE(?, started_at),
+          completed_at = COALESCE(?, completed_at),
+          updated_at = COALESCE(?, updated_at)
+      WHERE id = ?
+    `)
+
+    return stmt.run(
+      patch.workflowJobId ?? null,
+      patch.episodeId ?? null,
+      patch.status ?? null,
+      patch.outputDirectory ?? null,
+      patch.aspectRatio ?? null,
+      typeof patch.includeCaptions === 'boolean' ? (patch.includeCaptions ? 1 : 0) : null,
+      patch.currentClipIndex ?? null,
+      patch.totalClips ?? null,
+      patch.progress ?? null,
+      patch.clipIdsJson ?? null,
+      patch.errorMessage ?? null,
+      patch.startedAt ?? null,
+      patch.completedAt ?? null,
+      patch.updatedAt ?? null,
+      exportJobId
+    )
+  }
+
+  createExportOutput(record: ExportOutputRecord) {
+    const stmt = this.db.prepare(`
+      INSERT INTO exports (
+        id, clip_id, export_job_id, artifact_id, file_path, format, resolution,
+        metadata, status, error_message, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      record.id,
+      record.clipId,
+      record.exportJobId,
+      record.artifactId,
+      record.filePath,
+      record.format,
+      record.resolution,
+      record.metadata,
+      record.status,
+      record.errorMessage,
+      record.createdAt
+    )
+  }
+
+  updateExportOutput(outputId: string, patch: Partial<ExportOutputRecord>) {
+    const stmt = this.db.prepare(`
+      UPDATE exports
+      SET clip_id = COALESCE(?, clip_id),
+          export_job_id = COALESCE(?, export_job_id),
+          artifact_id = COALESCE(?, artifact_id),
+          file_path = COALESCE(?, file_path),
+          format = COALESCE(?, format),
+          resolution = COALESCE(?, resolution),
+          metadata = COALESCE(?, metadata),
+          status = COALESCE(?, status),
+          error_message = COALESCE(?, error_message)
+      WHERE id = ?
+    `)
+
+    return stmt.run(
+      patch.clipId ?? null,
+      patch.exportJobId ?? null,
+      patch.artifactId ?? null,
+      patch.filePath ?? null,
+      patch.format ?? null,
+      patch.resolution ?? null,
+      patch.metadata ?? null,
+      patch.status ?? null,
+      patch.errorMessage ?? null,
+      outputId
+    )
+  }
+
+  updateExportOutputByJobAndClip(exportJobId: string, clipId: string, patch: Partial<ExportOutputRecord>) {
+    const stmt = this.db.prepare(`
+      UPDATE exports
+      SET artifact_id = COALESCE(?, artifact_id),
+          file_path = COALESCE(?, file_path),
+          format = COALESCE(?, format),
+          resolution = COALESCE(?, resolution),
+          metadata = COALESCE(?, metadata),
+          status = COALESCE(?, status),
+          error_message = COALESCE(?, error_message)
+      WHERE export_job_id = ? AND clip_id = ?
+    `)
+
+    return stmt.run(
+      patch.artifactId ?? null,
+      patch.filePath ?? null,
+      patch.format ?? null,
+      patch.resolution ?? null,
+      patch.metadata ?? null,
+      patch.status ?? null,
+      patch.errorMessage ?? null,
+      exportJobId,
+      clipId
+    )
+  }
+
+  getExportOutputs(exportJobId: string): ExportOutputRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM exports
+      WHERE export_job_id = ?
+      ORDER BY created_at ASC
+    `)
+    return (stmt.all(exportJobId) as any[]).map((row) => this.mapExportOutput(row))
+  }
+
+  getDurableExportView(exportJobId: string) {
+    const job = this.getExportJobRecord(exportJobId)
+    const outputs = this.getExportOutputs(exportJobId)
+    return {
+      job,
+      outputs
+    }
   }
   
   // Settings operations

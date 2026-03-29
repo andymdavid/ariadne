@@ -108,14 +108,113 @@ CREATE TABLE IF NOT EXISTS clip_trim_state (
     FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS workflow_jobs (
+    id TEXT PRIMARY KEY,
+    job_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    worker_kind TEXT NOT NULL,
+    project_id TEXT,
+    episode_id TEXT,
+    clip_id TEXT,
+    parent_job_id TEXT,
+    progress INTEGER NOT NULL DEFAULT 0,
+    stage TEXT,
+    message TEXT,
+    input_json TEXT NOT NULL,
+    config_snapshot_json TEXT,
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    heartbeat_at TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 1,
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL,
+    FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE SET NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE SET NULL,
+    FOREIGN KEY (parent_job_id) REFERENCES workflow_jobs (id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS workflow_step_runs (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    step_key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    step_order INTEGER NOT NULL DEFAULT 0,
+    clip_id TEXT,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    progress INTEGER NOT NULL DEFAULT 0,
+    message TEXT,
+    input_json TEXT,
+    output_json TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    artifact_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    project_id TEXT,
+    episode_id TEXT,
+    clip_id TEXT,
+    workflow_job_id TEXT,
+    file_path TEXT NOT NULL,
+    temp_file_path TEXT,
+    mime_type TEXT,
+    size_bytes INTEGER,
+    checksum TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL,
+    FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE SET NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE SET NULL,
+    FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS export_jobs (
+    id TEXT PRIMARY KEY,
+    workflow_job_id TEXT NOT NULL,
+    episode_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    output_directory TEXT NOT NULL,
+    aspect_ratio TEXT NOT NULL,
+    include_captions INTEGER NOT NULL DEFAULT 1,
+    current_clip_index INTEGER NOT NULL DEFAULT 0,
+    total_clips INTEGER NOT NULL DEFAULT 0,
+    progress INTEGER NOT NULL DEFAULT 0,
+    clip_ids_json TEXT NOT NULL,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+    FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+);
+
 -- Exports table
 CREATE TABLE IF NOT EXISTS exports (
     id TEXT PRIMARY KEY,
     clip_id TEXT NOT NULL,
+    export_job_id TEXT,
+    artifact_id TEXT,
     file_path TEXT NOT NULL,
     format TEXT NOT NULL,
     resolution TEXT NOT NULL,
     metadata TEXT NOT NULL, -- JSON object with export settings
+    status TEXT NOT NULL DEFAULT 'completed',
+    error_message TEXT,
     created_at TEXT NOT NULL,
     FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
 );
@@ -137,4 +236,17 @@ CREATE INDEX IF NOT EXISTS idx_clip_titles_clip_id ON clip_titles (clip_id);
 CREATE INDEX IF NOT EXISTS idx_clip_descriptions_clip_id ON clip_descriptions (clip_id);
 CREATE INDEX IF NOT EXISTS idx_clip_thumbnails_clip_id ON clip_thumbnails (clip_id);
 CREATE INDEX IF NOT EXISTS idx_clip_trim_state_updated_at ON clip_trim_state (updated_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_jobs_type_status ON workflow_jobs (job_type, status);
+CREATE INDEX IF NOT EXISTS idx_workflow_jobs_episode ON workflow_jobs (episode_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_jobs_lease ON workflow_jobs (status, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_step_runs_job ON workflow_step_runs (job_id, step_order);
+CREATE INDEX IF NOT EXISTS idx_workflow_step_runs_job_status ON workflow_step_runs (job_id, status);
+CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts (workflow_job_id, artifact_type);
+CREATE INDEX IF NOT EXISTS idx_artifacts_clip ON artifacts (clip_id, artifact_type, status);
+CREATE INDEX IF NOT EXISTS idx_artifacts_path ON artifacts (file_path);
+CREATE INDEX IF NOT EXISTS idx_export_jobs_episode ON export_jobs (episode_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs (status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_exports_clip_id ON exports (clip_id);
+CREATE INDEX IF NOT EXISTS idx_exports_export_job ON exports (export_job_id, clip_id);
+CREATE INDEX IF NOT EXISTS idx_exports_artifact ON exports (artifact_id);
+CREATE INDEX IF NOT EXISTS idx_exports_status ON exports (status, created_at DESC);
