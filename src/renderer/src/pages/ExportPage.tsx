@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { IoCheckmarkCircle, IoClose, IoDownload, IoVideocam, IoWarning } from 'react-icons/io5'
+import type { ExportJobDTO } from '@shared/types/exportIpc'
 import { MainContentPanel } from '../components/MainContentPanel'
 
 interface Clip {
@@ -23,18 +24,6 @@ interface ClipTitle {
   created_at: string
 }
 
-interface ExportJob {
-  id: string
-  episodeId: string
-  clipIds: string[]
-  status: 'pending' | 'processing' | 'completed' | 'failed'
-  progress: number
-  currentClipIndex: number
-  totalClips: number
-  outputPaths: string[]
-  error?: string
-}
-
 export function ExportPage() {
   const { id: episodeId } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -42,7 +31,7 @@ export function ExportPage() {
   const [clipTitles, setClipTitles] = useState<{ [clipId: string]: string }>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [exportJob, setExportJob] = useState<ExportJob | null>(null)
+  const [exportJob, setExportJob] = useState<ExportJobDTO | null>(null)
   const [isExporting, setIsExporting] = useState(false)
 
   // Export settings
@@ -61,7 +50,7 @@ export function ExportPage() {
 
   // Listen for export progress
   useEffect(() => {
-    const cleanup = window.electronAPI?.onExportProgress?.((job: ExportJob) => {
+    const cleanup = window.electronAPI?.onExportProgress?.((job) => {
       console.log('Export progress:', job)
       setExportJob(job)
 

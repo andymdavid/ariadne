@@ -1,5 +1,17 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types';
+import type {
+  CancelExportJobRequestDTO,
+  CancelExportJobResponseDTO,
+  ClearCompletedExportsResponseDTO,
+  ExportJobDTO,
+  ExportOptionsDTO,
+  ExportProgressEventDTO,
+  GetExportJobRequestDTO,
+  GetExportJobResponseDTO,
+  StartExportRequestDTO,
+  StartExportResponseDTO
+} from '@shared/types/exportIpc';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -57,11 +69,23 @@ const electronAPI = {
   validateConfig: () => ipcRenderer.invoke('validate-config'),
 
   // Export operations
-  exportApprovedClips: (episodeId: string, options: any) =>
-    ipcRenderer.invoke('export-approved-clips', episodeId, options),
-  getExportJob: (jobId: string) => ipcRenderer.invoke('get-export-job', jobId),
-  cancelExportJob: (jobId: string) => ipcRenderer.invoke('cancel-export-job', jobId),
-  clearCompletedExports: () => ipcRenderer.invoke('clear-completed-exports'),
+  exportApprovedClips: (episodeId: string, options: ExportOptionsDTO) =>
+    ipcRenderer.invoke(
+      'export-approved-clips',
+      { episodeId, options } satisfies StartExportRequestDTO
+    ) as Promise<StartExportResponseDTO>,
+  getExportJob: (jobId: string) =>
+    ipcRenderer.invoke(
+      'get-export-job',
+      { jobId } satisfies GetExportJobRequestDTO
+    ) as Promise<GetExportJobResponseDTO>,
+  cancelExportJob: (jobId: string) =>
+    ipcRenderer.invoke(
+      'cancel-export-job',
+      { jobId } satisfies CancelExportJobRequestDTO
+    ) as Promise<CancelExportJobResponseDTO>,
+  clearCompletedExports: () =>
+    ipcRenderer.invoke('clear-completed-exports') as Promise<ClearCompletedExportsResponseDTO>,
 
   // Content package operations
   getClipTitles: (clipId: string) => ipcRenderer.invoke('get-clip-titles', clipId),
@@ -110,9 +134,10 @@ const electronAPI = {
     return () => ipcRenderer.removeAllListeners('clip-extraction-progress');
   },
 
-  onExportProgress: (callback: (job: any) => void) => {
-    ipcRenderer.on('export-progress', (_, job) => callback(job));
-    return () => ipcRenderer.removeAllListeners('export-progress');
+  onExportProgress: (callback: (job: ExportProgressEventDTO) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, job: ExportProgressEventDTO) => callback(job);
+    ipcRenderer.on('export-progress', listener);
+    return () => ipcRenderer.removeListener('export-progress', listener);
   },
 
   onDatabaseCleaned: (callback: (result: any) => void) => {
@@ -173,6 +198,12 @@ declare global {
       updateBrandTemplate: (template: Partial<BrandTemplate>) => Promise<BrandTemplate>;
       validateConfig: () => Promise<{ isValid: boolean; errors: string[] }>;
 
+      // Export operations
+      exportApprovedClips: (episodeId: string, options: ExportOptionsDTO) => Promise<StartExportResponseDTO>;
+      getExportJob: (jobId: string) => Promise<GetExportJobResponseDTO>;
+      cancelExportJob: (jobId: string) => Promise<CancelExportJobResponseDTO>;
+      clearCompletedExports: () => Promise<ClearCompletedExportsResponseDTO>;
+
       // Clip edits operations (for Editor screen)
       getClipEdits: (clipId: string) => Promise<any>;
       saveClipEdits: (clipId: string, edits: any) => Promise<any>;
@@ -192,6 +223,7 @@ declare global {
       onProcessingComplete: (callback: (data: ProcessingResultPayload) => void) => () => void;
       onProcessingError: (callback: (error: ProcessingErrorPayload | string) => void) => () => void;
       onClipExtractionProgress: (callback: (data: any) => void) => () => void;
+      onExportProgress: (callback: (job: ExportJobDTO) => void) => () => void;
       onDatabaseCleaned: (callback: (result: any) => void) => () => void;
     };
   }

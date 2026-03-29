@@ -11,6 +11,15 @@ import { clipService } from './services/clipService';
 import { exportService } from './services/exportService';
 import { ffmpegService } from './services/ffmpegService';
 import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
+import type {
+  CancelExportJobRequestDTO,
+  CancelExportJobResponseDTO,
+  ClearCompletedExportsResponseDTO,
+  GetExportJobRequestDTO,
+  GetExportJobResponseDTO,
+  StartExportRequestDTO,
+  StartExportResponseDTO
+} from '@shared/types/exportIpc';
 
 // TODO: Add electron-reload for development
 
@@ -737,11 +746,11 @@ ipcMain.handle('play-clip', async (event, episodeId: string, startTime: number, 
 });
 
 // Export handlers
-ipcMain.handle('export-approved-clips', async (event, episodeId: string, options: any) => {
+ipcMain.handle('export-approved-clips', async (_event, request: StartExportRequestDTO): Promise<StartExportResponseDTO> => {
   try {
     const job = await exportService.exportApprovedClips(
-      episodeId,
-      options,
+      request.episodeId,
+      request.options,
       (job) => {
         // Send progress updates to renderer
         mainWindow?.webContents.send('export-progress', job)
@@ -754,15 +763,15 @@ ipcMain.handle('export-approved-clips', async (event, episodeId: string, options
   }
 });
 
-ipcMain.handle('get-export-job', (event, jobId: string) => {
-  return exportService.getJob(jobId)
+ipcMain.handle('get-export-job', (_event, request: GetExportJobRequestDTO): GetExportJobResponseDTO => {
+  return exportService.getJob(request.jobId)
 });
 
-ipcMain.handle('cancel-export-job', (event, jobId: string) => {
-  return exportService.cancelJob(jobId)
+ipcMain.handle('cancel-export-job', (_event, request: CancelExportJobRequestDTO): CancelExportJobResponseDTO => {
+  return exportService.cancelJob(request.jobId)
 });
 
-ipcMain.handle('clear-completed-exports', () => {
+ipcMain.handle('clear-completed-exports', (): ClearCompletedExportsResponseDTO => {
   exportService.clearCompletedJobs()
   return { success: true }
 });
