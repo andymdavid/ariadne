@@ -133,7 +133,7 @@ class ExportService {
       id: workflowJobId,
       jobType: 'export',
       status: 'pending',
-      workerKind: 'main_process',
+      workerKind: 'export_worker',
       projectId: (episode as any).project_id ?? null,
       episodeId,
       clipId: null,

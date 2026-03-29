@@ -53,10 +53,39 @@ class ExportWorkerSupervisor {
       const workflowJobId = database.getExportJobRecord(command.exportJobId)?.workflowJobId ?? command.workflowJobId
       const workflowJob = database.getWorkflowJob(workflowJobId)
       if (workflowJob && workflowJob.status !== 'completed' && workflowJob.status !== 'failed' && workflowJob.status !== 'cancelled') {
-        this.recordEvent(workflowJobId, null, 'export_worker', 'worker_exit', `Export worker exited with code ${code}`, {
+        const now = new Date().toISOString()
+        const exitMessage = `Export worker exited with code ${code}`
+        database.createFailureEvent({
+          id: randomUUID(),
+          jobId: workflowJobId,
+          stepRunId: null,
+          scope: 'export_worker.process',
+          errorCode: 'export_worker_exit',
+          message: exitMessage,
+          detailJson: JSON.stringify({
+            exportJobId: command.exportJobId,
+            exitCode: code
+          }),
+          createdAt: now
+        })
+        database.updateWorkflowJob(workflowJobId, {
+          status: 'failed',
+          stage: 'failed',
+          message: exitMessage,
+          completedAt: now,
+          updatedAt: now
+        })
+        database.updateExportJob(command.exportJobId, {
+          status: 'failed',
+          errorMessage: exitMessage,
+          completedAt: now,
+          updatedAt: now
+        })
+        this.recordEvent(workflowJobId, null, 'export_worker', 'worker_exit', exitMessage, {
           exportJobId: command.exportJobId,
           exitCode: code
-        })
+        }, now)
+        onJobUpdated?.(command.exportJobId)
       }
       this.workers.delete(command.exportJobId)
     })

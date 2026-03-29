@@ -124,6 +124,9 @@ class MediaWorkerSupervisor {
 
         if (message.type === 'media_failed') {
           settled = true
+          this.recordFailure(diagnostics, `${message.operation}.failed`, message.errorCode, message.message, {
+            operation: message.operation
+          })
           this.recordEvent(diagnostics, `${message.operation}.failed`, message.message, {
             errorCode: message.errorCode
           })
@@ -140,6 +143,9 @@ class MediaWorkerSupervisor {
 
       worker.on('exit', (code) => {
         if (!settled && code !== 0) {
+          this.recordFailure(diagnostics, `${command.type}.worker_exit`, 'media_worker_exit', `Media worker exited with code ${code}`, {
+            exitCode: code
+          })
           this.recordEvent(diagnostics, `${command.type}.worker_exit`, `Media worker exited with code ${code}`, {
             exitCode: code
           })
@@ -177,6 +183,30 @@ class MediaWorkerSupervisor {
       stepRunId: diagnostics.stepRunId ?? null,
       scope: diagnostics.scope,
       eventType,
+      message,
+      detailJson: JSON.stringify(detail),
+      createdAt
+    })
+  }
+
+  private recordFailure(
+    diagnostics: MediaDiagnosticsContext | undefined,
+    scope: string,
+    errorCode: string,
+    message: string,
+    detail: Record<string, unknown>,
+    createdAt = new Date().toISOString()
+  ) {
+    if (!diagnostics) {
+      return
+    }
+
+    database.createFailureEvent({
+      id: randomUUID(),
+      jobId: diagnostics.workflowJobId,
+      stepRunId: diagnostics.stepRunId ?? null,
+      scope,
+      errorCode,
       message,
       detailJson: JSON.stringify(detail),
       createdAt

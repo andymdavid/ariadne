@@ -24,8 +24,8 @@ class WorkflowReadModel {
     }
 
     const outputPaths = view.outputs
-      .filter((output: any) => output.status === 'completed' && output.filePath)
-      .map((output: any) => output.filePath)
+      .filter((output) => output.status === 'completed' && !!output.filePath)
+      .map((output) => output.filePath)
 
     let status: ExportJobDTO['status']
     switch (view.job.status) {
@@ -106,7 +106,7 @@ class WorkflowReadModel {
   }
 
   getWorkflowJobById(jobId: string): WorkflowJobViewDTO | null {
-    const workflowJob = database.getWorkflowJob(jobId) as any
+    const workflowJob = database.getWorkflowJob(jobId)
     if (!workflowJob) {
       return null
     }
@@ -138,7 +138,7 @@ class WorkflowReadModel {
   }
 
   getWorkflowEvents(jobId: string): WorkflowEventDTO[] {
-    return (database.getWorkflowEventsByJob(jobId) as any[]).map((event) => ({
+    return database.getWorkflowEventsByJob(jobId).map((event) => ({
       id: event.id,
       jobId: event.jobId,
       stepRunId: event.stepRunId,
@@ -151,7 +151,7 @@ class WorkflowReadModel {
   }
 
   getFailureEvents(jobId: string): FailureEventDTO[] {
-    return (database.getFailureEventsByJob(jobId) as any[]).map((event) => ({
+    return database.getFailureEventsByJob(jobId).map((event) => ({
       id: event.id,
       jobId: event.jobId,
       stepRunId: event.stepRunId,
