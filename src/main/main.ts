@@ -12,6 +12,8 @@ import { exportService } from './services/exportService';
 import { ffmpegService } from './services/ffmpegService';
 import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
 import type {
+  GetActivePipelineJobRequestDTO,
+  GetActivePipelineJobResponseDTO,
   ProcessEpisodeRequestDTO,
   ProcessEpisodeResponseDTO,
   ProcessSourceRequestDTO,
@@ -560,6 +562,10 @@ ipcMain.handle('process-episode', async (_event, request: ProcessEpisodeRequestD
 ipcMain.handle('process-source', async (_event, request: ProcessSourceRequestDTO): Promise<ProcessSourceResponseDTO> => {
   const resolvedSource = await resolveSourceToFile(request.source)
   return runProcessingJob(resolvedSource.filePath, request.projectName || resolvedSource.projectName)
+})
+
+ipcMain.handle('get-active-pipeline-job', (_event, request: GetActivePipelineJobRequestDTO): GetActivePipelineJobResponseDTO => {
+  return processingPipeline.getActiveJob(request.episodeId, request.projectId)
 })
 
 // Database handlers

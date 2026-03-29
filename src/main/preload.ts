@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types';
 import type {
+  GetActivePipelineJobRequestDTO,
+  GetActivePipelineJobResponseDTO,
   ProcessEpisodeRequestDTO,
   ProcessEpisodeResponseDTO,
   ProcessSourceRequestDTO,
@@ -49,6 +51,11 @@ const electronAPI = {
       'process-source',
       { source, projectName } satisfies ProcessSourceRequestDTO
     ) as Promise<ProcessSourceResponseDTO>,
+  getActivePipelineJob: (episodeId?: string, projectId?: string) =>
+    ipcRenderer.invoke(
+      'get-active-pipeline-job',
+      { episodeId, projectId } satisfies GetActivePipelineJobRequestDTO
+    ) as Promise<GetActivePipelineJobResponseDTO>,
   playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) =>
     ipcRenderer.invoke('play-clip', episodeId, startTime, endTime, clipId),
   
@@ -185,6 +192,7 @@ declare global {
       // Processing operations
       processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
       processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
+      getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
       playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) => Promise<any>;
       
       // Database operations

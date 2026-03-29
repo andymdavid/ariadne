@@ -15,6 +15,10 @@ import type {
   PipelineWorkerContentPackage,
   PipelineWorkerPotentialClip
 } from '@shared/types/pipelineWorker'
+import type {
+  GetActivePipelineJobResponseDTO,
+  PipelineJobViewDTO
+} from '@shared/types/pipelineIpc'
 
 export interface ProcessingResult {
   projectId: string
@@ -55,6 +59,80 @@ class ProcessingPipeline {
     }
 
     return `Failed to analyze media file: ${message}`
+  }
+
+  private mapWorkflowStageToUiStage(stage: string | null): ProcessingProgress['stage'] {
+    switch (stage) {
+      case 'queued':
+      case 'source_resolve_or_import':
+      case 'uploading':
+        return 'uploading'
+      case 'media_probe':
+      case 'audio_extract':
+      case 'extracting':
+        return 'extracting'
+      case 'transcription':
+      case 'transcribing':
+        return 'transcribing'
+      case 'clip_generation':
+      case 'clip_ranking':
+      case 'analyzing':
+        return 'analyzing'
+      case 'content_package_generation':
+      case 'generating':
+        return 'generating'
+      case 'completed':
+        return 'completed'
+      default:
+        return 'uploading'
+    }
+  }
+
+  getActiveJob(episodeId?: string, projectId?: string): GetActivePipelineJobResponseDTO {
+    const workflowJob = database.getActivePipelineWorkflowJob(episodeId, projectId) as {
+      id: string
+      projectId: string | null
+      episodeId: string | null
+      status: PipelineJobViewDTO['status']
+      stage: string | null
+      progress: number
+      message: string | null
+      inputJson: string
+      createdAt: string
+      startedAt: string | null
+      updatedAt: string
+    } | undefined
+
+    if (!workflowJob) {
+      return null
+    }
+
+    let filePath: string | null = null
+    let projectName: string | null = null
+
+    try {
+      const parsedInput = JSON.parse(workflowJob.inputJson) as { filePath?: string; projectName?: string }
+      filePath = parsedInput.filePath ?? null
+      projectName = parsedInput.projectName ?? null
+    } catch {
+      filePath = null
+      projectName = null
+    }
+
+    return {
+      jobId: workflowJob.id,
+      projectId: workflowJob.projectId,
+      episodeId: workflowJob.episodeId,
+      status: workflowJob.status,
+      stage: this.mapWorkflowStageToUiStage(workflowJob.stage),
+      progress: workflowJob.progress,
+      message: workflowJob.message ?? 'Processing...',
+      filePath,
+      projectName,
+      createdAt: workflowJob.createdAt,
+      startedAt: workflowJob.startedAt,
+      updatedAt: workflowJob.updatedAt
+    }
   }
   /**
    * Process a podcast file through the complete pipeline

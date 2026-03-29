@@ -1867,6 +1867,46 @@ class DatabaseManager {
     return (stmt.all() as any[]).map((row) => this.mapWorkflowJob(row))
   }
 
+  getActivePipelineWorkflowJob(episodeId?: string, projectId?: string): WorkflowJobRecord | undefined {
+    let row: unknown
+
+    if (episodeId) {
+      const stmt = this.db.prepare(`
+        SELECT *
+        FROM workflow_jobs
+        WHERE job_type = 'pipeline'
+          AND episode_id = ?
+          AND status IN ('pending', 'running')
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      `)
+      row = stmt.get(episodeId)
+    } else if (projectId) {
+      const stmt = this.db.prepare(`
+        SELECT *
+        FROM workflow_jobs
+        WHERE job_type = 'pipeline'
+          AND project_id = ?
+          AND status IN ('pending', 'running')
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      `)
+      row = stmt.get(projectId)
+    } else {
+      const stmt = this.db.prepare(`
+        SELECT *
+        FROM workflow_jobs
+        WHERE job_type = 'pipeline'
+          AND status IN ('pending', 'running')
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      `)
+      row = stmt.get()
+    }
+
+    return row ? this.mapWorkflowJob(row) : undefined
+  }
+
   createWorkflowStepRun(record: WorkflowStepRunRecord) {
     const stmt = this.db.prepare(`
       INSERT INTO workflow_step_runs (

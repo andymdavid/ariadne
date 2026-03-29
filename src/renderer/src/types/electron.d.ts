@@ -1,5 +1,6 @@
 import type { BrandTemplate, ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
 import type {
+  GetActivePipelineJobResponseDTO,
   ProcessEpisodeResponseDTO,
   ProcessSourceResponseDTO,
   ProcessingCompleteEventDTO,
@@ -29,6 +30,7 @@ declare global {
       // Processing operations
       processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
       processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
+      getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
       playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) => Promise<any>;
       
       // Database operations

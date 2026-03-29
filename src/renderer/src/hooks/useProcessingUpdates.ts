@@ -35,9 +35,65 @@ export function useProcessingUpdates() {
   const reviewStageUnlockedRef = useRef(false)
   const activeJobIdRef = useRef<string | undefined>(activeJobId)
 
+  const restoreActivePipelineJob = useCallback(async () => {
+    if (!window.electronAPI?.getActivePipelineJob) {
+      return
+    }
+
+    const pathMatch = window.location.pathname.match(/\/(review|content|export)\/([^/]+)/)
+    const routeEpisodeId = pathMatch?.[2]
+    const state = useProjectStore.getState()
+    const response = await window.electronAPI.getActivePipelineJob(
+      routeEpisodeId || state.currentEpisode?.id,
+      state.currentProject?.id
+    )
+
+    if (!response) {
+      return
+    }
+
+    activeJobIdRef.current = response.jobId
+    setActiveJobId(response.jobId)
+    setProcessing(response.status === 'pending' || response.status === 'running')
+    setProcessingStatus(response.stage)
+    updateProgress({
+      jobId: response.jobId,
+      stage: response.stage,
+      progress: response.progress,
+      message: response.message
+    })
+
+    if (!state.currentEpisode && response.episodeId && window.electronAPI?.getEpisode) {
+      try {
+        const episode = await window.electronAPI.getEpisode(response.episodeId)
+        if (episode) {
+          setCurrentEpisode(episode)
+        }
+      } catch (error) {
+        console.error('Failed to restore active episode from durable pipeline job:', error)
+      }
+    }
+
+    if (!state.fileInfo && response.filePath) {
+      state.setFileInfo({
+        name: response.filePath.split('/').pop() || response.projectName || 'Unknown File',
+        path: response.filePath,
+        size: 0,
+        duration: state.currentEpisode?.duration || 0,
+        uploadDate: response.createdAt
+      })
+    }
+  }, [setActiveJobId, setProcessing, setProcessingStatus, setCurrentEpisode, updateProgress])
+
   useEffect(() => {
     activeJobIdRef.current = activeJobId
   }, [activeJobId])
+
+  useEffect(() => {
+    restoreActivePipelineJob().catch((error) => {
+      console.error('Failed to restore active pipeline job:', error)
+    })
+  }, [restoreActivePipelineJob])
 
   // Multi-tier auto-save implementation
   const triggerAutoSave = useCallback((level: 'level1' | 'level2' | 'level3', reason: string) => {
