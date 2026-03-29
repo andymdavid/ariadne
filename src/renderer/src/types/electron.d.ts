@@ -16,6 +16,11 @@ import type {
   GetExportJobResponseDTO,
   StartExportResponseDTO
 } from '@shared/types/exportIpc'
+import type {
+  GetFailureEventsResponseDTO,
+  GetWorkflowEventsResponseDTO,
+  GetWorkflowJobResponseDTO
+} from '@shared/types/workflowReadIpc'
 
 // Electron API types for renderer process
 
@@ -31,6 +36,9 @@ declare global {
       processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
       processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
       getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
+      getWorkflowJob: (jobId: string) => Promise<GetWorkflowJobResponseDTO>;
+      getWorkflowEvents: (jobId: string) => Promise<GetWorkflowEventsResponseDTO>;
+      getFailureEvents: (jobId: string) => Promise<GetFailureEventsResponseDTO>;
       playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) => Promise<any>;
       
       // Database operations

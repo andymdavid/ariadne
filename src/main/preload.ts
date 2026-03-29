@@ -25,6 +25,14 @@ import type {
   StartExportRequestDTO,
   StartExportResponseDTO
 } from '@shared/types/exportIpc';
+import type {
+  GetFailureEventsRequestDTO,
+  GetFailureEventsResponseDTO,
+  GetWorkflowEventsRequestDTO,
+  GetWorkflowEventsResponseDTO,
+  GetWorkflowJobRequestDTO,
+  GetWorkflowJobResponseDTO
+} from '@shared/types/workflowReadIpc'
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -56,6 +64,21 @@ const electronAPI = {
       'get-active-pipeline-job',
       { episodeId, projectId } satisfies GetActivePipelineJobRequestDTO
     ) as Promise<GetActivePipelineJobResponseDTO>,
+  getWorkflowJob: (jobId: string) =>
+    ipcRenderer.invoke(
+      'get-workflow-job',
+      { jobId } satisfies GetWorkflowJobRequestDTO
+    ) as Promise<GetWorkflowJobResponseDTO>,
+  getWorkflowEvents: (jobId: string) =>
+    ipcRenderer.invoke(
+      'get-workflow-events',
+      { jobId } satisfies GetWorkflowEventsRequestDTO
+    ) as Promise<GetWorkflowEventsResponseDTO>,
+  getFailureEvents: (jobId: string) =>
+    ipcRenderer.invoke(
+      'get-failure-events',
+      { jobId } satisfies GetFailureEventsRequestDTO
+    ) as Promise<GetFailureEventsResponseDTO>,
   playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) =>
     ipcRenderer.invoke('play-clip', episodeId, startTime, endTime, clipId),
   
@@ -193,6 +216,9 @@ declare global {
       processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
       processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
       getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
+      getWorkflowJob: (jobId: string) => Promise<GetWorkflowJobResponseDTO>;
+      getWorkflowEvents: (jobId: string) => Promise<GetWorkflowEventsResponseDTO>;
+      getFailureEvents: (jobId: string) => Promise<GetFailureEventsResponseDTO>;
       playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) => Promise<any>;
       
       // Database operations

@@ -4,6 +4,7 @@ import { dialog } from 'electron'
 import { existsSync, mkdirSync } from 'fs'
 import { database } from '../database/database'
 import { exportWorkerSupervisor } from './exportWorkerSupervisor'
+import { workflowReadModel } from './workflowReadModel'
 import type {
   ExportCaptionSegment,
   ExportCaptionStyle,
@@ -533,56 +534,20 @@ class ExportService {
    * Get export job status
    */
   getJob(jobId: string): ExportJob | undefined {
-    const view = database.getDurableExportView(jobId)
-    if (!view.job) {
+    const job = workflowReadModel.getExportJobById(jobId)
+    if (!job) {
       return undefined
     }
-
-    const outputPaths = view.outputs
-      .filter((output) => output.status === 'completed' && output.filePath)
-      .map((output) => output.filePath)
-
-    let status: ExportJob['status']
-    switch (view.job.status) {
-      case 'running':
-        status = 'processing'
-        break
-      case 'completed':
-        status = 'completed'
-        break
-      case 'failed':
-      case 'cancelled':
-      case 'cancel_requested':
-        status = 'failed'
-        break
-      default:
-        status = 'pending'
-        break
-    }
-
-    const job: ExportJob = {
-      id: view.job.id,
-      episodeId: view.job.episodeId,
-      clipIds: JSON.parse(view.job.clipIdsJson || '[]'),
-      status,
-      progress: view.job.progress,
-      currentClipIndex: view.job.currentClipIndex,
-      totalClips: view.job.totalClips,
-      outputPaths,
-      error: view.job.errorMessage || undefined
-    }
-
     this.activeJobs.set(jobId, job)
     return job
   }
 
   getActiveJobForEpisode(episodeId: string): ExportJob | undefined {
-    const exportJob = database.getActiveExportJobForEpisode(episodeId)
-    if (!exportJob) {
-      return undefined
+    const job = workflowReadModel.getActiveExportJobByEpisode(episodeId)
+    if (job) {
+      this.activeJobs.set(job.id, job)
     }
-
-    return this.getJob(exportJob.id)
+    return job
   }
 
   /**

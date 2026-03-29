@@ -10,6 +10,7 @@ import { configService } from './services/configService';
 import { clipService } from './services/clipService';
 import { exportService } from './services/exportService';
 import { mediaWorkerSupervisor } from './services/mediaWorkerSupervisor';
+import { workflowReadModel } from './services/workflowReadModel';
 import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
@@ -19,6 +20,14 @@ import type {
   ProcessSourceRequestDTO,
   ProcessSourceResponseDTO
 } from '@shared/types/pipelineIpc';
+import type {
+  GetFailureEventsRequestDTO,
+  GetFailureEventsResponseDTO,
+  GetWorkflowEventsRequestDTO,
+  GetWorkflowEventsResponseDTO,
+  GetWorkflowJobRequestDTO,
+  GetWorkflowJobResponseDTO
+} from '@shared/types/workflowReadIpc';
 import type {
   CancelExportJobRequestDTO,
   CancelExportJobResponseDTO,
@@ -569,7 +578,19 @@ ipcMain.handle('process-source', async (_event, request: ProcessSourceRequestDTO
 })
 
 ipcMain.handle('get-active-pipeline-job', (_event, request: GetActivePipelineJobRequestDTO): GetActivePipelineJobResponseDTO => {
-  return processingPipeline.getActiveJob(request.episodeId, request.projectId)
+  return workflowReadModel.getActivePipelineJob(request.episodeId, request.projectId)
+})
+
+ipcMain.handle('get-workflow-job', (_event, request: GetWorkflowJobRequestDTO): GetWorkflowJobResponseDTO => {
+  return workflowReadModel.getWorkflowJobById(request.jobId)
+})
+
+ipcMain.handle('get-workflow-events', (_event, request: GetWorkflowEventsRequestDTO): GetWorkflowEventsResponseDTO => {
+  return workflowReadModel.getWorkflowEvents(request.jobId)
+})
+
+ipcMain.handle('get-failure-events', (_event, request: GetFailureEventsRequestDTO): GetFailureEventsResponseDTO => {
+  return workflowReadModel.getFailureEvents(request.jobId)
 })
 
 // Database handlers
@@ -788,11 +809,11 @@ ipcMain.handle('export-approved-clips', async (_event, request: StartExportReque
 });
 
 ipcMain.handle('get-export-job', (_event, request: GetExportJobRequestDTO): GetExportJobResponseDTO => {
-  return exportService.getJob(request.jobId)
+  return workflowReadModel.getExportJobById(request.jobId)
 });
 
 ipcMain.handle('get-active-export-job', (_event, request: GetActiveExportJobRequestDTO): GetActiveExportJobResponseDTO => {
-  return exportService.getActiveJobForEpisode(request.episodeId)
+  return workflowReadModel.getActiveExportJobByEpisode(request.episodeId)
 });
 
 ipcMain.handle('cancel-export-job', (_event, request: CancelExportJobRequestDTO): CancelExportJobResponseDTO => {
