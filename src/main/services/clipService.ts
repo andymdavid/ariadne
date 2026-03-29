@@ -1,8 +1,7 @@
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
-import { randomUUID } from 'crypto'
-import ffmpeg from 'fluent-ffmpeg'
 import { app } from 'electron'
+import { mediaWorkerSupervisor } from './mediaWorkerSupervisor'
 
 interface ClipExtractionOptions {
   startTime: number
@@ -47,34 +46,16 @@ export class ClipService {
     console.log('Source file:', sourceFilePath)
     console.log('Output file:', clipFilePath)
 
-    return new Promise((resolve, reject) => {
-      ffmpeg(sourceFilePath)
-        .seekInput(startTime)
-        .duration(duration)
-        .videoCodec('libx264')
-        .audioCodec('aac')
-        .format('mp4')
-        .output(clipFilePath)
-        .on('start', (commandLine) => {
-          console.log('FFmpeg started with command:', commandLine)
-        })
-        .on('progress', (progress) => {
-          if (onProgress) {
-            // Calculate percentage based on time processed vs duration
-            const percent = Math.min(100, (progress.timemark ? this.parseTimeToSeconds(progress.timemark) / duration * 100 : 0))
-            onProgress(percent)
-          }
-        })
-        .on('end', () => {
-          console.log('Clip extraction completed:', clipFilePath)
-          resolve(clipFilePath)
-        })
-        .on('error', (error) => {
-          console.error('FFmpeg error:', error)
-          reject(new Error(`Failed to extract clip: ${error.message}`))
-        })
-        .run()
-    })
+    const extractedClipPath = await mediaWorkerSupervisor.extractPreviewClip(
+      sourceFilePath,
+      startTime,
+      duration,
+      clipFilePath,
+      onProgress
+    )
+
+    console.log('Clip extraction completed:', extractedClipPath)
+    return extractedClipPath
   }
 
   /**
@@ -91,20 +72,6 @@ export class ClipService {
   clipExists(episodeId: string, clipId: string, startTime: number, endTime: number): boolean {
     const clipPath = this.getClipPath(episodeId, clipId, startTime, endTime)
     return existsSync(clipPath)
-  }
-
-  /**
-   * Parse FFmpeg time format (HH:MM:SS.ms) to seconds
-   */
-  private parseTimeToSeconds(timeString: string): number {
-    const parts = timeString.split(':')
-    if (parts.length !== 3) return 0
-    
-    const hours = parseInt(parts[0]) || 0
-    const minutes = parseInt(parts[1]) || 0
-    const seconds = parseFloat(parts[2]) || 0
-    
-    return hours * 3600 + minutes * 60 + seconds
   }
 
   /**

@@ -9,7 +9,7 @@ import { processingPipeline } from './services/processingPipeline';
 import { configService } from './services/configService';
 import { clipService } from './services/clipService';
 import { exportService } from './services/exportService';
-import { ffmpegService } from './services/ffmpegService';
+import { mediaWorkerSupervisor } from './services/mediaWorkerSupervisor';
 import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
@@ -308,7 +308,7 @@ async function downloadWithMediaExtractor(sourceUrl: string) {
   }
 
   try {
-    const mediaInfo = await ffmpegService.getMediaInfo(filePath)
+    const mediaInfo = await mediaWorkerSupervisor.probeMedia(filePath)
     if (!mediaInfo.hasAudio && !mediaInfo.hasVideo) {
       throw new Error('Downloaded file did not contain playable audio or video.')
     }
@@ -349,7 +349,7 @@ async function resolveSourceToFile(source: string) {
     }
     const downloaded = await downloadRemoteMedia(source)
     try {
-      const mediaInfo = await ffmpegService.getMediaInfo(downloaded.filePath)
+      const mediaInfo = await mediaWorkerSupervisor.probeMedia(downloaded.filePath)
       if (!mediaInfo.hasAudio && !mediaInfo.hasVideo) {
         throw new Error('Downloaded file did not contain playable media.')
       }
@@ -380,7 +380,7 @@ async function backfillClipDimensions(batchSize = 25) {
     while (pending.length) {
       for (const clip of pending) {
         try {
-          const mediaInfo = await ffmpegService.getMediaInfo(clip.file_path);
+          const mediaInfo = await mediaWorkerSupervisor.probeMedia(clip.file_path);
           const resolution = mediaInfo.resolution;
           if (resolution?.width && resolution?.height) {
             database.updateClipVideoDimensions(clip.id, resolution.width, resolution.height);
@@ -418,7 +418,7 @@ async function backfillEpisodeFrameRates(batchSize = 25) {
     while (pending.length) {
       for (const episode of pending) {
         try {
-          const mediaInfo = await ffmpegService.getMediaInfo(episode.file_path)
+          const mediaInfo = await mediaWorkerSupervisor.probeMedia(episode.file_path)
           if (mediaInfo.frameRate && Number.isFinite(mediaInfo.frameRate)) {
             database.updateEpisodeFrameRate(episode.id, mediaInfo.frameRate)
             console.log(`[FrameRate] Stored ${mediaInfo.frameRate.toFixed(3)} fps for episode ${episode.id}`)

@@ -3,8 +3,8 @@ import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { BrowserWindow } from 'electron'
 import { database } from '../database/database'
-import { ffmpegService } from './ffmpegService'
 import { configService } from './configService'
+import { mediaWorkerSupervisor } from './mediaWorkerSupervisor'
 import { pipelineWorkerSupervisor } from './pipelineWorkerSupervisor'
 import type {
   ProcessingErrorPayload,
@@ -228,7 +228,7 @@ class ProcessingPipeline {
       
       let mediaInfo
       try {
-        mediaInfo = await ffmpegService.getMediaInfo(filePath)
+        mediaInfo = await mediaWorkerSupervisor.probeMedia(filePath)
         console.log('Media info retrieved:', mediaInfo)
         this.completePipelineStep(workflowJobId, currentStep, {
           duration: mediaInfo.duration,
@@ -256,7 +256,7 @@ class ProcessingPipeline {
       console.log('Starting audio extraction...')
       let audioPath
       try {
-        audioPath = await ffmpegService.extractAudio(
+        audioPath = await mediaWorkerSupervisor.extractAudio(
           filePath,
           undefined,
           (progress) => {
@@ -657,7 +657,7 @@ class ProcessingPipeline {
     // Get media duration
     let duration = 0
     try {
-      const mediaInfo = await ffmpegService.getMediaInfo(filePath)
+      const mediaInfo = await mediaWorkerSupervisor.probeMedia(filePath)
       duration = mediaInfo.duration
     } catch (error) {
       console.warn('Could not get media duration:', error)
