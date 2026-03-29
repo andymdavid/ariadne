@@ -271,6 +271,18 @@ class ExportService {
     ).catch((error) => {
       const failedAt = new Date().toISOString()
       const message = error instanceof Error ? error.message : 'Unknown error'
+      database.createFailureEvent({
+        id: randomUUID(),
+        jobId: workflowJobId,
+        stepRunId: null,
+        scope: 'export_supervision.start',
+        errorCode: 'export_start_failed',
+        message,
+        detailJson: JSON.stringify({
+          exportJobId: job.id
+        }),
+        createdAt: failedAt
+      })
       database.updateWorkflowJob(workflowJobId, {
         status: 'failed',
         stage: 'failed',
@@ -701,6 +713,18 @@ class ExportService {
     ).catch((error) => {
       const failedAt = new Date().toISOString()
       const message = error instanceof Error ? error.message : 'Unknown error'
+      database.createFailureEvent({
+        id: randomUUID(),
+        jobId: durableView.job!.workflowJobId,
+        stepRunId: null,
+        scope: 'export_supervision.resume',
+        errorCode: 'export_resume_failed',
+        message,
+        detailJson: JSON.stringify({
+          exportJobId: jobId
+        }),
+        createdAt: failedAt
+      })
       database.updateWorkflowJob(durableView.job!.workflowJobId, {
         status: 'failed',
         stage: 'failed',
@@ -742,6 +766,9 @@ class ExportService {
     filePath: string
     status: string
   }) {
+    const now = new Date().toISOString()
+    const stepRun = database.getWorkflowStepRunByJobAndClip(workflowJobId, output.clipId)
+
     if (output.artifactId) {
       const artifact = database.getArtifactById(output.artifactId)
       if (artifact) {
@@ -755,10 +782,44 @@ class ExportService {
         if (shouldInvalidate) {
           database.updateArtifact(artifact.id, {
             status: 'invalid',
-            updatedAt: new Date().toISOString()
+            updatedAt: now
+          })
+          database.createFailureEvent({
+            id: randomUUID(),
+            jobId: workflowJobId,
+            stepRunId: stepRun?.id ?? null,
+            scope: 'export_resume_validation.artifact',
+            errorCode: 'artifact_invalid',
+            message: 'Stored export artifact is missing or invalid during resume',
+            detailJson: JSON.stringify({
+              exportJobId: output.exportJobId,
+              clipId: output.clipId,
+              artifactId: artifact.id,
+              filePath: artifact.filePath
+            }),
+            createdAt: now
           })
         }
       }
+    }
+
+    if (output.status === 'completed' || output.status === 'failed') {
+      database.createFailureEvent({
+        id: randomUUID(),
+        jobId: workflowJobId,
+        stepRunId: stepRun?.id ?? null,
+        scope: 'export_resume_validation.output',
+        errorCode: 'output_incomplete',
+        message: 'Stored export output could not be treated as complete during resume',
+        detailJson: JSON.stringify({
+          exportJobId: output.exportJobId,
+          clipId: output.clipId,
+          artifactId: output.artifactId,
+          filePath: output.filePath,
+          status: output.status
+        }),
+        createdAt: now
+      })
     }
 
     database.updateExportOutputByJobAndClip(output.exportJobId || '', output.clipId, {
@@ -768,7 +829,7 @@ class ExportService {
     database.updateWorkflowStepRunByJobAndClip(workflowJobId, output.clipId, {
       status: 'pending',
       progress: 0,
-      updatedAt: new Date().toISOString()
+      updatedAt: now
     })
   }
 

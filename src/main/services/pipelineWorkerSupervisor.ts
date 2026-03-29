@@ -1,4 +1,5 @@
 import { fork, ChildProcess } from 'child_process'
+import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
@@ -96,6 +97,24 @@ class PipelineWorkerSupervisor {
       worker.on('exit', (code) => {
         cleanup()
         if (!settled) {
+          const now = new Date().toISOString()
+          database.createFailureEvent({
+            id: randomUUID(),
+            jobId: command.workflowJobId,
+            stepRunId: null,
+            scope: 'pipeline_worker.process',
+            errorCode: 'pipeline_worker_exit',
+            message: `Pipeline worker exited with code ${code}`,
+            detailJson: JSON.stringify({ exitCode: code }),
+            createdAt: now
+          })
+          database.updateWorkflowJob(command.workflowJobId, {
+            status: 'failed',
+            stage: 'failed',
+            message: `Pipeline worker exited with code ${code}`,
+            completedAt: now,
+            updatedAt: now
+          })
           settled = true
           reject(new Error(`Pipeline worker exited with code ${code}`))
         }
@@ -198,6 +217,7 @@ class PipelineWorkerSupervisor {
   private handleFailure(event: PipelineWorkerFailureEvent, window?: BrowserWindow) {
     const now = new Date().toISOString()
     const failedStage = event.stage || this.findCurrentRunningStage(event.workflowJobId)
+    const stepRunId = failedStage ? `${event.workflowJobId}-${failedStage}` : null
 
     if (failedStage) {
       database.updateWorkflowStepRun(`${event.workflowJobId}-${failedStage}`, {
@@ -208,6 +228,19 @@ class PipelineWorkerSupervisor {
         updatedAt: now
       })
     }
+
+    database.createFailureEvent({
+      id: randomUUID(),
+      jobId: event.workflowJobId,
+      stepRunId,
+      scope: failedStage ? `pipeline_worker.${failedStage}` : 'pipeline_worker.job',
+      errorCode: event.errorCode,
+      message: event.message,
+      detailJson: JSON.stringify({
+        stage: failedStage
+      }),
+      createdAt: now
+    })
 
     database.updateWorkflowJob(event.workflowJobId, {
       status: 'failed',

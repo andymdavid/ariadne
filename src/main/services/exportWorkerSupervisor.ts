@@ -163,6 +163,9 @@ class ExportWorkerSupervisor {
     if (event.type === 'export_failed') {
       const now = new Date().toISOString()
       const errorMessage = event.message
+      const stepRunId = event.clipId
+        ? database.getWorkflowStepRunByJobAndClip(event.workflowJobId, event.clipId)?.id ?? null
+        : null
 
       if (event.clipId) {
         database.updateWorkflowStepRunByJobAndClip(event.workflowJobId, event.clipId, {
@@ -177,6 +180,20 @@ class ExportWorkerSupervisor {
           errorMessage
         })
       }
+
+      database.createFailureEvent({
+        id: randomUUID(),
+        jobId: event.workflowJobId,
+        stepRunId,
+        scope: event.clipId ? 'export_worker.clip_render' : 'export_worker.job',
+        errorCode: event.errorCode,
+        message: errorMessage,
+        detailJson: JSON.stringify({
+          exportJobId: event.exportJobId,
+          clipId: event.clipId ?? null
+        }),
+        createdAt: now
+      })
 
       database.updateWorkflowJob(event.workflowJobId, {
         status: 'failed',

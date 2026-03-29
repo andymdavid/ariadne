@@ -133,6 +133,17 @@ interface ExportOutputRecord {
   createdAt: string
 }
 
+interface FailureEventRecord {
+  id: string
+  jobId: string
+  stepRunId: string | null
+  scope: string
+  errorCode: string
+  message: string
+  detailJson: string
+  createdAt: string
+}
+
 class DatabaseManager {
   private db: Database.Database
   
@@ -272,6 +283,19 @@ class DatabaseManager {
     }
   }
 
+  private mapFailureEvent(row: any): FailureEventRecord {
+    return {
+      id: row.id,
+      jobId: row.job_id,
+      stepRunId: row.step_run_id ?? null,
+      scope: row.scope,
+      errorCode: row.error_code,
+      message: row.message,
+      detailJson: row.detail_json,
+      createdAt: row.created_at
+    }
+  }
+
   private migrateSchema() {
     // Version 1: Add any new tables (example for content_packages, exports, etc.)
     const migrations = [
@@ -389,6 +413,18 @@ class DatabaseManager {
         updated_at TEXT NOT NULL,
         FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
         FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS failure_events (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        step_run_id TEXT,
+        scope TEXT NOT NULL,
+        error_code TEXT NOT NULL,
+        message TEXT NOT NULL,
+        detail_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+        FOREIGN KEY (step_run_id) REFERENCES workflow_step_runs (id) ON DELETE SET NULL
       );`,
       `CREATE TABLE IF NOT EXISTS clip_titles (
         id TEXT PRIMARY KEY,
@@ -833,6 +869,9 @@ class DatabaseManager {
           CREATE INDEX IF NOT EXISTS idx_artifacts_path ON artifacts (file_path);
           CREATE INDEX IF NOT EXISTS idx_export_jobs_episode ON export_jobs (episode_id, created_at DESC);
           CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs (status, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_failure_events_job ON failure_events (job_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_failure_events_step ON failure_events (step_run_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_failure_events_scope ON failure_events (scope, created_at DESC);
         `)
         console.log('✅ Added export durability tables (v18)')
         this.db.pragma('user_version = 18')
@@ -858,6 +897,33 @@ class DatabaseManager {
       } catch (error) {
         console.log('Export durability column migration skipped (may already exist)')
         this.db.pragma('user_version = 19')
+      }
+    }
+
+    if (preVersion <= 19) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS failure_events (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            step_run_id TEXT,
+            scope TEXT NOT NULL,
+            error_code TEXT NOT NULL,
+            message TEXT NOT NULL,
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+            FOREIGN KEY (step_run_id) REFERENCES workflow_step_runs (id) ON DELETE SET NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_failure_events_job ON failure_events (job_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_failure_events_step ON failure_events (step_run_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_failure_events_scope ON failure_events (scope, created_at DESC);
+        `)
+        console.log('✅ Added failure events table (v20)')
+        this.db.pragma('user_version = 20')
+      } catch (error) {
+        console.log('Failure events migration skipped (may already exist)')
+        this.db.pragma('user_version = 20')
       }
     }
   }
@@ -1069,6 +1135,17 @@ class DatabaseManager {
           metadata TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'completed',
           error_message TEXT,
+          created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS failure_events (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL,
+          step_run_id TEXT,
+          scope TEXT NOT NULL,
+          error_code TEXT NOT NULL,
+          message TEXT NOT NULL,
+          detail_json TEXT NOT NULL DEFAULT '{}',
           created_at TEXT NOT NULL
       );
     `
@@ -2031,6 +2108,24 @@ class DatabaseManager {
     return (stmt.all(jobId) as any[]).map((row) => this.mapWorkflowStepRun(row))
   }
 
+  getWorkflowStepRunByJobAndClip(jobId: string, clipId: string): WorkflowStepRunRecord | undefined {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM workflow_step_runs
+      WHERE job_id = ? AND clip_id = ?
+      ORDER BY created_at ASC
+      LIMIT 1
+    `)
+    const row = stmt.get(jobId, clipId)
+    return row ? this.mapWorkflowStepRun(row) : undefined
+  }
+
+  getWorkflowStepRun(stepRunId: string): WorkflowStepRunRecord | undefined {
+    const stmt = this.db.prepare('SELECT * FROM workflow_step_runs WHERE id = ? LIMIT 1')
+    const row = stmt.get(stepRunId)
+    return row ? this.mapWorkflowStepRun(row) : undefined
+  }
+
   createArtifact(record: ArtifactRecord) {
     const stmt = this.db.prepare(`
       INSERT INTO artifacts (
@@ -2321,6 +2416,35 @@ class DatabaseManager {
       job,
       outputs
     }
+  }
+
+  createFailureEvent(record: FailureEventRecord) {
+    const stmt = this.db.prepare(`
+      INSERT INTO failure_events (
+        id, job_id, step_run_id, scope, error_code, message, detail_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      record.id,
+      record.jobId,
+      record.stepRunId,
+      record.scope,
+      record.errorCode,
+      record.message,
+      record.detailJson,
+      record.createdAt
+    )
+  }
+
+  getFailureEventsByJob(jobId: string): FailureEventRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM failure_events
+      WHERE job_id = ?
+      ORDER BY created_at DESC
+    `)
+    return (stmt.all(jobId) as any[]).map((row) => this.mapFailureEvent(row))
   }
   
   // Settings operations

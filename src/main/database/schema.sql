@@ -203,6 +203,19 @@ CREATE TABLE IF NOT EXISTS export_jobs (
     FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS failure_events (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    step_run_id TEXT,
+    scope TEXT NOT NULL,
+    error_code TEXT NOT NULL,
+    message TEXT NOT NULL,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+    FOREIGN KEY (step_run_id) REFERENCES workflow_step_runs (id) ON DELETE SET NULL
+);
+
 -- Exports table
 CREATE TABLE IF NOT EXISTS exports (
     id TEXT PRIMARY KEY,
@@ -246,6 +259,9 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_clip ON artifacts (clip_id, artifact_ty
 CREATE INDEX IF NOT EXISTS idx_artifacts_path ON artifacts (file_path);
 CREATE INDEX IF NOT EXISTS idx_export_jobs_episode ON export_jobs (episode_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs (status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_failure_events_job ON failure_events (job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_failure_events_step ON failure_events (step_run_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_failure_events_scope ON failure_events (scope, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_exports_clip_id ON exports (clip_id);
 CREATE INDEX IF NOT EXISTS idx_exports_export_job ON exports (export_job_id, clip_id);
 CREATE INDEX IF NOT EXISTS idx_exports_artifact ON exports (artifact_id);

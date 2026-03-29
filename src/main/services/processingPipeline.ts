@@ -851,6 +851,18 @@ class ProcessingPipeline {
       completedAt: now,
       updatedAt: now
     })
+    database.createFailureEvent({
+      id: randomUUID(),
+      jobId: workflowJobId,
+      stepRunId: `${workflowJobId}-${stepKey}`,
+      scope: `pipeline_main.${stepKey}`,
+      errorCode,
+      message,
+      detailJson: JSON.stringify({
+        stage: stepKey
+      }),
+      createdAt: now
+    })
   }
 
   private completeWorkflowJob(workflowJobId: string, projectId: string, episodeId: string, clipsFound: number) {
