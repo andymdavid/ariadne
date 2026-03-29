@@ -1,6 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types';
 import type {
+  ProcessEpisodeRequestDTO,
+  ProcessEpisodeResponseDTO,
+  ProcessSourceRequestDTO,
+  ProcessSourceResponseDTO,
+  ProcessingCompleteEventDTO,
+  ProcessingErrorEventDTO,
+  ProcessingUpdateEventDTO
+} from '@shared/types/pipelineIpc'
+import type {
   CancelExportJobRequestDTO,
   CancelExportJobResponseDTO,
   ClearCompletedExportsResponseDTO,
@@ -31,9 +40,15 @@ const electronAPI = {
   
   // Processing operations
   processEpisode: (filePath: string, projectName?: string) => 
-    ipcRenderer.invoke('process-episode', filePath, projectName),
+    ipcRenderer.invoke(
+      'process-episode',
+      { filePath, projectName } satisfies ProcessEpisodeRequestDTO
+    ) as Promise<ProcessEpisodeResponseDTO>,
   processSource: (source: string, projectName?: string) =>
-    ipcRenderer.invoke('process-source', source, projectName),
+    ipcRenderer.invoke(
+      'process-source',
+      { source, projectName } satisfies ProcessSourceRequestDTO
+    ) as Promise<ProcessSourceResponseDTO>,
   playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) =>
     ipcRenderer.invoke('play-clip', episodeId, startTime, endTime, clipId),
   
@@ -117,21 +132,21 @@ const electronAPI = {
   listMusic: () => ipcRenderer.invoke('list-music'),
 
   // Event listeners for IPC
-  onProcessingUpdate: (callback: (data: ProcessingProgress) => void) => {
-    const listener = (_: Electron.IpcRendererEvent, data: ProcessingProgress) => callback(data);
+  onProcessingUpdate: (callback: (data: ProcessingUpdateEventDTO) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, data: ProcessingUpdateEventDTO) => callback(data);
     ipcRenderer.on('processing-update', listener);
     // Return cleanup function
     return () => ipcRenderer.removeListener('processing-update', listener);
   },
   
-  onProcessingComplete: (callback: (data: ProcessingResultPayload) => void) => {
-    const listener = (_: Electron.IpcRendererEvent, data: ProcessingResultPayload) => callback(data);
+  onProcessingComplete: (callback: (data: ProcessingCompleteEventDTO) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, data: ProcessingCompleteEventDTO) => callback(data);
     ipcRenderer.on('processing-complete', listener);
     return () => ipcRenderer.removeListener('processing-complete', listener);
   },
   
-  onProcessingError: (callback: (error: ProcessingErrorPayload | string) => void) => {
-    const listener = (_: Electron.IpcRendererEvent, error: ProcessingErrorPayload | string) => callback(error);
+  onProcessingError: (callback: (error: ProcessingErrorEventDTO) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, error: ProcessingErrorEventDTO) => callback(error);
     ipcRenderer.on('processing-error', listener);
     return () => ipcRenderer.removeListener('processing-error', listener);
   },
@@ -168,8 +183,8 @@ declare global {
       platform: string;
       
       // Processing operations
-      processEpisode: (filePath: string, projectName?: string) => Promise<any>;
-      processSource: (source: string, projectName?: string) => Promise<any>;
+      processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
+      processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
       playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) => Promise<any>;
       
       // Database operations
@@ -227,9 +242,9 @@ declare global {
       listMusic: () => Promise<string[]>;
 
       // Event listeners
-      onProcessingUpdate: (callback: (data: ProcessingProgress) => void) => () => void;
-      onProcessingComplete: (callback: (data: ProcessingResultPayload) => void) => () => void;
-      onProcessingError: (callback: (error: ProcessingErrorPayload | string) => void) => () => void;
+      onProcessingUpdate: (callback: (data: ProcessingUpdateEventDTO) => void) => () => void;
+      onProcessingComplete: (callback: (data: ProcessingCompleteEventDTO) => void) => () => void;
+      onProcessingError: (callback: (error: ProcessingErrorEventDTO) => void) => () => void;
       onClipExtractionProgress: (callback: (data: any) => void) => () => void;
       onExportProgress: (callback: (job: ExportJobDTO) => void) => () => void;
       onDatabaseCleaned: (callback: (result: any) => void) => () => void;

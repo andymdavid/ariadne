@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { IoAddCircleOutline, IoCloudUploadOutline, IoClose, IoLinkOutline } from 'react-icons/io5'
+import type { ProcessingCompleteEventDTO } from '@shared/types/pipelineIpc'
 import { useProcessingStore } from '../stores/processingStore'
 import { useProjectStore, type SavedProject } from '../stores/projectStore'
 import { TranscriptionProgress } from '../components/TranscriptionProgress'
@@ -117,7 +118,7 @@ export function HomePage() {
         throw new Error('Processing API not available')
       }
 
-      const processingCompletePromise = new Promise((resolve, reject) => {
+      const processingCompletePromise = new Promise<ProcessingCompleteEventDTO>((resolve, reject) => {
         let timeoutId: NodeJS.Timeout
 
         const cleanup = window.electronAPI?.onProcessingComplete?.((data) => {
@@ -128,7 +129,7 @@ export function HomePage() {
         })
 
         const errorCleanup = window.electronAPI?.onProcessingError?.((error) => {
-          const errorMessage = typeof error === 'string' ? error : error.message
+          const errorMessage = error.message
           clearTimeout(timeoutId)
           cleanup?.()
           errorCleanup?.()
@@ -152,8 +153,8 @@ export function HomePage() {
         const state = useProjectStore.getState()
         if (state.currentEpisode?.id) {
           navigate(`/review/${state.currentEpisode.id}`)
-        } else if (result && (result as any).episodeId) {
-          navigate(`/review/${(result as any).episodeId}`)
+        } else if (result?.episodeId) {
+          navigate(`/review/${result.episodeId}`)
         }
       }, 1500)
 
@@ -191,7 +192,7 @@ export function HomePage() {
         throw new Error('Source processing API not available')
       }
 
-      const processingCompletePromise = new Promise((resolve, reject) => {
+      const processingCompletePromise = new Promise<ProcessingCompleteEventDTO>((resolve, reject) => {
         let timeoutId: NodeJS.Timeout
 
         const cleanup = window.electronAPI?.onProcessingComplete?.((data) => {
@@ -202,7 +203,7 @@ export function HomePage() {
         })
 
         const errorCleanup = window.electronAPI?.onProcessingError?.((error) => {
-          const errorMessage = typeof error === 'string' ? error : error.message
+          const errorMessage = error.message
           clearTimeout(timeoutId)
           cleanup?.()
           errorCleanup?.()
@@ -225,8 +226,8 @@ export function HomePage() {
         const state = useProjectStore.getState()
         if (state.currentEpisode?.id) {
           navigate(`/review/${state.currentEpisode.id}`)
-        } else if (result && (result as any).episodeId) {
-          navigate(`/review/${(result as any).episodeId}`)
+        } else if (result?.episodeId) {
+          navigate(`/review/${result.episodeId}`)
         }
       }, 1500)
 

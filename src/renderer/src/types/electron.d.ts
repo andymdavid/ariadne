@@ -1,4 +1,11 @@
-import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types'
+import type { BrandTemplate, ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
+import type {
+  ProcessEpisodeResponseDTO,
+  ProcessSourceResponseDTO,
+  ProcessingCompleteEventDTO,
+  ProcessingErrorEventDTO,
+  ProcessingUpdateEventDTO
+} from '@shared/types/pipelineIpc'
 import type {
   CancelExportJobResponseDTO,
   ClearCompletedExportsResponseDTO,
@@ -20,8 +27,8 @@ declare global {
       platform: string;
       
       // Processing operations
-      processEpisode: (filePath: string, projectName?: string) => Promise<any>;
-      processSource: (source: string, projectName?: string) => Promise<any>;
+      processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
+      processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
       playClip: (episodeId: string, startTime: number, endTime: number, clipId: string) => Promise<any>;
       
       // Database operations
@@ -79,9 +86,9 @@ declare global {
       listMusic: () => Promise<string[]>;
 
       // Event listeners
-      onProcessingUpdate: (callback: (data: ProcessingProgress) => void) => () => void;
-      onProcessingComplete: (callback: (data: ProcessingResultPayload) => void) => () => void;
-      onProcessingError: (callback: (error: ProcessingErrorPayload | string) => void) => () => void;
+      onProcessingUpdate: (callback: (data: ProcessingUpdateEventDTO) => void) => () => void;
+      onProcessingComplete: (callback: (data: ProcessingCompleteEventDTO) => void) => () => void;
+      onProcessingError: (callback: (error: ProcessingErrorEventDTO) => void) => () => void;
       onClipExtractionProgress: (callback: (data: any) => void) => () => void;
       onExportProgress: (callback: (job: ExportProgressEventDTO) => void) => () => void;
       onDatabaseCleaned: (callback: (result: any) => void) => () => void;

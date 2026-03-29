@@ -12,6 +12,12 @@ import { exportService } from './services/exportService';
 import { ffmpegService } from './services/ffmpegService';
 import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
 import type {
+  ProcessEpisodeRequestDTO,
+  ProcessEpisodeResponseDTO,
+  ProcessSourceRequestDTO,
+  ProcessSourceResponseDTO
+} from '@shared/types/pipelineIpc';
+import type {
   CancelExportJobRequestDTO,
   CancelExportJobResponseDTO,
   ClearCompletedExportsResponseDTO,
@@ -547,13 +553,13 @@ ipcMain.handle('get-app-version', () => {
 });
 
 // Processing handlers
-ipcMain.handle('process-episode', async (event, filePath: string, projectName?: string) => {
-  return runProcessingJob(filePath, projectName)
+ipcMain.handle('process-episode', async (_event, request: ProcessEpisodeRequestDTO): Promise<ProcessEpisodeResponseDTO> => {
+  return runProcessingJob(request.filePath, request.projectName)
 });
 
-ipcMain.handle('process-source', async (event, source: string, projectName?: string) => {
-  const resolvedSource = await resolveSourceToFile(source)
-  return runProcessingJob(resolvedSource.filePath, projectName || resolvedSource.projectName)
+ipcMain.handle('process-source', async (_event, request: ProcessSourceRequestDTO): Promise<ProcessSourceResponseDTO> => {
+  const resolvedSource = await resolveSourceToFile(request.source)
+  return runProcessingJob(resolvedSource.filePath, request.projectName || resolvedSource.projectName)
 })
 
 // Database handlers
