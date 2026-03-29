@@ -664,13 +664,6 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           processingStatus: status,
           lastProcessingUpdate: new Date().toISOString()
         })
-        
-        // Auto-mark screens as completed based on processing status
-        if (status === 'completed') {
-          get().markScreenCompleted('processing')
-        }
-        
-        get().updateSession()
       },
       
       setProcessingProgress: (progress) => {
@@ -678,7 +671,6 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           processingProgress: progress,
           lastProcessingUpdate: new Date().toISOString()
         })
-        get().updateSession()
       },
       
       updateProcessingState: (update) => {
@@ -686,7 +678,6 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           ...update,
           lastProcessingUpdate: new Date().toISOString()
         })
-        get().updateSession()
       },
       
       // Screen completion tracking
@@ -861,12 +852,6 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           set({ completedScreens: newCompletedScreens })
         }
         
-        // Check 4: Processing status consistency
-        if (currentState.clips.length > 0 && currentState.processingStatus !== 'completed') {
-          console.log('State validation: Have clips but status not completed, fixing...')
-          set({ processingStatus: 'completed' })
-        }
-        
         return isValid
       },
       
@@ -985,7 +970,6 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         clips: state.clips,
         clipsMetadata: state.clipsMetadata,
         fileInfo: state.fileInfo,
-        processingStatus: state.processingStatus,
         completedScreens: state.completedScreens,
         currentScreen: state.currentScreen,
         lastSessionDate: state.lastSessionDate,
