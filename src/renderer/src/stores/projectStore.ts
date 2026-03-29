@@ -815,7 +815,6 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           completedScreens: Array.from(state.completedScreens)
         })
         
-        // Enhanced validation with auto-repair capabilities
         let isValid = true
         
         // Check 1: If we have clips but no episode, try to reconstruct
@@ -839,19 +838,6 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           console.log('State validation: Reconstructed episode for transcript')
         }
         
-        // Check 3: Screen completion consistency
-        const currentState = get() // Get updated state after repairs
-        if (currentState.fullTranscript.length > 0 && !currentState.completedScreens.has('upload')) {
-          console.log('State validation: Transcript exists but upload not marked complete, fixing...')
-          const newCompletedScreens = new Set(currentState.completedScreens)
-          newCompletedScreens.add('upload')
-          if (currentState.fullTranscript.length > 100) { // Substantial transcript
-            newCompletedScreens.add('review')
-            console.log('State validation: Also marked review complete due to transcript')
-          }
-          set({ completedScreens: newCompletedScreens })
-        }
-        
         return isValid
       },
       
@@ -860,38 +846,11 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         const state = get()
         console.log('Attempting session recovery...')
         
-        // Recovery scenario 1: Have file info but lost episode
+        // Recovery scenario: Have file info but lost episode
         if (state.fileInfo && !state.currentEpisode) {
           const recoveredEpisode = buildRecoveredEpisode(state.fileInfo)
           set({ currentEpisode: recoveredEpisode })
           console.log('Session recovery: Restored episode from file info')
-        }
-        
-        // Recovery scenario 2: Have data but screens not marked complete
-        if (state.fullTranscript.length > 0 || state.clips.length > 0) {
-          const recoveredScreens = new Set(['upload'])
-          
-          if (state.fullTranscript.length > 0) {
-            recoveredScreens.add('review')
-            console.log('Session recovery: Marked review complete (has transcript)')
-          }
-          
-          if (state.clips.length > 0) {
-            recoveredScreens.add('content')
-            console.log('Session recovery: Marked content accessible (has clips)')
-          }
-          
-          set({ completedScreens: recoveredScreens })
-        }
-        
-        // Recovery scenario 3: Auto-save recovered project if possible
-        if (state.currentEpisode && state.fileInfo && (state.fullTranscript.length > 0 || state.clips.length > 0)) {
-          try {
-            const recoveredProject = get().saveCurrentProject(`${state.currentEpisode.fileName} (Recovered)`)
-            console.log('Session recovery: Auto-saved recovered project:', recoveredProject.name)
-          } catch (error) {
-            console.log('Session recovery: Could not auto-save:', error)
-          }
         }
         
         console.log('Session recovery completed')
@@ -947,7 +906,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       serialize: (state) => {
         return JSON.stringify({
           ...state.state,
-          completedScreens: Array.from(state.state.completedScreens)
+          completedScreens: Array.from(state.state.completedScreens ?? [])
         })
       },
       deserialize: (str) => {
@@ -970,10 +929,8 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         clips: state.clips,
         clipsMetadata: state.clipsMetadata,
         fileInfo: state.fileInfo,
-        completedScreens: state.completedScreens,
         currentScreen: state.currentScreen,
-        lastSessionDate: state.lastSessionDate,
-        workflowData: state.workflowData
+        lastSessionDate: state.lastSessionDate
       }),
       version: 1
     }
