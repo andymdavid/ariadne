@@ -113,6 +113,9 @@ export function TranscriptionProgress() {
   }
 
   const resolvedStageProgress = Math.max(0, Math.min(100, stageProgress ?? progress))
+  const normalizedMessage = message?.toLowerCase() || ''
+  const isQueued = normalizedMessage.includes('queued')
+  const isRecovered = normalizedMessage.includes('resum') || normalizedMessage.includes('pending_resume')
 
   const showDualProgress = stage === 'transcribing' || stage === 'analyzing' || stage === 'generating'
 
@@ -134,6 +137,12 @@ export function TranscriptionProgress() {
   const getInlineStatus = () => {
     const parts: string[] = []
 
+    if (isQueued) {
+      parts.push('Queued')
+    } else if (isRecovered) {
+      parts.push('Resuming')
+    }
+
     if (showDualProgress) {
       parts.push(getStageLabel())
       parts.push(getOverallLabel())
@@ -149,6 +158,22 @@ export function TranscriptionProgress() {
     return parts.join(' • ')
   }
 
+  const getStageTitle = () => {
+    if (isQueued) {
+      return 'Queued'
+    }
+
+    if (isRecovered) {
+      return `Resuming ${stageLabels[stage]}`
+    }
+
+    return stageLabels[stage]
+  }
+
+  const statusMessage = message
+    || (isQueued ? 'Waiting for processing to start...' : null)
+    || (isRecovered ? 'Restoring durable processing state...' : null)
+
   return (
     <div className="max-w-2xl w-full space-y-6 text-center">
       {/* Clean Minimal Header */}
@@ -156,13 +181,13 @@ export function TranscriptionProgress() {
         <div className="flex items-center justify-center space-x-3">
           <span className="text-2xl">{stageEmojis[stage]}</span>
           <h2 className="text-lg font-medium text-text-primary">
-            {stageLabels[stage]}
+            {getStageTitle()}
           </h2>
         </div>
         
-        {message && (
+        {statusMessage && (
           <p className="text-sm text-text-secondary">
-            {message}
+            {statusMessage}
           </p>
         )}
 

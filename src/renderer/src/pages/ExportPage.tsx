@@ -38,6 +38,24 @@ export function ExportPage() {
   const [includeCaptions, setIncludeCaptions] = useState(true)
   const isExporting = exportJob?.status === 'processing' || exportJob?.status === 'pending'
   const exportError = exportJob?.status === 'failed' ? (exportJob.error || 'Export failed') : null
+  const exportStatusLabel = (() => {
+    if (!exportJob) return null
+    if (exportJob.status === 'completed') return 'Completed'
+    if (exportJob.status === 'failed') return exportError?.toLowerCase().includes('cancel') ? 'Cancelled' : 'Failed'
+    if (exportJob.status === 'pending') return exportJob.progress > 0 || exportJob.currentClipIndex > 0 ? 'Resuming' : 'Queued'
+    return exportJob.currentClipIndex > 0 ? 'Running' : 'Starting'
+  })()
+  const exportStatusText = (() => {
+    if (!exportJob) return `${approvedClips.length} approved clips ready to export`
+    if (exportJob.status === 'completed') return `Export complete. ${exportJob.totalClips} clips ready.`
+    if (exportJob.status === 'failed') return exportError || 'Export failed'
+    if (exportJob.status === 'pending') {
+      return exportJob.progress > 0 || exportJob.currentClipIndex > 0
+        ? `Resuming clip ${Math.min(exportJob.currentClipIndex + 1, exportJob.totalClips)} of ${exportJob.totalClips}`
+        : 'Queued and preparing export...'
+    }
+    return `Exporting clip ${Math.min(exportJob.currentClipIndex + 1, exportJob.totalClips)} of ${exportJob.totalClips}`
+  })()
 
   useEffect(() => {
     if (!episodeId) {
@@ -245,11 +263,16 @@ export function ExportPage() {
               <h2 className="text-2xl font-semibold text-text-primary">
                 {exportJob ? 'Export Progress' : 'Export Clips'}
               </h2>
-              <p className="text-sm text-text-muted mt-1">
-                {exportJob
-                  ? `Exporting ${exportJob.currentClipIndex + 1} of ${exportJob.totalClips} clips`
-                  : `${approvedClips.length} approved clips ready to export`}
-              </p>
+              <div className="mt-1 flex items-center gap-2">
+                {exportStatusLabel && (
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted">
+                    {exportStatusLabel}
+                  </span>
+                )}
+                <p className="text-sm text-text-muted">
+                  {exportStatusText}
+                </p>
+              </div>
             </div>
 
             {/* Compact Export Settings */}
@@ -298,7 +321,7 @@ export function ExportPage() {
               </div>
             )}
 
-            {isExporting && exportJob && exportJob.status === 'processing' && (
+            {isExporting && exportJob && (exportJob.status === 'processing' || exportJob.status === 'pending') && (
               <button
                 onClick={handleCancelExport}
                 className="btn-secondary flex items-center space-x-2"
@@ -334,6 +357,16 @@ export function ExportPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
+                  {exportJob.status === 'pending' && (
+                    <>
+                      <div className="text-xl">⏳</div>
+                      <span className="text-sm text-text-primary">
+                        {exportJob.progress > 0 || exportJob.currentClipIndex > 0
+                          ? `Resuming export at clip ${Math.min(exportJob.currentClipIndex + 1, exportJob.totalClips)} of ${exportJob.totalClips}`
+                          : 'Queued and preparing export'}
+                      </span>
+                    </>
+                  )}
                   {exportJob.status === 'processing' && (
                     <>
                       <div className="animate-spin text-xl">⏳</div>
