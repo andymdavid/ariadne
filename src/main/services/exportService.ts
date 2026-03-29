@@ -236,10 +236,16 @@ class ExportService {
 
     this.activeJobs.set(jobId, job)
 
-    const tasks = this.buildRenderTasks(episode, approvedClips, outputDirectory, {
-      aspectRatio,
-      includeCaptions
-    })
+    const tasks = this.buildRenderTasks(
+      episode,
+      approvedClips,
+      outputDirectory,
+      {
+        aspectRatio,
+        includeCaptions
+      },
+      clipIds
+    )
 
     database.updateWorkflowJob(workflowJobId, {
       status: 'running',
@@ -330,8 +336,11 @@ class ExportService {
     episode: any,
     clips: any[],
     outputDirectory: string,
-    options: Required<Pick<ExportOptions, 'aspectRatio' | 'includeCaptions'>>
+    options: Required<Pick<ExportOptions, 'aspectRatio' | 'includeCaptions'>>,
+    orderedClipIds?: string[]
   ): ExportRenderTask[] {
+    const clipOrder = orderedClipIds || clips.map((clip) => clip.id)
+
     return clips.map((clip, clipIndex) => {
       console.log(`========================================`)
       console.log(`[ExportService] Preparing clip ${clipIndex + 1}/${clips.length}`)
@@ -355,8 +364,8 @@ class ExportService {
 
       return {
         clipId: clip.id,
-        clipIndex,
-        totalClips: clips.length,
+        clipIndex: clipOrder.indexOf(clip.id),
+        totalClips: clipOrder.length,
         sourceMediaPath: episode.file_path,
         startTime: clip.start_time,
         duration: clip.duration,
@@ -590,13 +599,18 @@ class ExportService {
   /**
    * Clear completed jobs
    */
-  clearCompletedJobs(): void {
+  clearCompletedJobs(): number {
+    let clearedCount = 0
+
     for (const [jobId, job] of this.activeJobs.entries()) {
       const currentJob = this.getJob(jobId) || job
       if (currentJob.status === 'completed' || currentJob.status === 'failed') {
         this.activeJobs.delete(jobId)
+        clearedCount += 1
       }
     }
+
+    return clearedCount
   }
 
   private async resumeExportJob(jobId: string, onProgress?: (job: ExportJob) => void) {
@@ -672,7 +686,8 @@ class ExportService {
       {
         aspectRatio: durableView.job.aspectRatio as '9:16' | '1:1' | '16:9',
         includeCaptions: durableView.job.includeCaptions
-      }
+      },
+      clipIds
     )
 
     exportWorkerSupervisor.startExport(

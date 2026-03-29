@@ -61,7 +61,7 @@ async function runExport(command: StartExportWorkerCommand) {
             clipIndex: task.clipIndex,
             totalClips: task.totalClips,
             clipProgress: Math.round(clipProgress),
-            overallProgress: Math.round(((i + clipProgress / 100) / command.tasks.length) * 100),
+            overallProgress: Math.round(((task.clipIndex + clipProgress / 100) / task.totalClips) * 100),
             outputPath: task.outputPath
           }
           postMessage(progressEvent)
