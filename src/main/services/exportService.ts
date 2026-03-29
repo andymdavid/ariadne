@@ -3,7 +3,15 @@ import { join } from 'path'
 import { dialog } from 'electron'
 import { existsSync, mkdirSync } from 'fs'
 import { database } from '../database/database'
-import { ffmpegService } from './ffmpegService'
+import { exportWorkerSupervisor } from './exportWorkerSupervisor'
+import type {
+  ExportCaptionSegment,
+  ExportCaptionStyle,
+  ExportFrameSettings,
+  ExportLogoSettings,
+  ExportMusicSettings,
+  ExportRenderTask
+} from '@shared/types/exportWorker'
 
 interface ClipEditsRow {
   captions_enabled?: number
@@ -73,7 +81,6 @@ export interface ExportJob {
 
 class ExportService {
   private activeJobs: Map<string, ExportJob> = new Map()
-  private cancelledJobs: Set<string> = new Set()
 
   /**
    * Export approved clips from an episode
@@ -229,350 +236,218 @@ class ExportService {
 
     this.activeJobs.set(jobId, job)
 
-    // Start export process
-    this.processExportJob(job, workflowJobId, episode, approvedClips, outputDirectory, options, onProgress)
-      .catch(error => {
-        const failedAt = new Date().toISOString()
-        const message = error instanceof Error ? error.message : 'Unknown error'
-        database.updateWorkflowJob(workflowJobId, {
-          status: 'failed',
-          stage: 'failed',
-          message,
-          completedAt: failedAt,
-          updatedAt: failedAt
-        })
-        database.updateExportJob(job.id, {
-          status: 'failed',
-          errorMessage: message,
-          completedAt: failedAt,
-          updatedAt: failedAt
-        })
+    const tasks = this.buildRenderTasks(episode, approvedClips, outputDirectory, {
+      aspectRatio,
+      includeCaptions
+    })
 
-        const currentJob = this.getJob(job.id)
-        if (currentJob) {
-          this.activeJobs.set(job.id, currentJob)
-          onProgress?.(currentJob)
-        }
-      })
-
-    return this.getJob(job.id) || job
-  }
-
-  /**
-   * Process export job
-   */
-  private async processExportJob(
-    job: ExportJob,
-    workflowJobId: string,
-    episode: any,
-    clips: any[],
-    outputDirectory: string,
-    options: ExportOptions,
-    onProgress?: (job: ExportJob) => void
-  ): Promise<void> {
-    const startedAt = new Date().toISOString()
     database.updateWorkflowJob(workflowJobId, {
       status: 'running',
       stage: 'rendering',
       message: 'Export started',
-      startedAt,
-      updatedAt: startedAt
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     })
     database.updateExportJob(job.id, {
       status: 'running',
-      startedAt,
-      updatedAt: startedAt
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     })
-    this.emitProgress(job.id, onProgress)
 
-    const inputPath = episode.file_path
-    const includeCaptions = options.includeCaptions !== false // Default true
-
-    for (let i = 0; i < clips.length; i++) {
-      const clip = clips[i]
-      const stepStartedAt = new Date().toISOString()
-
-      if (this.cancelledJobs.has(job.id)) {
-        throw new Error('Cancelled by user')
-      }
-
+    exportWorkerSupervisor.startExport(
+      {
+        type: 'start_export',
+        exportJobId: job.id,
+        workflowJobId,
+        tasks
+      },
+      (updatedJobId) => this.emitProgress(updatedJobId, onProgress)
+    ).catch((error) => {
+      const failedAt = new Date().toISOString()
+      const message = error instanceof Error ? error.message : 'Unknown error'
       database.updateWorkflowJob(workflowJobId, {
-        progress: Math.round((i / clips.length) * 100),
-        stage: 'rendering',
-        message: `Exporting clip ${i + 1} of ${clips.length}`,
-        updatedAt: stepStartedAt
+        status: 'failed',
+        stage: 'failed',
+        message,
+        completedAt: failedAt,
+        updatedAt: failedAt
       })
       database.updateExportJob(job.id, {
-        status: 'running',
-        currentClipIndex: i,
-        progress: Math.round((i / clips.length) * 100),
-        updatedAt: stepStartedAt
-      })
-      database.updateWorkflowStepRunByJobAndClip(workflowJobId, clip.id, {
-        status: 'running',
-        progress: 0,
-        startedAt: stepStartedAt,
-        updatedAt: stepStartedAt
-      })
-      database.updateExportOutputByJobAndClip(job.id, clip.id, {
-        status: 'rendering',
-        errorMessage: null
+        status: 'failed',
+        errorMessage: message,
+        completedAt: failedAt,
+        updatedAt: failedAt
       })
       this.emitProgress(job.id, onProgress)
+    })
 
-      try {
-        // Get clip edits from database
-        console.log(`========================================`)
-        console.log(`[ExportService] ⭐ PROCESSING CLIP ${i + 1}/${clips.length}`)
-        console.log(`[ExportService] Clip ID: ${clip.id}`)
-        const clipEdits = database.getClipEdits(clip.id) as ClipEditsRow | undefined
-        console.log(`[ExportService] Clip edits loaded:`, clipEdits ? 'YES' : 'NO')
-        if (clipEdits) {
-          console.log(`[ExportService] - Captions enabled: ${clipEdits.captions_enabled}`)
-          console.log(`[ExportService] - Logo enabled: ${clipEdits.logo_enabled}`)
-          console.log(`[ExportService] - Music enabled: ${clipEdits.music_enabled}`)
-          console.log(`[ExportService] - Aspect ratio: ${clipEdits.aspect_ratio}`)
-        }
-        console.log(`========================================`)
+    return this.getJob(job.id) || job
+  }
 
-        // Get clip title for filename
-        let clipTitle = 'clip'
-        const titles = database.getClipTitles(clip.id)
-        if (titles && titles.length > 0) {
-          const selectedTitle: any = titles.find((t: any) => t.is_selected) || titles[0]
-          clipTitle = this.sanitizeFilename(selectedTitle.title)
-        }
+  private buildRenderTasks(
+    episode: any,
+    clips: any[],
+    outputDirectory: string,
+    options: Required<Pick<ExportOptions, 'aspectRatio' | 'includeCaptions'>>
+  ): ExportRenderTask[] {
+    return clips.map((clip, clipIndex) => {
+      console.log(`========================================`)
+      console.log(`[ExportService] Preparing clip ${clipIndex + 1}/${clips.length}`)
+      console.log(`[ExportService] Clip ID: ${clip.id}`)
 
-        // Generate output path
-        const outputFilename = `${clipTitle}_${Date.now()}.mp4`
-        const outputPath = join(outputDirectory, outputFilename)
+      const clipEdits = database.getClipEdits(clip.id) as ClipEditsRow | undefined
+      const outputPath = join(outputDirectory, this.buildOutputFilename(clip.id))
+      const captionSegments = this.buildCaptionSegments(clipEdits, options.includeCaptions)
+      const captionStyle = this.buildCaptionStyle(clipEdits)
+      const logoSettings = this.buildLogoSettings(clipEdits)
+      const musicSettings = this.buildMusicSettings(clipEdits)
+      const frameSettings = this.buildFrameSettings(clip, clipEdits, options.aspectRatio)
 
-        // Parse caption segments from database
-        let captionSegments: any[] = []
-        if (includeCaptions && clipEdits && clipEdits.captions_enabled) {
-          try {
-            captionSegments = JSON.parse(clipEdits.caption_segments || '[]')
-            console.log(`[ExportService] Parsed ${captionSegments.length} caption segments`)
-          } catch (error) {
-            console.error('[ExportService] Failed to parse caption segments:', error)
-          }
-        }
+      console.log(`[ExportService] Prepared clip ${clip.id} with settings:`, {
+        captionStyle: captionStyle?.enabled,
+        captionSegments: captionSegments.length,
+        logo: logoSettings?.enabled,
+        music: musicSettings?.enabled,
+        frame: frameSettings
+      })
 
-        // Build caption style from database or defaults
-        const captionStyle = clipEdits ? {
-          enabled: clipEdits.captions_enabled === 1,
-          font: clipEdits.caption_font || 'Inter',
-          size: clipEdits.caption_size || 48,
-          color: clipEdits.caption_color || '#FFFFFF',
-          position: clipEdits.caption_position || 'bottom',
-          customX: clipEdits.caption_custom_x ?? undefined,
-          customY: clipEdits.caption_custom_y ?? undefined,
-          weight: clipEdits.caption_weight || (clipEdits.caption_bold === 1 ? 700 : 400), // Use weight, fallback to bold
-          italic: clipEdits.caption_italic === 1,
-          outline: clipEdits.caption_outline === 1,
-          outlineColor: clipEdits.caption_outline_color || '#000000',
-          outlineWidth: clipEdits.caption_outline_width || 2,
-          shadow: clipEdits.caption_shadow === 1,
-          highlightStyle: clipEdits.caption_highlight_style || 'word',
-          background: clipEdits.caption_background === 1,
-          backgroundColor: clipEdits.caption_background_color || '#000000',
-          backgroundOpacity: clipEdits.caption_background_opacity || 0.5,
-          textCase: clipEdits.caption_text_case || 'normal',
-          wordsPerCaption: clipEdits.caption_words_per_caption || 3,
-          maxWidth: clipEdits.caption_max_width ?? 90,
-          lineHeight: clipEdits.caption_line_height ?? 1.2,
-          letterSpacing: clipEdits.caption_letter_spacing ?? 0
-        } : undefined
+      return {
+        clipId: clip.id,
+        clipIndex,
+        totalClips: clips.length,
+        sourceMediaPath: episode.file_path,
+        startTime: clip.start_time,
+        duration: clip.duration,
+        outputPath,
+        resolution: frameSettings.aspectRatio,
+        captionSegments,
+        captionStyle,
+        logoSettings,
+        musicSettings,
+        frameSettings
+      }
+    })
+  }
 
-        // Build logo settings from database
-        const logoSettings = clipEdits && clipEdits.logo_enabled ? {
-          enabled: true,
-          logoPath: clipEdits.logo_path ?? null,
-          positionX: clipEdits.logo_position_x ?? 85,
-          positionY: clipEdits.logo_position_y ?? 85,
-          scale: clipEdits.logo_scale ?? 0.15,
-          opacity: clipEdits.logo_opacity ?? 0.8
-        } : undefined
+  private buildOutputFilename(clipId: string) {
+    let clipTitle = 'clip'
+    const titles = database.getClipTitles(clipId)
+    if (titles && titles.length > 0) {
+      const selectedTitle: any = titles.find((title: any) => title.is_selected) || titles[0]
+      clipTitle = this.sanitizeFilename(selectedTitle.title)
+    }
 
-        // Build music settings from database
-        const musicSettings = clipEdits && clipEdits.music_enabled ? {
-          enabled: true,
-          musicPath: clipEdits.music_path ?? null,
-          volume: clipEdits.music_volume ?? 0.3,
-          duckVolume: clipEdits.music_duck_volume ?? 0.1,
-          duckEnabled: clipEdits.music_duck_enabled === 1,
-          fadeIn: clipEdits.music_fade_in ?? 1.0,
-          fadeOut: clipEdits.music_fade_out ?? 1.0,
-          loop: clipEdits.music_loop === 1
-        } : undefined
+    return `${clipTitle}_${Date.now()}.mp4`
+  }
 
-        // Build frame settings from database
-        const normalizedCropMode = clipEdits?.crop_mode === 'canvas' ? 'fit' : clipEdits?.crop_mode
-        const frameSettings = clipEdits ? {
-          aspectRatio: (clipEdits.aspect_ratio || '9:16') as '9:16' | '1:1' | '16:9',
-          cropMode: (normalizedCropMode || 'center') as 'center' | 'fit' | 'blur',
-          cropPositionX: clipEdits.crop_position_x ?? 50,
-          cropPositionY: clipEdits.crop_position_y ?? 50,
-          zoomLevel: clipEdits.zoom_level ?? 1,
-          videoOffsetX: clipEdits.video_offset_x ?? 0,
-          videoOffsetY: clipEdits.video_offset_y ?? 0,
-          videoWidth: clip.video_width ?? null,
-          videoHeight: clip.video_height ?? null
-        } : {
-          aspectRatio: (options.aspectRatio || '9:16') as '9:16' | '1:1' | '16:9',
-          cropMode: 'center' as 'center' | 'fit' | 'blur',
-          cropPositionX: 50,
-          cropPositionY: 50,
-          zoomLevel: 1,
-          videoOffsetX: 0,
-          videoOffsetY: 0,
-          videoWidth: clip.video_width ?? null,
-          videoHeight: clip.video_height ?? null
-        }
+  private buildCaptionSegments(clipEdits: ClipEditsRow | undefined, includeCaptions: boolean): ExportCaptionSegment[] {
+    if (!includeCaptions || !clipEdits || clipEdits.captions_enabled !== 1) {
+      return []
+    }
 
-        console.log(`[ExportService] Exporting clip ${clip.id} with settings:`, {
-          captionStyle: captionStyle?.enabled,
-          captionSegments: captionSegments.length,
-          logo: logoSettings?.enabled,
-          music: musicSettings?.enabled,
-          frame: frameSettings
-        })
+    try {
+      return JSON.parse(clipEdits.caption_segments || '[]') as ExportCaptionSegment[]
+    } catch (error) {
+      console.error('[ExportService] Failed to parse caption segments:', error)
+      return []
+    }
+  }
 
-        // Export clip with FFmpeg using all settings
-        await ffmpegService.exportReelClip(
-          inputPath,
-          clip.start_time,
-          clip.duration,
-          outputPath,
-          {
-            captionSegments,
-            captionStyle,
-            logoSettings,
-            musicSettings,
-            frameSettings,
-            onProgress: (clipProgress) => {
-              if (this.cancelledJobs.has(job.id)) {
-                return
-              }
-              // Calculate overall progress
-              const overallProgress = ((i + (clipProgress / 100)) / clips.length) * 100
-              const progressAt = new Date().toISOString()
-              database.updateWorkflowJob(workflowJobId, {
-                progress: Math.round(overallProgress),
-                stage: 'rendering',
-                message: `Exporting clip ${i + 1} of ${clips.length}`,
-                updatedAt: progressAt
-              })
-              database.updateExportJob(job.id, {
-                status: 'running',
-                currentClipIndex: i,
-                progress: Math.round(overallProgress),
-                updatedAt: progressAt
-              })
-              database.updateWorkflowStepRunByJobAndClip(workflowJobId, clip.id, {
-                status: 'running',
-                progress: Math.round(clipProgress),
-                updatedAt: progressAt
-              })
-              database.updateExportOutputByJobAndClip(job.id, clip.id, {
-                status: 'rendering'
-              })
-              this.emitProgress(job.id, onProgress)
-            }
-          }
-        )
+  private buildCaptionStyle(clipEdits: ClipEditsRow | undefined): ExportCaptionStyle | undefined {
+    if (!clipEdits) {
+      return undefined
+    }
 
-        const completedAt = new Date().toISOString()
-        const artifactId = randomUUID()
-        database.createArtifact({
-          id: artifactId,
-          artifactType: 'export_mp4',
-          status: 'complete',
-          projectId: (episode as any).project_id ?? null,
-          episodeId: episode.id ?? job.episodeId,
-          clipId: clip.id,
-          workflowJobId,
-          filePath: outputPath,
-          tempFilePath: null,
-          mimeType: 'video/mp4',
-          sizeBytes: null,
-          checksum: null,
-          metadataJson: JSON.stringify({
-            exportJobId: job.id,
-            clipId: clip.id,
-            aspectRatio: options.aspectRatio || '9:16'
-          }),
-          createdAt: completedAt,
-          updatedAt: completedAt,
-          completedAt
-        })
-        database.updateExportOutputByJobAndClip(job.id, clip.id, {
-          artifactId,
-          filePath: outputPath,
-          format: 'mp4',
-          resolution: options.aspectRatio || '9:16',
-          status: 'completed',
-          errorMessage: null
-        })
-        database.updateWorkflowStepRunByJobAndClip(workflowJobId, clip.id, {
-          status: 'completed',
-          progress: 100,
-          outputJson: JSON.stringify({ outputPath, artifactId }),
-          completedAt,
-          updatedAt: completedAt
-        })
-        database.updateExportJob(job.id, {
-          currentClipIndex: i,
-          progress: Math.round(((i + 1) / clips.length) * 100),
-          updatedAt: completedAt
-        })
-        database.updateWorkflowJob(workflowJobId, {
-          progress: Math.round(((i + 1) / clips.length) * 100),
-          updatedAt: completedAt
-        })
-        this.emitProgress(job.id, onProgress)
+    return {
+      enabled: clipEdits.captions_enabled === 1,
+      font: clipEdits.caption_font || 'Inter',
+      size: clipEdits.caption_size || 48,
+      color: clipEdits.caption_color || '#FFFFFF',
+      position: clipEdits.caption_position || 'bottom',
+      customX: clipEdits.caption_custom_x ?? undefined,
+      customY: clipEdits.caption_custom_y ?? undefined,
+      weight: clipEdits.caption_weight || (clipEdits.caption_bold === 1 ? 700 : 400),
+      italic: clipEdits.caption_italic === 1,
+      outline: clipEdits.caption_outline === 1,
+      outlineColor: clipEdits.caption_outline_color || '#000000',
+      outlineWidth: clipEdits.caption_outline_width || 2,
+      shadow: clipEdits.caption_shadow === 1,
+      highlightStyle: clipEdits.caption_highlight_style || 'word',
+      background: clipEdits.caption_background === 1,
+      backgroundColor: clipEdits.caption_background_color || '#000000',
+      backgroundOpacity: clipEdits.caption_background_opacity || 0.5,
+      textCase: clipEdits.caption_text_case || 'normal',
+      wordsPerCaption: clipEdits.caption_words_per_caption || 3,
+      maxWidth: clipEdits.caption_max_width ?? 90,
+      lineHeight: clipEdits.caption_line_height ?? 1.2,
+      letterSpacing: clipEdits.caption_letter_spacing ?? 0
+    }
+  }
 
-        if (this.cancelledJobs.has(job.id)) {
-          throw new Error('Cancelled by user')
-        }
+  private buildLogoSettings(clipEdits: ClipEditsRow | undefined): ExportLogoSettings | undefined {
+    if (!clipEdits || !clipEdits.logo_enabled) {
+      return undefined
+    }
 
-      } catch (error) {
-        const failedAt = new Date().toISOString()
-        const message = error instanceof Error ? error.message : 'Unknown error'
-        database.updateWorkflowStepRunByJobAndClip(workflowJobId, clip.id, {
-          status: 'failed',
-          errorCode: this.cancelledJobs.has(job.id) ? 'cancelled' : 'export_failed',
-          errorMessage: message,
-          completedAt: failedAt,
-          updatedAt: failedAt
-        })
-        database.updateExportOutputByJobAndClip(job.id, clip.id, {
-          status: 'failed',
-          errorMessage: message
-        })
-        console.error(`Failed to export clip ${clip.id}:`, error)
-        throw new Error(`Failed to export clip ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    return {
+      enabled: true,
+      logoPath: clipEdits.logo_path ?? null,
+      positionX: clipEdits.logo_position_x ?? 85,
+      positionY: clipEdits.logo_position_y ?? 85,
+      scale: clipEdits.logo_scale ?? 0.15,
+      opacity: clipEdits.logo_opacity ?? 0.8
+    }
+  }
+
+  private buildMusicSettings(clipEdits: ClipEditsRow | undefined): ExportMusicSettings | undefined {
+    if (!clipEdits || !clipEdits.music_enabled) {
+      return undefined
+    }
+
+    return {
+      enabled: true,
+      musicPath: clipEdits.music_path ?? null,
+      volume: clipEdits.music_volume ?? 0.3,
+      duckVolume: clipEdits.music_duck_volume ?? 0.1,
+      duckEnabled: clipEdits.music_duck_enabled === 1,
+      fadeIn: clipEdits.music_fade_in ?? 1.0,
+      fadeOut: clipEdits.music_fade_out ?? 1.0,
+      loop: clipEdits.music_loop === 1
+    }
+  }
+
+  private buildFrameSettings(
+    clip: any,
+    clipEdits: ClipEditsRow | undefined,
+    defaultAspectRatio: '9:16' | '1:1' | '16:9'
+  ): ExportFrameSettings {
+    const normalizedCropMode = clipEdits?.crop_mode === 'canvas' ? 'fit' : clipEdits?.crop_mode
+
+    if (clipEdits) {
+      return {
+        aspectRatio: clipEdits.aspect_ratio || defaultAspectRatio,
+        cropMode: (normalizedCropMode || 'center') as 'center' | 'fit' | 'blur',
+        cropPositionX: clipEdits.crop_position_x ?? 50,
+        cropPositionY: clipEdits.crop_position_y ?? 50,
+        zoomLevel: clipEdits.zoom_level ?? 1,
+        videoOffsetX: clipEdits.video_offset_x ?? 0,
+        videoOffsetY: clipEdits.video_offset_y ?? 0,
+        videoWidth: clip.video_width ?? null,
+        videoHeight: clip.video_height ?? null
       }
     }
 
-    // Mark job as completed
-    const completedAt = new Date().toISOString()
-    database.updateWorkflowJob(workflowJobId, {
-      status: 'completed',
-      progress: 100,
-      stage: 'completed',
-      message: 'Export complete',
-      completedAt,
-      updatedAt: completedAt
-    })
-    database.updateExportJob(job.id, {
-      status: 'completed',
-      progress: 100,
-      completedAt,
-      updatedAt: completedAt
-    })
-    this.cancelledJobs.delete(job.id)
-    this.emitProgress(job.id, onProgress)
+    return {
+      aspectRatio: defaultAspectRatio,
+      cropMode: 'center',
+      cropPositionX: 50,
+      cropPositionY: 50,
+      zoomLevel: 1,
+      videoOffsetX: 0,
+      videoOffsetY: 0,
+      videoWidth: clip.video_width ?? null,
+      videoHeight: clip.video_height ?? null
+    }
   }
 
   /**
@@ -633,7 +508,6 @@ class ExportService {
 
     if (job.status === 'processing' || job.status === 'pending') {
       const failedAt = new Date().toISOString()
-      this.cancelledJobs.add(jobId)
       const durableView = database.getDurableExportView(jobId)
       if (durableView.job) {
         database.updateWorkflowJob(durableView.job.workflowJobId, {
@@ -643,6 +517,7 @@ class ExportService {
           completedAt: failedAt,
           updatedAt: failedAt
         })
+        exportWorkerSupervisor.cancelExport(jobId)
       }
       database.updateExportJob(jobId, {
         status: 'failed',
@@ -669,7 +544,6 @@ class ExportService {
       const currentJob = this.getJob(jobId) || job
       if (currentJob.status === 'completed' || currentJob.status === 'failed') {
         this.activeJobs.delete(jobId)
-        this.cancelledJobs.delete(jobId)
       }
     }
   }

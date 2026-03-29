@@ -1,8 +1,14 @@
 import ffmpeg from 'fluent-ffmpeg'
 import { join, dirname, basename, extname } from 'path'
 import { mkdirSync, existsSync } from 'fs'
-import { app } from 'electron'
 import * as path from 'path'
+
+let electronApp: { getPath: (name: string) => string; isPackaged: boolean; getAppPath: () => string } | undefined
+try {
+  electronApp = require('electron').app
+} catch {
+  electronApp = undefined
+}
 
 export interface MediaInfo {
   duration: number
@@ -29,15 +35,20 @@ class FFmpegService {
   private fontsDir: string
 
   constructor() {
-    this.tempDir = join(app.getPath('userData'), 'temp')
+    const userDataPath = process.env.ARIADNE_USER_DATA_PATH
+      || (electronApp ? electronApp.getPath('userData') : join(process.cwd(), 'tmp'))
+    this.tempDir = join(userDataPath, 'temp')
     this.ensureTempDir()
 
     // Set fonts directory path
     // In development: assets/fonts relative to project root
     // In production: resources/assets/fonts in the app bundle
-    const isDev = !app.isPackaged
-    if (isDev) {
-      this.fontsDir = path.join(app.getAppPath(), 'assets', 'fonts')
+    const configuredFontsDir = process.env.ARIADNE_FONTS_DIR
+    if (configuredFontsDir) {
+      this.fontsDir = configuredFontsDir
+    } else if (!electronApp || !electronApp.isPackaged) {
+      const appPath = process.env.ARIADNE_APP_PATH || process.cwd()
+      this.fontsDir = path.join(appPath, 'assets', 'fonts')
     } else {
       this.fontsDir = path.join(process.resourcesPath, 'assets', 'fonts')
     }
