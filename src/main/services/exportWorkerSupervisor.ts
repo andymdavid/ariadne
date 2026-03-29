@@ -40,12 +40,24 @@ class ExportWorkerSupervisor {
     })
 
     this.workers.set(command.exportJobId, worker)
+    this.recordEvent(command.workflowJobId, null, 'export_worker', 'worker_started', 'Export worker started', {
+      exportJobId: command.exportJobId,
+      taskCount: command.tasks.length
+    })
 
     worker.on('message', (message: ExportWorkerEvent) => {
       this.handleWorkerEvent(message, onJobUpdated)
     })
 
-    worker.on('exit', () => {
+    worker.on('exit', (code) => {
+      const workflowJobId = database.getExportJobRecord(command.exportJobId)?.workflowJobId ?? command.workflowJobId
+      const workflowJob = database.getWorkflowJob(workflowJobId)
+      if (workflowJob && workflowJob.status !== 'completed' && workflowJob.status !== 'failed' && workflowJob.status !== 'cancelled') {
+        this.recordEvent(workflowJobId, null, 'export_worker', 'worker_exit', `Export worker exited with code ${code}`, {
+          exportJobId: command.exportJobId,
+          exitCode: code
+        })
+      }
       this.workers.delete(command.exportJobId)
     })
 
@@ -78,6 +90,7 @@ class ExportWorkerSupervisor {
   private handleWorkerEvent(event: ExportWorkerEvent, onJobUpdated?: (exportJobId: string) => void) {
     if (event.type === 'export_progress') {
       const now = new Date().toISOString()
+      const stepRunId = database.getWorkflowStepRunByJobAndClip(event.workflowJobId, event.clipId)?.id ?? null
       database.updateWorkflowJob(event.workflowJobId, {
         status: 'running',
         stage: 'rendering',
@@ -99,6 +112,14 @@ class ExportWorkerSupervisor {
       database.updateExportOutputByJobAndClip(event.exportJobId, event.clipId, {
         status: 'rendering'
       })
+      this.recordEvent(event.workflowJobId, stepRunId, 'export_step', 'stage_progress', `Exporting clip ${event.clipIndex + 1} of ${event.totalClips}`, {
+        exportJobId: event.exportJobId,
+        clipId: event.clipId,
+        clipIndex: event.clipIndex,
+        totalClips: event.totalClips,
+        clipProgress: event.clipProgress,
+        overallProgress: event.overallProgress
+      }, now)
       onJobUpdated?.(event.exportJobId)
       return
     }
@@ -156,6 +177,12 @@ class ExportWorkerSupervisor {
         progress: Math.round(((event.clipIndex + 1) / event.totalClips) * 100),
         updatedAt: now
       })
+      this.recordEvent(event.workflowJobId, database.getWorkflowStepRunByJobAndClip(event.workflowJobId, event.clipId)?.id ?? null, 'export_step', 'stage_completed', 'Export clip completed', {
+        exportJobId: event.exportJobId,
+        clipId: event.clipId,
+        clipIndex: event.clipIndex,
+        outputPath: event.outputPath
+      }, now)
       onJobUpdated?.(event.exportJobId)
       return
     }
@@ -194,6 +221,11 @@ class ExportWorkerSupervisor {
         }),
         createdAt: now
       })
+      this.recordEvent(event.workflowJobId, stepRunId, event.clipId ? 'export_step' : 'export_worker', 'stage_failed', errorMessage, {
+        exportJobId: event.exportJobId,
+        clipId: event.clipId ?? null,
+        errorCode: event.errorCode
+      }, now)
 
       database.updateWorkflowJob(event.workflowJobId, {
         status: 'failed',
@@ -228,8 +260,32 @@ class ExportWorkerSupervisor {
         completedAt: now,
         updatedAt: now
       })
+      this.recordEvent(event.workflowJobId, null, 'export_job', 'job_completed', 'Export complete', {
+        exportJobId: event.exportJobId
+      }, now)
       onJobUpdated?.(event.exportJobId)
     }
+  }
+
+  private recordEvent(
+    jobId: string,
+    stepRunId: string | null,
+    scope: string,
+    eventType: string,
+    message: string,
+    detail: Record<string, unknown>,
+    createdAt = new Date().toISOString()
+  ) {
+    database.createWorkflowEvent({
+      id: randomUUID(),
+      jobId,
+      stepRunId,
+      scope,
+      eventType,
+      message,
+      detailJson: JSON.stringify(detail),
+      createdAt
+    })
   }
 }
 

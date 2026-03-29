@@ -149,6 +149,10 @@ class ProcessingPipeline {
       }
 
       if (job.status === 'running') {
+        this.recordEvent(job.id, null, 'pipeline_recovery', 'job_normalized', 'Normalized stale pipeline job to pending_resume', {
+          previousStatus: 'running',
+          nextStatus: 'pending_resume'
+        })
         database.updateWorkflowJob(job.id, {
           status: 'pending_resume',
           updatedAt: new Date().toISOString()
@@ -160,6 +164,7 @@ class ProcessingPipeline {
       }
 
       try {
+        this.recordEvent(job.id, null, 'pipeline_recovery', 'resume_started', 'Attempting pipeline resume', {})
         await this.resumePipelineJob(job.id, window)
       } catch (error) {
         console.error(`Pipeline recovery failed for job ${job.id}:`, error)
@@ -228,7 +233,11 @@ class ProcessingPipeline {
       
       let mediaInfo
       try {
-        mediaInfo = await mediaWorkerSupervisor.probeMedia(filePath)
+        mediaInfo = await mediaWorkerSupervisor.probeMedia(filePath, {
+          workflowJobId,
+          stepRunId: `${workflowJobId}-${currentStep}`,
+          scope: 'pipeline_media_probe'
+        })
         console.log('Media info retrieved:', mediaInfo)
         this.completePipelineStep(workflowJobId, currentStep, {
           duration: mediaInfo.duration,
@@ -268,6 +277,11 @@ class ProcessingPipeline {
               stageProgress: progress,
               message: 'Extracting audio...'
             })
+          },
+          {
+            workflowJobId,
+            stepRunId: `${workflowJobId}-${currentStep}`,
+            scope: 'pipeline_audio_extract'
           }
         )
         console.log('Audio extraction completed. Audio file at:', audioPath)
@@ -356,6 +370,9 @@ class ProcessingPipeline {
     window?: BrowserWindow
   ) {
     const apiConfig = configService.getApiConfig()
+    this.recordEvent(workflowJobId, `${workflowJobId}-${startStage}`, 'pipeline_worker_dispatch', 'worker_dispatched', `Dispatching pipeline worker from ${startStage}`, {
+      startStage
+    })
     return pipelineWorkerSupervisor.runPipeline(
       {
         type: 'start_pipeline',
@@ -810,6 +827,10 @@ class ProcessingPipeline {
       createdAt: now,
       updatedAt: now
     })
+    this.recordEvent(workflowJobId, null, 'pipeline_job', 'job_created', 'Pipeline job created', {
+      filePath,
+      projectName: projectName || basename(filePath)
+    }, now)
   }
 
   private createPipelineStepRuns(workflowJobId: string) {
@@ -860,15 +881,23 @@ class ProcessingPipeline {
       message,
       updatedAt: now
     })
+    this.recordEvent(workflowJobId, `${workflowJobId}-${stepKey}`, 'pipeline_step', 'stage_started', message, {
+      stage: stepKey
+    }, now)
   }
 
   private updatePipelineStepProgress(workflowJobId: string, stepKey: PipelineStepKey, progress: number, message: string) {
+    const now = new Date().toISOString()
     database.updateWorkflowStepRun(`${workflowJobId}-${stepKey}`, {
       status: 'running',
       progress: Math.round(progress),
       message,
-      updatedAt: new Date().toISOString()
+      updatedAt: now
     })
+    this.recordEvent(workflowJobId, `${workflowJobId}-${stepKey}`, 'pipeline_step', 'stage_progress', message, {
+      stage: stepKey,
+      progress
+    }, now)
   }
 
   private completePipelineStep(workflowJobId: string, stepKey: PipelineStepKey, output: Record<string, unknown>) {
@@ -880,6 +909,9 @@ class ProcessingPipeline {
       completedAt: now,
       updatedAt: now
     })
+    this.recordEvent(workflowJobId, `${workflowJobId}-${stepKey}`, 'pipeline_step', 'stage_completed', `${stepKey} completed`, {
+      stage: stepKey
+    }, now)
   }
 
   private failPipelineStep(workflowJobId: string, stepKey: PipelineStepKey, message: string, errorCode: string) {
@@ -903,6 +935,10 @@ class ProcessingPipeline {
       }),
       createdAt: now
     })
+    this.recordEvent(workflowJobId, `${workflowJobId}-${stepKey}`, 'pipeline_step', 'stage_failed', message, {
+      stage: stepKey,
+      errorCode
+    }, now)
   }
 
   private completeWorkflowJob(workflowJobId: string, projectId: string, episodeId: string, clipsFound: number) {
@@ -917,6 +953,11 @@ class ProcessingPipeline {
       completedAt: now,
       updatedAt: now
     })
+    this.recordEvent(workflowJobId, null, 'pipeline_job', 'job_completed', `Processing complete with ${clipsFound} clips`, {
+      projectId,
+      episodeId,
+      clipsFound
+    }, now)
   }
 
   private failWorkflowJob(workflowJobId: string, projectId: string | undefined, episodeId: string | undefined, message: string) {
@@ -930,6 +971,10 @@ class ProcessingPipeline {
       completedAt: now,
       updatedAt: now
     })
+    this.recordEvent(workflowJobId, null, 'pipeline_job', 'job_failed', message, {
+      projectId: projectId ?? null,
+      episodeId: episodeId ?? null
+    }, now)
   }
 
   private createPipelineArtifact(
@@ -958,6 +1003,27 @@ class ProcessingPipeline {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       completedAt: new Date().toISOString()
+    })
+  }
+
+  private recordEvent(
+    jobId: string,
+    stepRunId: string | null,
+    scope: string,
+    eventType: string,
+    message: string,
+    detail: Record<string, unknown>,
+    createdAt = new Date().toISOString()
+  ) {
+    database.createWorkflowEvent({
+      id: randomUUID(),
+      jobId,
+      stepRunId,
+      scope,
+      eventType,
+      message,
+      detailJson: JSON.stringify(detail),
+      createdAt
     })
   }
   

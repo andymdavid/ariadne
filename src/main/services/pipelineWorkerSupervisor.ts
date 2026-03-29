@@ -61,6 +61,9 @@ class PipelineWorkerSupervisor {
     })
 
     this.workers.set(command.workflowJobId, worker)
+    this.recordEvent(command.workflowJobId, null, 'pipeline_worker', 'worker_started', 'Pipeline worker started', {
+      startStage: command.startStage
+    })
 
     return await new Promise<PipelineWorkerCompletedEvent>((resolve, reject) => {
       let settled = false
@@ -77,6 +80,10 @@ class PipelineWorkerSupervisor {
         }
 
         if (message.type === 'pipeline_completed') {
+          this.recordEvent(command.workflowJobId, null, 'pipeline_job', 'job_completed', 'Pipeline worker completed', {
+            aiAnalysisSucceeded: message.aiAnalysisSucceeded,
+            clipsFound: message.analysis.potentialClips.length
+          })
           cleanup()
           settled = true
           resolve(message)
@@ -108,6 +115,9 @@ class PipelineWorkerSupervisor {
             detailJson: JSON.stringify({ exitCode: code }),
             createdAt: now
           })
+          this.recordEvent(command.workflowJobId, null, 'pipeline_worker', 'worker_exit', `Pipeline worker exited with code ${code}`, {
+            exitCode: code
+          }, now)
           database.updateWorkflowJob(command.workflowJobId, {
             status: 'failed',
             stage: 'failed',
@@ -163,6 +173,9 @@ class PipelineWorkerSupervisor {
       message: event.message,
       updatedAt: now
     })
+    this.recordEvent(event.workflowJobId, `${event.workflowJobId}-${event.stage}`, 'pipeline_step', 'stage_started', event.message, {
+      stage: event.stage
+    }, now)
 
     const progress = this.buildRendererProgress(event.stage, 0, event.message)
     window?.webContents.send('processing-update', {
@@ -196,6 +209,11 @@ class PipelineWorkerSupervisor {
       message: rendererProgress.message,
       updatedAt: now
     })
+    this.recordEvent(event.workflowJobId, `${event.workflowJobId}-${event.stage}`, 'pipeline_step', 'stage_progress', event.message, {
+      stage: event.stage,
+      progress: event.progress,
+      timeRemaining: event.timeRemaining ?? null
+    }, now)
 
     window?.webContents.send('processing-update', {
       jobId: event.workflowJobId,
@@ -212,6 +230,9 @@ class PipelineWorkerSupervisor {
       completedAt: now,
       updatedAt: now
     })
+    this.recordEvent(event.workflowJobId, `${event.workflowJobId}-${event.stage}`, 'pipeline_step', 'stage_completed', `${event.stage} completed`, {
+      stage: event.stage
+    }, now)
   }
 
   private handleFailure(event: PipelineWorkerFailureEvent, window?: BrowserWindow) {
@@ -241,6 +262,10 @@ class PipelineWorkerSupervisor {
       }),
       createdAt: now
     })
+    this.recordEvent(event.workflowJobId, stepRunId, failedStage ? 'pipeline_step' : 'pipeline_worker', 'stage_failed', event.message, {
+      stage: failedStage,
+      errorCode: event.errorCode
+    }, now)
 
     database.updateWorkflowJob(event.workflowJobId, {
       status: 'failed',
@@ -307,6 +332,27 @@ class PipelineWorkerSupervisor {
       stageProgress,
       message
     }
+  }
+
+  private recordEvent(
+    jobId: string,
+    stepRunId: string | null,
+    scope: string,
+    eventType: string,
+    message: string,
+    detail: Record<string, unknown>,
+    createdAt = new Date().toISOString()
+  ) {
+    database.createWorkflowEvent({
+      id: randomUUID(),
+      jobId,
+      stepRunId,
+      scope,
+      eventType,
+      message,
+      detailJson: JSON.stringify(detail),
+      createdAt
+    })
   }
 }
 

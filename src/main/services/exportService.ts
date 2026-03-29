@@ -158,6 +158,11 @@ class ExportService {
       createdAt: now,
       updatedAt: now
     })
+    this.recordEvent(workflowJobId, null, 'export_job', 'job_created', 'Export job created', {
+      exportJobId: jobId,
+      episodeId,
+      clipIds
+    }, now)
 
     database.createExportJob({
       id: jobId,
@@ -259,6 +264,10 @@ class ExportService {
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     })
+    this.recordEvent(workflowJobId, null, 'export_job', 'job_started', 'Export started', {
+      exportJobId: job.id,
+      clipCount: approvedClips.length
+    })
 
     exportWorkerSupervisor.startExport(
       {
@@ -319,6 +328,10 @@ class ExportService {
 
       if (workflowJob.status === 'running' || exportJob.status === 'running') {
         const normalizedAt = new Date().toISOString()
+        this.recordEvent(workflowJob.id, null, 'export_recovery', 'job_normalized', 'Normalized stale export job to pending_resume', {
+          previousWorkflowStatus: workflowJob.status,
+          previousExportStatus: exportJob.status
+        }, normalizedAt)
         database.updateWorkflowJob(workflowJob.id, {
           status: 'pending_resume',
           stage: 'pending_resume',
@@ -340,6 +353,9 @@ class ExportService {
         continue
       }
 
+      this.recordEvent(workflowJob.id, null, 'export_recovery', 'resume_started', 'Attempting export resume', {
+        exportJobId: exportJob.id
+      })
       await this.resumeExportJob(exportJob.id, onProgress)
     }
   }
@@ -582,6 +598,9 @@ class ExportService {
       const failedAt = new Date().toISOString()
       const durableView = database.getDurableExportView(jobId)
       if (durableView.job) {
+        this.recordEvent(durableView.job.workflowJobId, null, 'export_job', 'job_cancelled', 'Cancelled by user', {
+          exportJobId: jobId
+        }, failedAt)
         database.updateWorkflowJob(durableView.job.workflowJobId, {
           status: 'failed',
           stage: 'failed',
@@ -674,6 +693,9 @@ class ExportService {
         completedAt,
         updatedAt: completedAt
       })
+      this.recordEvent(durableView.job.workflowJobId, null, 'export_recovery', 'resume_completed', 'Export resume found all clips already complete', {
+        exportJobId: jobId
+      }, completedAt)
       this.emitProgress(jobId, onProgress)
       return
     }
@@ -690,6 +712,11 @@ class ExportService {
       progress: Math.round((completedClipIds.size / clipIds.length) * 100),
       updatedAt: resumedAt
     })
+    this.recordEvent(durableView.job.workflowJobId, null, 'export_recovery', 'resume_dispatched', 'Dispatching export resume', {
+      exportJobId: jobId,
+      completedClips: completedClipIds.size,
+      remainingClips: remainingClips.length
+    }, resumedAt)
 
     const tasks = this.buildRenderTasks(
       episode,
@@ -822,6 +849,27 @@ class ExportService {
     if (currentJob) {
       onProgress?.(currentJob)
     }
+  }
+
+  private recordEvent(
+    jobId: string,
+    stepRunId: string | null,
+    scope: string,
+    eventType: string,
+    message: string,
+    detail: Record<string, unknown>,
+    createdAt = new Date().toISOString()
+  ) {
+    database.createWorkflowEvent({
+      id: randomUUID(),
+      jobId,
+      stepRunId,
+      scope,
+      eventType,
+      message,
+      detailJson: JSON.stringify(detail),
+      createdAt
+    })
   }
 
   /**

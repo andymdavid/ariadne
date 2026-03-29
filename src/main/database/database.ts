@@ -150,6 +150,17 @@ interface ArtifactValidationResult {
   message: string | null
 }
 
+interface WorkflowEventRecord {
+  id: string
+  jobId: string
+  stepRunId: string | null
+  scope: string
+  eventType: string
+  message: string | null
+  detailJson: string
+  createdAt: string
+}
+
 class DatabaseManager {
   private db: Database.Database
   
@@ -302,6 +313,19 @@ class DatabaseManager {
     }
   }
 
+  private mapWorkflowEvent(row: any): WorkflowEventRecord {
+    return {
+      id: row.id,
+      jobId: row.job_id,
+      stepRunId: row.step_run_id ?? null,
+      scope: row.scope,
+      eventType: row.event_type,
+      message: row.message ?? null,
+      detailJson: row.detail_json,
+      createdAt: row.created_at
+    }
+  }
+
   private migrateSchema() {
     // Version 1: Add any new tables (example for content_packages, exports, etc.)
     const migrations = [
@@ -427,6 +451,18 @@ class DatabaseManager {
         scope TEXT NOT NULL,
         error_code TEXT NOT NULL,
         message TEXT NOT NULL,
+        detail_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+        FOREIGN KEY (step_run_id) REFERENCES workflow_step_runs (id) ON DELETE SET NULL
+      );`,
+      `CREATE TABLE IF NOT EXISTS workflow_events (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        step_run_id TEXT,
+        scope TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        message TEXT,
         detail_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL,
         FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
@@ -878,6 +914,9 @@ class DatabaseManager {
           CREATE INDEX IF NOT EXISTS idx_failure_events_job ON failure_events (job_id, created_at DESC);
           CREATE INDEX IF NOT EXISTS idx_failure_events_step ON failure_events (step_run_id, created_at DESC);
           CREATE INDEX IF NOT EXISTS idx_failure_events_scope ON failure_events (scope, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_workflow_events_job ON workflow_events (job_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_workflow_events_step ON workflow_events (step_run_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_workflow_events_scope ON workflow_events (scope, created_at DESC);
         `)
         console.log('✅ Added export durability tables (v18)')
         this.db.pragma('user_version = 18')
@@ -930,6 +969,33 @@ class DatabaseManager {
       } catch (error) {
         console.log('Failure events migration skipped (may already exist)')
         this.db.pragma('user_version = 20')
+      }
+    }
+
+    if (preVersion <= 20) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS workflow_events (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            step_run_id TEXT,
+            scope TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            message TEXT,
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+            FOREIGN KEY (step_run_id) REFERENCES workflow_step_runs (id) ON DELETE SET NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_workflow_events_job ON workflow_events (job_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_workflow_events_step ON workflow_events (step_run_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_workflow_events_scope ON workflow_events (scope, created_at DESC);
+        `)
+        console.log('✅ Added workflow events table (v21)')
+        this.db.pragma('user_version = 21')
+      } catch (error) {
+        console.log('Workflow events migration skipped (may already exist)')
+        this.db.pragma('user_version = 21')
       }
     }
   }
@@ -1151,6 +1217,17 @@ class DatabaseManager {
           scope TEXT NOT NULL,
           error_code TEXT NOT NULL,
           message TEXT NOT NULL,
+          detail_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS workflow_events (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL,
+          step_run_id TEXT,
+          scope TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          message TEXT,
           detail_json TEXT NOT NULL DEFAULT '{}',
           created_at TEXT NOT NULL
       );
@@ -2522,6 +2599,35 @@ class DatabaseManager {
       ORDER BY created_at DESC
     `)
     return (stmt.all(jobId) as any[]).map((row) => this.mapFailureEvent(row))
+  }
+
+  createWorkflowEvent(record: WorkflowEventRecord) {
+    const stmt = this.db.prepare(`
+      INSERT INTO workflow_events (
+        id, job_id, step_run_id, scope, event_type, message, detail_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      record.id,
+      record.jobId,
+      record.stepRunId,
+      record.scope,
+      record.eventType,
+      record.message,
+      record.detailJson,
+      record.createdAt
+    )
+  }
+
+  getWorkflowEventsByJob(jobId: string): WorkflowEventRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM workflow_events
+      WHERE job_id = ?
+      ORDER BY created_at DESC
+    `)
+    return (stmt.all(jobId) as any[]).map((row) => this.mapWorkflowEvent(row))
   }
   
   // Settings operations
