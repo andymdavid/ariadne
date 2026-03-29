@@ -3,6 +3,10 @@ import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingPr
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,
+  GetPipelineRunRequestDTO,
+  GetPipelineRunResponseDTO,
+  GetPipelineRunsForEpisodeRequestDTO,
+  GetPipelineRunsForEpisodeResponseDTO,
   ProcessEpisodeRequestDTO,
   ProcessEpisodeResponseDTO,
   ProcessSourceRequestDTO,
@@ -64,6 +68,16 @@ const electronAPI = {
       'get-active-pipeline-job',
       { episodeId, projectId } satisfies GetActivePipelineJobRequestDTO
     ) as Promise<GetActivePipelineJobResponseDTO>,
+  getPipelineRun: (jobId: string) =>
+    ipcRenderer.invoke(
+      'get-pipeline-run',
+      { jobId } satisfies GetPipelineRunRequestDTO
+    ) as Promise<GetPipelineRunResponseDTO>,
+  getPipelineRunsForEpisode: (episodeId: string) =>
+    ipcRenderer.invoke(
+      'get-pipeline-runs-for-episode',
+      { episodeId } satisfies GetPipelineRunsForEpisodeRequestDTO
+    ) as Promise<GetPipelineRunsForEpisodeResponseDTO>,
   getWorkflowJob: (jobId: string) =>
     ipcRenderer.invoke(
       'get-workflow-job',
@@ -216,6 +230,8 @@ declare global {
       processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
       processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
       getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
+      getPipelineRun: (jobId: string) => Promise<GetPipelineRunResponseDTO>;
+      getPipelineRunsForEpisode: (episodeId: string) => Promise<GetPipelineRunsForEpisodeResponseDTO>;
       getWorkflowJob: (jobId: string) => Promise<GetWorkflowJobResponseDTO>;
       getWorkflowEvents: (jobId: string) => Promise<GetWorkflowEventsResponseDTO>;
       getFailureEvents: (jobId: string) => Promise<GetFailureEventsResponseDTO>;

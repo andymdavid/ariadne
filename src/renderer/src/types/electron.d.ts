@@ -1,6 +1,8 @@
 import type { BrandTemplate, ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
 import type {
   GetActivePipelineJobResponseDTO,
+  GetPipelineRunResponseDTO,
+  GetPipelineRunsForEpisodeResponseDTO,
   ProcessEpisodeResponseDTO,
   ProcessSourceResponseDTO,
   ProcessingCompleteEventDTO,
@@ -36,6 +38,8 @@ declare global {
       processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
       processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
       getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
+      getPipelineRun: (jobId: string) => Promise<GetPipelineRunResponseDTO>;
+      getPipelineRunsForEpisode: (episodeId: string) => Promise<GetPipelineRunsForEpisodeResponseDTO>;
       getWorkflowJob: (jobId: string) => Promise<GetWorkflowJobResponseDTO>;
       getWorkflowEvents: (jobId: string) => Promise<GetWorkflowEventsResponseDTO>;
       getFailureEvents: (jobId: string) => Promise<GetFailureEventsResponseDTO>;

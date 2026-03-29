@@ -73,6 +73,26 @@ function postStageCompleted(
   postMessage(event)
 }
 
+function getRankingModelMetadata(command: StartPipelineWorkerCommand) {
+  return {
+    modelAlias: command.runConfigSnapshot.apiModelAlias,
+    modelId: command.runConfigSnapshot.apiModelId,
+    clipSelectionPlatform: command.runConfigSnapshot.clipSelectionPlatform,
+    promptVersion: command.runConfigSnapshot.rankingPromptVersion,
+    implementationVersion: command.runConfigSnapshot.rankingImplementationVersion
+  }
+}
+
+function getContentModelMetadata(command: StartPipelineWorkerCommand) {
+  return {
+    modelAlias: command.runConfigSnapshot.apiModelAlias,
+    modelId: command.runConfigSnapshot.apiModelId,
+    promptVersion: command.runConfigSnapshot.contentPromptVersion,
+    implementationVersion: 'ai_service_v1',
+    brandVoiceExampleCount: command.runConfigSnapshot.brandVoiceExampleCount
+  }
+}
+
 function buildHeuristicAnalysis(
   candidates: PipelineWorkerCandidate[]
 ) {
@@ -350,6 +370,14 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     postStageCompleted(command.workflowJobId, currentStage, {
       segmentCount: transcription.segments.length,
       transcriptLength: transcription.text.length,
+      language: transcription.language ?? null,
+      metadata: {
+        executor: 'local_whisper',
+        implementationVersion: 'local_whisper_service_v1',
+        model: command.runConfigSnapshot.localWhisperModel,
+        wordTimestamps: true,
+        chunked: audioStats.size > maxSize
+      },
       transcription
     })
   }
@@ -371,6 +399,19 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
     postStageCompleted(command.workflowJobId, currentStage, {
       candidateCount: candidates.length,
+      candidatePreview: candidates.slice(0, 5).map((candidate) => ({
+        startTime: candidate.startTime,
+        endTime: candidate.endTime,
+        heuristicScore: candidate.heuristicScore
+      })),
+      metadata: {
+        executor: 'clip_candidate_service',
+        implementationVersion: command.runConfigSnapshot.candidateGeneratorVersion,
+        minDuration: 35,
+        maxDuration: 60,
+        candidateLimit: 36,
+        clipSelectionPlatform: command.runConfigSnapshot.clipSelectionPlatform
+      },
       candidates
     })
   }
@@ -389,12 +430,22 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       analysis = buildHeuristicAnalysis(candidates)
       aiAnalysisSucceeded = false
       postProgress(command.workflowJobId, currentStage, 100, 'AI unavailable. Using heuristic clip suggestions.')
-      postStageCompleted(command.workflowJobId, currentStage, {
-        clipCount: analysis.potentialClips.length,
-        mode: 'heuristic',
-        aiAnalysisSucceeded,
-        analysis
-      })
+        postStageCompleted(command.workflowJobId, currentStage, {
+          clipCount: analysis.potentialClips.length,
+          mode: 'heuristic',
+          aiAnalysisSucceeded,
+          selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+            id: clip.id,
+            startTime: clip.startTime,
+            endTime: clip.endTime,
+            shareabilityScore: clip.shareabilityScore
+          })),
+          metadata: {
+            executor: 'heuristic_ranker',
+            ...getRankingModelMetadata(command)
+          },
+          analysis
+        })
     } else {
       try {
         analysis = await aiService.analyzeTranscript(
@@ -409,6 +460,16 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           clipCount: analysis.potentialClips.length,
           mode: 'ai',
           aiAnalysisSucceeded,
+          selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+            id: clip.id,
+            startTime: clip.startTime,
+            endTime: clip.endTime,
+            shareabilityScore: clip.shareabilityScore
+          })),
+          metadata: {
+            executor: 'ai_ranker',
+            ...getRankingModelMetadata(command)
+          },
           analysis
         })
       } catch (error) {
@@ -419,6 +480,16 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           clipCount: analysis.potentialClips.length,
           mode: 'heuristic_fallback',
           aiAnalysisSucceeded,
+          selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+            id: clip.id,
+            startTime: clip.startTime,
+            endTime: clip.endTime,
+            shareabilityScore: clip.shareabilityScore
+          })),
+          metadata: {
+            executor: 'heuristic_fallback',
+            ...getRankingModelMetadata(command)
+          },
           analysis,
           aiError: error instanceof Error ? error.message : 'Unknown error'
         })
@@ -446,6 +517,15 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       )
       postStageCompleted(command.workflowJobId, currentStage, {
         clipCount: contentPackages.length,
+        contentPackagePreview: contentPackages.slice(0, 5).map((contentPackage) => ({
+          clipIndex: contentPackage.clipIndex,
+          titleCount: contentPackage.titles.length,
+          descriptionLength: contentPackage.description.length
+        })),
+        metadata: {
+          executor: 'ai_content_generation',
+          ...getContentModelMetadata(command)
+        },
         contentPackages
       })
     } else {
@@ -455,6 +535,10 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         skipped: true,
         aiAnalysisSucceeded,
         clipCount: analysis.potentialClips.length,
+        metadata: {
+          executor: 'skipped',
+          ...getContentModelMetadata(command)
+        },
         contentPackages
       })
     }

@@ -15,6 +15,10 @@ import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,
+  GetPipelineRunRequestDTO,
+  GetPipelineRunResponseDTO,
+  GetPipelineRunsForEpisodeRequestDTO,
+  GetPipelineRunsForEpisodeResponseDTO,
   ProcessEpisodeRequestDTO,
   ProcessEpisodeResponseDTO,
   ProcessSourceRequestDTO,
@@ -579,6 +583,14 @@ ipcMain.handle('process-source', async (_event, request: ProcessSourceRequestDTO
 
 ipcMain.handle('get-active-pipeline-job', (_event, request: GetActivePipelineJobRequestDTO): GetActivePipelineJobResponseDTO => {
   return workflowReadModel.getActivePipelineJob(request.episodeId, request.projectId)
+})
+
+ipcMain.handle('get-pipeline-run', (_event, request: GetPipelineRunRequestDTO): GetPipelineRunResponseDTO => {
+  return workflowReadModel.getPipelineRunById(request.jobId)
+})
+
+ipcMain.handle('get-pipeline-runs-for-episode', (_event, request: GetPipelineRunsForEpisodeRequestDTO): GetPipelineRunsForEpisodeResponseDTO => {
+  return workflowReadModel.getPipelineRunsForEpisode(request.episodeId)
 })
 
 ipcMain.handle('get-workflow-job', (_event, request: GetWorkflowJobRequestDTO): GetWorkflowJobResponseDTO => {

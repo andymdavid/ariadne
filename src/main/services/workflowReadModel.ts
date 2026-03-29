@@ -1,6 +1,14 @@
 import { database } from '../database/database'
 import type { ExportJobDTO } from '@shared/types/exportIpc'
-import type { PipelineJobViewDTO } from '@shared/types/pipelineIpc'
+import type {
+  GetPipelineRunResponseDTO,
+  GetPipelineRunsForEpisodeResponseDTO,
+  PipelineJobViewDTO,
+  PipelineRunArtifactDTO,
+  PipelineRunDetailDTO,
+  PipelineRunStageDTO,
+  PipelineRunSummaryDTO
+} from '@shared/types/pipelineIpc'
 import type {
   FailureEventDTO,
   WorkflowEventDTO,
@@ -105,6 +113,46 @@ class WorkflowReadModel {
     }
   }
 
+  getPipelineRunById(jobId: string): GetPipelineRunResponseDTO {
+    const workflowJob = database.getWorkflowJob(jobId)
+    if (!workflowJob || workflowJob.jobType !== 'pipeline') {
+      return null
+    }
+
+    return {
+      summary: this.mapPipelineRunSummary(workflowJob),
+      steps: database.getWorkflowStepRunsByJob(jobId).map((step): PipelineRunStageDTO => ({
+        stepRunId: step.id,
+        stepKey: step.stepKey,
+        status: step.status,
+        progress: step.progress,
+        message: step.message,
+        inputJson: step.inputJson,
+        outputJson: step.outputJson,
+        errorCode: step.errorCode,
+        errorMessage: step.errorMessage,
+        startedAt: step.startedAt,
+        completedAt: step.completedAt,
+        updatedAt: step.updatedAt
+      })),
+      artifacts: database.getArtifactsByWorkflowJob(jobId).map((artifact): PipelineRunArtifactDTO => ({
+        id: artifact.id,
+        artifactType: artifact.artifactType,
+        status: artifact.status,
+        filePath: artifact.filePath,
+        metadataJson: artifact.metadataJson,
+        createdAt: artifact.createdAt,
+        completedAt: artifact.completedAt
+      }))
+    }
+  }
+
+  getPipelineRunsForEpisode(episodeId: string): GetPipelineRunsForEpisodeResponseDTO {
+    return database
+      .getPipelineWorkflowJobsForEpisode(episodeId)
+      .map((workflowJob) => this.mapPipelineRunSummary(workflowJob))
+  }
+
   getWorkflowJobById(jobId: string): WorkflowJobViewDTO | null {
     const workflowJob = database.getWorkflowJob(jobId)
     if (!workflowJob) {
@@ -187,6 +235,63 @@ class WorkflowReadModel {
         return 'completed'
       default:
         return 'uploading'
+    }
+  }
+
+  private mapPipelineRunSummary(workflowJob: {
+    id: string
+    episodeId: string | null
+    projectId: string | null
+    status: PipelineJobViewDTO['status']
+    createdAt: string
+    completedAt: string | null
+    updatedAt: string
+    startedAt: string | null
+    configSnapshotJson: string | null
+  }): PipelineRunSummaryDTO {
+    const stepRuns = database.getWorkflowStepRunsByJob(workflowJob.id)
+
+    return {
+      jobId: workflowJob.id,
+      episodeId: workflowJob.episodeId,
+      projectId: workflowJob.projectId,
+      status: workflowJob.status,
+      createdAt: workflowJob.createdAt,
+      completedAt: workflowJob.completedAt,
+      updatedAt: workflowJob.updatedAt,
+      startedAt: workflowJob.startedAt,
+      configSnapshotJson: workflowJob.configSnapshotJson,
+      heavyStageOutputSummaryJson: JSON.stringify({
+        transcription: this.extractStageSummary(stepRuns, 'transcription'),
+        clipGeneration: this.extractStageSummary(stepRuns, 'clip_generation'),
+        clipRanking: this.extractStageSummary(stepRuns, 'clip_ranking'),
+        contentPackageGeneration: this.extractStageSummary(stepRuns, 'content_package_generation')
+      })
+    }
+  }
+
+  private extractStageSummary(
+    stepRuns: Array<{ stepKey: string; status: string; outputJson: string | null }>,
+    stepKey: string
+  ) {
+    const step = stepRuns.find((candidate) => candidate.stepKey === stepKey)
+    if (!step) {
+      return null
+    }
+
+    if (!step.outputJson) {
+      return { status: step.status }
+    }
+
+    try {
+      const parsed = JSON.parse(step.outputJson) as Record<string, unknown>
+      const { transcription, candidates, analysis, contentPackages, ...summary } = parsed
+      return {
+        status: step.status,
+        ...summary
+      }
+    } catch {
+      return { status: step.status }
     }
   }
 }

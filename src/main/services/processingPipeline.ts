@@ -15,6 +15,7 @@ import type {
 import type {
   PipelineWorkerCandidate,
   PipelineWorkerCompletedEvent,
+  PipelineRunConfigSnapshot,
   PipelineWorkerContentPackage,
   PipelineWorkerPotentialClip
 } from '@shared/types/pipelineWorker'
@@ -301,6 +302,18 @@ class ProcessingPipeline {
     window?: BrowserWindow
   ) {
     const apiConfig = configService.getApiConfig()
+    const workflowJob = database.getWorkflowJob(workflowJobId)
+    let runConfigSnapshot = this.buildPipelineRunConfigSnapshot()
+
+    if (workflowJob?.configSnapshotJson) {
+      try {
+        runConfigSnapshot = JSON.parse(workflowJob.configSnapshotJson) as PipelineRunConfigSnapshot
+      } catch {
+        runConfigSnapshot = this.buildPipelineRunConfigSnapshot()
+      }
+    }
+
+    this.updateHeavyStageInputs(workflowJobId, audioPath, mediaDuration, startStage, runConfigSnapshot)
     this.recordEvent(workflowJobId, `${workflowJobId}-${startStage}`, 'pipeline_worker_dispatch', 'worker_dispatched', `Dispatching pipeline worker from ${startStage}`, {
       startStage
     })
@@ -312,6 +325,7 @@ class ProcessingPipeline {
         mediaDuration,
         apiConfig: apiConfig.openRouterKey ? apiConfig : null,
         brandVoiceExamples: configService.getBrandVoice().examples,
+        runConfigSnapshot,
         startStage,
         resumeData
       },
@@ -731,6 +745,7 @@ class ProcessingPipeline {
 
   private initializeWorkflowJob(workflowJobId: string, filePath: string, projectName?: string) {
     const now = new Date().toISOString()
+    const configSnapshot = this.buildPipelineRunConfigSnapshot()
     database.createWorkflowJob({
       id: workflowJobId,
       jobType: 'pipeline',
@@ -747,7 +762,7 @@ class ProcessingPipeline {
         filePath,
         projectName: projectName || basename(filePath)
       }),
-      configSnapshotJson: null,
+      configSnapshotJson: JSON.stringify(configSnapshot),
       leaseOwner: null,
       leaseExpiresAt: null,
       heartbeatAt: null,
@@ -760,8 +775,114 @@ class ProcessingPipeline {
     })
     this.recordEvent(workflowJobId, null, 'pipeline_job', 'job_created', 'Pipeline job created', {
       filePath,
-      projectName: projectName || basename(filePath)
+      projectName: projectName || basename(filePath),
+      configSnapshot
     }, now)
+  }
+
+  private buildPipelineRunConfigSnapshot(): PipelineRunConfigSnapshot {
+    const apiConfig = configService.getApiConfig()
+    const userPreferences = configService.getUserPreferences()
+    const brandVoice = configService.getBrandVoice()
+
+    return {
+      apiModelAlias: apiConfig.openRouterKey ? apiConfig.model : null,
+      apiModelId: apiConfig.openRouterKey ? this.getResolvedModelId(apiConfig.model) : null,
+      clipSelectionPlatform: apiConfig.clipSelectionPlatform,
+      openRouterConfigured: Boolean(apiConfig.openRouterKey),
+      autoApproveThreshold: userPreferences.autoApproveThreshold,
+      maxClipsPerEpisode: userPreferences.maxClipsPerEpisode,
+      brandVoiceExampleCount: brandVoice.examples.length,
+      brandVoicePreferences: brandVoice.preferences,
+      localWhisperModel: 'base',
+      candidateGeneratorVersion: 'clip_candidate_service_v1',
+      rankingPromptVersion: 'candidate_ranking_v1',
+      rankingImplementationVersion: 'ai_service_v1',
+      contentPromptVersion: 'content_package_v1'
+    }
+  }
+
+  private getResolvedModelId(model: NonNullable<PipelineRunConfigSnapshot['apiModelAlias']>) {
+    switch (model) {
+      case 'google-gemini-2.5-flash':
+        return 'google/gemini-2.5-flash'
+      case 'google-gemini-2.5-pro':
+        return 'google/gemini-2.5-pro'
+      case 'anthropic-claude-sonnet-4.6':
+        return 'anthropic/claude-sonnet-4.5'
+      case 'openai-gpt-5.4':
+        return 'openai/gpt-5'
+      case 'deepseek-r1':
+        return 'deepseek/deepseek-r1'
+      case 'google-gemini-2.5-flash-lite':
+        return 'google/gemini-2.5-flash-lite'
+      default:
+        return model
+    }
+  }
+
+  private updateHeavyStageInputs(
+    workflowJobId: string,
+    audioPath: string,
+    mediaDuration: number,
+    startStage: 'transcription' | 'clip_generation' | 'clip_ranking' | 'content_package_generation',
+    runConfigSnapshot: PipelineRunConfigSnapshot
+  ) {
+    const now = new Date().toISOString()
+    const stageInputs: Array<{
+      stepKey: 'transcription' | 'clip_generation' | 'clip_ranking' | 'content_package_generation'
+      input: Record<string, unknown>
+    }> = [
+      {
+        stepKey: 'transcription',
+        input: {
+          executor: 'pipeline_worker',
+          implementationVersion: 'local_whisper_service_v1',
+          model: runConfigSnapshot.localWhisperModel,
+          wordTimestamps: true,
+          audioPath,
+          mediaDuration,
+          resumed: startStage !== 'transcription'
+        }
+      },
+      {
+        stepKey: 'clip_generation',
+        input: {
+          executor: 'pipeline_worker',
+          implementationVersion: runConfigSnapshot.candidateGeneratorVersion,
+          clipSelectionPlatform: runConfigSnapshot.clipSelectionPlatform
+        }
+      },
+      {
+        stepKey: 'clip_ranking',
+        input: {
+          executor: 'pipeline_worker',
+          implementationVersion: runConfigSnapshot.rankingImplementationVersion,
+          promptVersion: runConfigSnapshot.rankingPromptVersion,
+          modelAlias: runConfigSnapshot.apiModelAlias,
+          modelId: runConfigSnapshot.apiModelId,
+          clipSelectionPlatform: runConfigSnapshot.clipSelectionPlatform
+        }
+      },
+      {
+        stepKey: 'content_package_generation',
+        input: {
+          executor: 'pipeline_worker',
+          implementationVersion: 'ai_service_v1',
+          promptVersion: runConfigSnapshot.contentPromptVersion,
+          modelAlias: runConfigSnapshot.apiModelAlias,
+          modelId: runConfigSnapshot.apiModelId,
+          brandVoiceExampleCount: runConfigSnapshot.brandVoiceExampleCount
+        }
+      }
+    ]
+
+    for (const stageInput of stageInputs) {
+      database.updateWorkflowStepRun(`${workflowJobId}-${stageInput.stepKey}`, {
+        inputJson: JSON.stringify(stageInput.input),
+        updatedAt: now
+      })
+    }
   }
 
   private createPipelineStepRuns(workflowJobId: string) {

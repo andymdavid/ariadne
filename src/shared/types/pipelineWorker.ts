@@ -6,6 +6,25 @@ export type PipelineWorkerStageKey =
   | 'clip_ranking'
   | 'content_package_generation'
 
+export interface PipelineRunConfigSnapshot {
+  apiModelAlias: APIConfig['model'] | null
+  apiModelId: string | null
+  clipSelectionPlatform: APIConfig['clipSelectionPlatform']
+  openRouterConfigured: boolean
+  autoApproveThreshold: number
+  maxClipsPerEpisode: number
+  brandVoiceExampleCount: number
+  brandVoicePreferences: {
+    tone: 'casual' | 'professional' | 'conversational'
+    style: 'direct' | 'storytelling' | 'question_based'
+  }
+  localWhisperModel: string
+  candidateGeneratorVersion: string
+  rankingPromptVersion: string
+  rankingImplementationVersion: string
+  contentPromptVersion: string
+}
+
 export interface PipelineWorkerWord {
   word: string
   start: number
@@ -59,6 +78,7 @@ export interface StartPipelineWorkerCommand {
   mediaDuration: number
   apiConfig: APIConfig | null
   brandVoiceExamples: string[]
+  runConfigSnapshot: PipelineRunConfigSnapshot
   startStage: PipelineWorkerStageKey
   resumeData?: {
     transcription?: PipelineWorkerTranscription

@@ -2078,6 +2078,17 @@ class DatabaseManager {
     return row ? this.mapWorkflowJob(row) : undefined
   }
 
+  getPipelineWorkflowJobsForEpisode(episodeId: string): WorkflowJobRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM workflow_jobs
+      WHERE job_type = 'pipeline'
+        AND episode_id = ?
+      ORDER BY created_at DESC
+    `)
+    return (stmt.all(episodeId) as any[]).map((row) => this.mapWorkflowJob(row))
+  }
+
   createWorkflowStepRun(record: WorkflowStepRunRecord) {
     const stmt = this.db.prepare(`
       INSERT INTO workflow_step_runs (
