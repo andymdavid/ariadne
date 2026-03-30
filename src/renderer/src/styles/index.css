@@ -318,6 +318,42 @@
     padding: 14px 16px;
   }
 
+  .asset-library-shell {
+    background: #171717;
+    border-radius: 5px;
+    padding: 20px;
+  }
+
+  .asset-library-upload-panel {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    padding: 16px;
+  }
+
+  .asset-library-row {
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 12px 14px;
+  }
+
+  .asset-library-chip {
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 8px 12px;
+  }
+
+  .asset-library-upload-action {
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.06);
+    min-height: 44px;
+  }
+
+  .asset-library-upload-action:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
   .app-list-icon {
     display: inline-flex;
     align-items: center;

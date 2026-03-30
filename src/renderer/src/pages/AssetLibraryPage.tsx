@@ -143,7 +143,7 @@ export function AssetLibraryPage() {
 
           <div className="mx-auto grid min-h-0 h-full w-full max-w-6xl flex-1 grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)] gap-6">
             <div className="flex min-h-0 flex-col gap-6">
-              <section className="app-section-shell">
+              <section className="app-section-shell asset-library-shell">
                 <div className="app-section-header">
                   <div>
                     <div className="app-section-kicker">Media</div>
@@ -187,7 +187,7 @@ export function AssetLibraryPage() {
                 />
               </section>
 
-              <section className="app-section-shell min-h-0 flex flex-1 flex-col">
+              <section className="app-section-shell asset-library-shell min-h-0 flex flex-1 flex-col">
                 <div className="app-section-header">
                   <div>
                     <div className="app-section-kicker">Live Data</div>
@@ -211,7 +211,7 @@ export function AssetLibraryPage() {
                   ) : (
                     <div className="space-y-2">
                       {recentUploads.map((asset) => (
-                        <div key={asset.path} className="app-list-row">
+                        <div key={asset.path} className="app-list-row asset-library-row">
                           <div className="flex min-w-0 items-center gap-3">
                             <div className="app-list-icon">
                               {asset.type === 'Logo' ? <IoImagesOutline size={16} /> : <IoMusicalNotesOutline size={16} />}
@@ -231,7 +231,7 @@ export function AssetLibraryPage() {
             </div>
 
             <div className="flex min-h-0 flex-col gap-6">
-              <section className="app-section-shell">
+              <section className="app-section-shell asset-library-shell">
                 <div className="app-section-header">
                   <div>
                     <div className="app-section-kicker">Typography</div>
@@ -250,10 +250,10 @@ export function AssetLibraryPage() {
                       key={font}
                       type="button"
                       onClick={() => void handleFontSelect(font)}
-                      className={`app-list-row w-full text-left transition-colors ${
+                      className={`app-list-row asset-library-row w-full text-left transition-colors ${
                         brandTemplate?.caption.font === font
                           ? 'border-white/20 bg-white/5'
-                          : 'hover:border-border-default hover:bg-[#151921]'
+                          : 'hover:border-border-default hover:bg-white/[0.05]'
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -266,7 +266,7 @@ export function AssetLibraryPage() {
                         <div className="text-xs text-text-secondary">
                           {brandTemplate?.caption.font === font ? 'Selected in Brand Template' : 'Bundled with the app'}
                         </div>
-                        <div className="app-chip">
+                        <div className="app-chip asset-library-chip">
                           {isUpdatingFont === font
                             ? 'Saving...'
                             : brandTemplate?.caption.font === font
@@ -302,16 +302,16 @@ function AssetUploadPanel({
   onUpload: () => void
 }) {
   return (
-    <div className="app-upload-panel">
+    <div className="app-upload-panel asset-library-upload-panel">
       <div className="flex items-start justify-between gap-3">
         <div className="app-list-icon">{icon}</div>
-        <div className="app-chip">{count} saved</div>
+        <div className="app-chip asset-library-chip">{count} saved</div>
       </div>
       <div className="mt-5">
         <div className="text-lg font-semibold text-text-primary">{title}</div>
         <div className="mt-2 text-sm leading-relaxed text-text-secondary">{description}</div>
       </div>
-      <button type="button" className="app-action-secondary mt-6 w-full justify-center" onClick={onUpload}>
+      <button type="button" className="app-action-secondary asset-library-upload-action mt-6 w-full justify-center" onClick={onUpload}>
         {uploadLabel}
       </button>
     </div>
