@@ -307,183 +307,179 @@ export function BrandTemplatePage() {
             </div>
           </div>
 
-          <div
-            className={`grid flex-1 items-center gap-10 ${
-              activeMenu === 'layout'
-                ? 'lg:grid-cols-[320px_320px_minmax(0,1fr)]'
-                : 'lg:grid-cols-[320px_minmax(0,1fr)]'
-            }`}
-          >
-            <section className="workspace-panel brand-settings-panel self-start">
-              <div className="workspace-panel-scroll">
-                <div className="workspace-panel-header">
-                  <div>
-                    <h2 className="workspace-panel-title !mt-0">Setting</h2>
-                  </div>
-                </div>
-
-                <div className="template-settings-divider" />
-
-                <div className="template-settings-menu">
-                  <div>
-                    <div className="template-settings-group-label">Style</div>
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        className={`template-settings-row template-settings-row-button ${
-                          activeMenu === 'layout' ? 'is-active' : ''
-                        }`}
-                        onClick={() => setActiveMenu(activeMenu === 'layout' ? null : 'layout')}
-                      >
-                        <div className="template-settings-row-main">
-                          <div className="template-settings-row-icon">
-                            <IoResizeOutline size={15} />
-                          </div>
-                          <div className="template-settings-row-title">Clip layout</div>
-                        </div>
-                        <div className="template-settings-row-meta">
-                          <span className="template-settings-row-value truncate">
-                            {template.frame.aspectRatio} {cropModeSummaryLabel[template.frame.cropMode]} template
-                          </span>
-                          <IoChevronForward size={15} />
-                        </div>
-                      </button>
-                      <div className="template-settings-row">
-                        <div className="template-settings-row-main">
-                          <div className="template-settings-row-icon">
-                            <IoTextOutline size={15} />
-                          </div>
-                          <div className="template-settings-row-title">Caption</div>
-                        </div>
-                        <div className="template-settings-row-meta">
-                          <span className="template-settings-row-value truncate">{selectedCaptionPreset.label}</span>
-                          <IoChevronForward size={15} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="template-settings-group-label">Brand</div>
-                    <div className="space-y-1">
-                      <div className="template-settings-row">
-                        <div className="template-settings-row-main">
-                          <div className="template-settings-row-icon">
-                            <IoImagesOutline size={15} />
-                          </div>
-                          <div className="template-settings-row-title">Overlay</div>
-                        </div>
-                        <div className="template-settings-row-meta">
-                          <span className="template-settings-row-value truncate">
-                            {template.logo.assetPath ? formatName(template.logo.assetPath) : 'overlay/original'}
-                          </span>
-                          <IoChevronForward size={15} />
-                        </div>
-                      </div>
-                      <div className="template-settings-row">
-                        <div className="template-settings-row-main">
-                          <div className="template-settings-row-title">Intro/outro</div>
-                        </div>
-                        <div className="template-settings-row-meta">
-                          <IoChevronForward size={15} />
-                        </div>
-                      </div>
-                      <div className="template-settings-row">
-                        <div className="template-settings-row-main">
-                          <div className="template-settings-row-title">Music</div>
-                        </div>
-                        <div className="template-settings-row-meta">
-                          <IoChevronForward size={15} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="template-settings-group-label">AI</div>
-                    <div className="space-y-1">
-                      {aiToggleOrder.map((key) => (
-                        <div key={key} className="template-settings-row template-settings-row-toggle">
-                          <div className="template-settings-row-main">
-                            <div className="template-settings-row-icon template-settings-row-icon-subtle">
-                              {key === 'removeFillerWords' && <span>✳</span>}
-                              {key === 'removePauses' && <span>◌</span>}
-                              {key === 'keywordHighlighter' && <span>⌁</span>}
-                              {key === 'emojis' && <span>☺</span>}
-                              {key === 'stockBroll' && <span>▣</span>}
-                            </div>
-                            <div className="template-settings-row-title">{aiLabels[key]}</div>
-                          </div>
-                          <div
-                            className={`template-settings-toggle ${template.ai[key] ? 'is-on' : ''}`}
-                            aria-hidden="true"
-                          >
-                            <span className="template-settings-toggle-thumb" />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {activeMenu === 'layout' ? (
-              <section className="workspace-panel brand-settings-panel self-start">
+          <div className="grid flex-1 items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="flex items-start justify-center gap-10">
+              <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
                 <div className="workspace-panel-scroll">
                   <div className="workspace-panel-header">
                     <div>
-                      <h2 className="workspace-panel-title !mt-0">Layout</h2>
+                      <h2 className="workspace-panel-title !mt-0">Setting</h2>
                     </div>
                   </div>
 
                   <div className="template-settings-divider" />
 
-                  <div className="template-layout-menu">
+                  <div className="template-settings-menu">
                     <div>
-                      <div className="template-settings-group-label">Aspect ratio:</div>
-                      <div className="template-option-grid">
-                        {aspectRatioOptions.map((ratio) => (
-                          <button
-                            key={ratio}
-                            type="button"
-                            className={`template-option-chip ${
-                              template.frame.aspectRatio === ratio ? 'is-active' : ''
-                            }`}
-                            onClick={() => updateFrame({ aspectRatio: ratio })}
-                          >
-                            <IoSquareOutline size={14} />
-                            <span>{ratio}</span>
-                          </button>
-                        ))}
+                      <div className="template-settings-group-label">Style</div>
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          className={`template-settings-row template-settings-row-button ${
+                            activeMenu === 'layout' ? 'is-active' : ''
+                          }`}
+                          onClick={() => setActiveMenu(activeMenu === 'layout' ? null : 'layout')}
+                        >
+                          <div className="template-settings-row-main">
+                            <div className="template-settings-row-icon">
+                              <IoResizeOutline size={15} />
+                            </div>
+                            <div className="template-settings-row-title">Clip layout</div>
+                          </div>
+                          <div className="template-settings-row-meta">
+                            <span className="template-settings-row-value truncate">
+                              {template.frame.aspectRatio} {cropModeSummaryLabel[template.frame.cropMode]} template
+                            </span>
+                            <IoChevronForward size={15} />
+                          </div>
+                        </button>
+                        <div className="template-settings-row">
+                          <div className="template-settings-row-main">
+                            <div className="template-settings-row-icon">
+                              <IoTextOutline size={15} />
+                            </div>
+                            <div className="template-settings-row-title">Caption</div>
+                          </div>
+                          <div className="template-settings-row-meta">
+                            <span className="template-settings-row-value truncate">{selectedCaptionPreset.label}</span>
+                            <IoChevronForward size={15} />
+                          </div>
+                        </div>
                       </div>
                     </div>
 
                     <div>
-                      <div className="template-settings-group-label">Layout</div>
-                      <div className="template-option-grid template-option-grid-wide">
-                        {cropModeOptions.map((option) => {
-                          const Icon = option.icon
-                          return (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={`template-option-chip ${
-                                template.frame.cropMode === option.value ? 'is-active' : ''
-                              }`}
-                              onClick={() => updateFrame({ cropMode: option.value })}
+                      <div className="template-settings-group-label">Brand</div>
+                      <div className="space-y-1">
+                        <div className="template-settings-row">
+                          <div className="template-settings-row-main">
+                            <div className="template-settings-row-icon">
+                              <IoImagesOutline size={15} />
+                            </div>
+                            <div className="template-settings-row-title">Overlay</div>
+                          </div>
+                          <div className="template-settings-row-meta">
+                            <span className="template-settings-row-value truncate">
+                              {template.logo.assetPath ? formatName(template.logo.assetPath) : 'overlay/original'}
+                            </span>
+                            <IoChevronForward size={15} />
+                          </div>
+                        </div>
+                        <div className="template-settings-row">
+                          <div className="template-settings-row-main">
+                            <div className="template-settings-row-title">Intro/outro</div>
+                          </div>
+                          <div className="template-settings-row-meta">
+                            <IoChevronForward size={15} />
+                          </div>
+                        </div>
+                        <div className="template-settings-row">
+                          <div className="template-settings-row-main">
+                            <div className="template-settings-row-title">Music</div>
+                          </div>
+                          <div className="template-settings-row-meta">
+                            <IoChevronForward size={15} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="template-settings-group-label">AI</div>
+                      <div className="space-y-1">
+                        {aiToggleOrder.map((key) => (
+                          <div key={key} className="template-settings-row template-settings-row-toggle">
+                            <div className="template-settings-row-main">
+                              <div className="template-settings-row-icon template-settings-row-icon-subtle">
+                                {key === 'removeFillerWords' && <span>✳</span>}
+                                {key === 'removePauses' && <span>◌</span>}
+                                {key === 'keywordHighlighter' && <span>⌁</span>}
+                                {key === 'emojis' && <span>☺</span>}
+                                {key === 'stockBroll' && <span>▣</span>}
+                              </div>
+                              <div className="template-settings-row-title">{aiLabels[key]}</div>
+                            </div>
+                            <div
+                              className={`template-settings-toggle ${template.ai[key] ? 'is-on' : ''}`}
+                              aria-hidden="true"
                             >
-                              <Icon size={14} />
-                              <span>{option.label}</span>
-                            </button>
-                          )
-                        })}
+                              <span className="template-settings-toggle-thumb" />
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
                 </div>
               </section>
-            ) : null}
+
+              {activeMenu === 'layout' ? (
+                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
+                  <div className="workspace-panel-scroll">
+                    <div className="workspace-panel-header">
+                      <div>
+                        <h2 className="workspace-panel-title !mt-0">Layout</h2>
+                      </div>
+                    </div>
+
+                    <div className="template-settings-divider" />
+
+                    <div className="template-layout-menu">
+                      <div>
+                        <div className="template-settings-group-label">Aspect ratio:</div>
+                        <div className="template-option-grid">
+                          {aspectRatioOptions.map((ratio) => (
+                            <button
+                              key={ratio}
+                              type="button"
+                              className={`template-option-chip ${
+                                template.frame.aspectRatio === ratio ? 'is-active' : ''
+                              }`}
+                              onClick={() => updateFrame({ aspectRatio: ratio })}
+                            >
+                              <IoSquareOutline size={14} />
+                              <span>{ratio}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="template-settings-group-label">Layout</div>
+                        <div className="template-option-grid template-option-grid-wide">
+                          {cropModeOptions.map((option) => {
+                            const Icon = option.icon
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`template-option-chip ${
+                                  template.frame.cropMode === option.value ? 'is-active' : ''
+                                }`}
+                                onClick={() => updateFrame({ cropMode: option.value })}
+                              >
+                                <Icon size={14} />
+                                <span>{option.label}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+            </div>
 
             <div className="flex min-h-[720px] items-center justify-center">
               <div
