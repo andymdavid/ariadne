@@ -290,28 +290,29 @@ export function BrandTemplatePage() {
     <MainContentPanel>
       <div className="app-page">
         <div className="workspace-shell mx-auto w-full max-w-[1380px]">
-          <div className="workspace-header">
-            <div className="workspace-header-copy">
-              <div className="workspace-kicker">Workspace Template</div>
-              <div className="workspace-title">Brand Template</div>
-              <div className="workspace-subtitle">
-                Set the default layout, captions, branding, music, and AI treatment each clip should
-                inherit before clip-level editing begins.
+          <div className="app-page-header">
+            <div className="mx-auto w-full max-w-[1380px]">
+              <div className="app-page-header-content">
+                <div className="app-page-title">Brand Template</div>
+                <div className="app-page-separator">|</div>
+                <div className="app-page-subtitle">
+                  Set the default layout, captions, branding, music, and AI treatment each clip should inherit before clip-level editing begins.
+                </div>
               </div>
             </div>
+          </div>
 
-            <div className="workspace-actions">
-              {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
-              <div className="app-chip">{saveMessage}</div>
-              <button
-                type="button"
-                className="app-action-primary"
-                disabled={isSaving}
-                onClick={() => void persistTemplate()}
-              >
-                Save template
-              </button>
-            </div>
+          <div className="flex items-center justify-end gap-3">
+            {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
+            <div className="app-chip">{saveMessage}</div>
+            <button
+              type="button"
+              className="app-action-primary"
+              disabled={isSaving}
+              onClick={() => void persistTemplate()}
+            >
+              Save template
+            </button>
           </div>
 
           <div className="workspace-grid">
