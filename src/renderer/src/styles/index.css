@@ -489,17 +489,18 @@
   .template-settings-menu {
     display: flex;
     flex-direction: column;
-    gap: 28px;
+    gap: 24px;
   }
 
   .template-settings-divider {
-    width: 100%;
+    width: calc(100% + 44px);
     height: 1px;
+    margin: 0 -22px 18px;
     background: rgba(255, 255, 255, 0.08);
   }
 
   .template-settings-group-label {
-    margin-bottom: 10px;
+    margin-bottom: 14px;
     font-size: 13px;
     line-height: 1.3;
     color: rgba(240, 246, 252, 0.42);
@@ -510,8 +511,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    min-height: 48px;
-    padding: 2px 0;
+    min-height: 44px;
+    padding: 1px 0;
   }
 
   .template-settings-row-main {
