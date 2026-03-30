@@ -310,7 +310,7 @@ export function ClipWorkspacePage() {
                   />
                 </div>
 
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center justify-between gap-2">
                   <div className="text-[18px] font-semibold leading-none text-[#72e695]">
                     {Math.round(clip.shareabilityScore * 10)}
                   </div>
@@ -333,42 +333,42 @@ export function ClipWorkspacePage() {
                   </span>
                 </div>
 
-                <p className="clip-reason">
-                  {clip.reason || `${clip.transcriptLines.length} transcript segments available`}
-                </p>
-
                 <div className="clip-actions clip-actions-grid">
                   <button
                     type="button"
-                    className="clip-card-button clip-card-button-approve"
+                    className="clip-card-button clip-card-button-approve clip-card-button-icon"
                     onClick={() => updateClipStatus(clip.id, 'approved')}
+                    aria-label="Approve clip"
+                    title="Approve"
                   >
-                    <IoCheckmark size={14} />
-                    Approve
+                    <IoCheckmark size={16} />
                   </button>
                   <button
                     type="button"
-                    className="clip-card-button clip-card-button-reject"
+                    className="clip-card-button clip-card-button-reject clip-card-button-icon"
                     onClick={() => updateClipStatus(clip.id, 'rejected')}
+                    aria-label="Reject clip"
+                    title="Reject"
                   >
-                    <IoClose size={14} />
-                    Reject
+                    <IoClose size={16} />
                   </button>
                   <button
                     type="button"
-                    className="clip-card-button clip-card-button-secondary"
+                    className="clip-card-button clip-card-button-secondary clip-card-button-icon"
                     onClick={() => navigate(`/content/${episodeId}/${clip.id}`)}
+                    aria-label="Edit clip"
+                    title="Edit"
                   >
-                    <IoCreateOutline size={14} />
-                    Edit
+                    <IoCreateOutline size={16} />
                   </button>
                   <button
                     type="button"
-                    className="clip-card-button clip-card-button-secondary"
+                    className="clip-card-button clip-card-button-secondary clip-card-button-icon"
                     onClick={() => navigate(`/export/${episodeId}`)}
+                    aria-label="Export clip"
+                    title="Export"
                   >
-                    <IoShareOutline size={14} />
-                    Export
+                    <IoShareOutline size={16} />
                   </button>
                 </div>
               </article>
