@@ -148,6 +148,9 @@ export interface BrandTemplateCaptionDefaults {
   backgroundEnabled: boolean;
   highlightColor: string;
   backgroundColor: string;
+  backgroundPaddingX: number;
+  backgroundPaddingY: number;
+  backgroundRadius: number;
   strokeColor: string;
   strokeWidth: number;
   shadowEnabled: boolean;

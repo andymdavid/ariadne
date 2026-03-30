@@ -139,6 +139,9 @@ const defaultBrandTemplate: BrandTemplate = {
     backgroundEnabled: true,
     highlightColor: '#111111',
     backgroundColor: '#ffffff',
+    backgroundPaddingX: 24,
+    backgroundPaddingY: 12,
+    backgroundRadius: 16,
     strokeColor: '#000000',
     strokeWidth: 0,
     shadowEnabled: false,
@@ -879,6 +882,49 @@ export function BrandTemplatePage() {
                             disabled={!template.caption.backgroundEnabled}
                           />
                         </div>
+
+                        <div>
+                          <div className="template-settings-group-label">Background spread</div>
+                          <div className="template-form-row">
+                            <input
+                              className="template-form-input"
+                              type="number"
+                              min={0}
+                              max={48}
+                              value={template.caption.backgroundPaddingX}
+                              onChange={(event) =>
+                                updateCaption({ backgroundPaddingX: Number(event.target.value) || 0 })
+                              }
+                              disabled={!template.caption.backgroundEnabled}
+                            />
+                            <input
+                              className="template-form-input"
+                              type="number"
+                              min={0}
+                              max={32}
+                              value={template.caption.backgroundPaddingY}
+                              onChange={(event) =>
+                                updateCaption({ backgroundPaddingY: Number(event.target.value) || 0 })
+                              }
+                              disabled={!template.caption.backgroundEnabled}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="template-settings-group-label">Corner rounding</div>
+                          <input
+                            className="template-form-input"
+                            type="number"
+                            min={0}
+                            max={40}
+                            value={template.caption.backgroundRadius}
+                            onChange={(event) =>
+                              updateCaption({ backgroundRadius: Number(event.target.value) || 0 })
+                            }
+                            disabled={!template.caption.backgroundEnabled}
+                          />
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -1072,7 +1118,9 @@ function formatPreviewCaptionText(caption: BrandTemplate['caption']) {
 
 function getPreviewCaptionCardStyle(caption: BrandTemplate['caption']): CSSProperties {
   return {
-    background: caption.backgroundEnabled ? withOpacity(caption.backgroundColor, 0.88) : 'transparent'
+    background: caption.backgroundEnabled ? withOpacity(caption.backgroundColor, 0.88) : 'transparent',
+    padding: `${caption.backgroundPaddingY}px ${caption.backgroundPaddingX}px`,
+    borderRadius: `${caption.backgroundRadius}px`
   }
 }
 
