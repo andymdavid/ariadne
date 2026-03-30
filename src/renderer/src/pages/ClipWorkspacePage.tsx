@@ -38,12 +38,14 @@ function ClipPreview({
   mediaUrl,
   startTime,
   endTime,
-  title
+  title,
+  compact = false
 }: {
   mediaUrl: string | null
   startTime: number
   endTime: number
   title: string
+  compact?: boolean
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -108,7 +110,7 @@ function ClipPreview({
 
   return (
     <div className="app-surface-muted overflow-hidden">
-      <div className="relative aspect-[9/16] w-full bg-black">
+      <div className={`relative w-full bg-black ${compact ? 'aspect-[4/5]' : 'aspect-[9/16]'}`}>
         {mediaUrl ? (
           <video
             ref={videoRef}
@@ -124,20 +126,20 @@ function ClipPreview({
           </div>
         )}
 
-        <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-white/75">
+        <div className={`absolute left-3 top-3 bg-black/55 font-medium uppercase tracking-[0.16em] text-white/75 ${compact ? 'rounded-[5px] px-2 py-1 text-[10px]' : 'rounded-full px-3 py-1 text-[11px]'}`}>
           Clip preview
         </div>
-        <div className="absolute right-3 top-3 rounded-full bg-black/70 px-3 py-1 text-sm font-medium text-white">
+        <div className={`absolute right-3 top-3 bg-black/70 font-medium text-white ${compact ? 'rounded-[5px] px-2 py-1 text-[12px]' : 'rounded-full px-3 py-1 text-sm'}`}>
           {formatTime(endTime - startTime)}
         </div>
         <button
           type="button"
           onClick={togglePlayback}
-          className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/80 via-black/30 to-transparent px-4 py-4 text-sm text-white"
+          className={`absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/80 via-black/30 to-transparent text-white ${compact ? 'px-3 py-2.5 text-[12px]' : 'px-4 py-4 text-sm'}`}
         >
           <span className="max-w-[70%] truncate text-left">{title}</span>
-          <span className="inline-flex items-center gap-2 rounded-full bg-white/14 px-3 py-2">
-            {isPlaying ? <IoPause size={16} /> : <IoPlay size={16} />}
+          <span className={`inline-flex items-center gap-1.5 bg-white/14 ${compact ? 'rounded-[5px] px-2 py-1.5 text-[11px]' : 'rounded-full px-3 py-2'}`}>
+            {isPlaying ? <IoPause size={compact ? 13 : 16} /> : <IoPlay size={compact ? 13 : 16} />}
             {isPlaying ? 'Pause' : 'Preview'}
           </span>
         </button>
@@ -280,7 +282,7 @@ export function ClipWorkspacePage() {
           <span>Back home</span>
         </button>
 
-        <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+        <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
           {clips.map((clip) => {
             const isFocused = clip.id === selectedClipId
 
@@ -304,10 +306,11 @@ export function ClipWorkspacePage() {
                     startTime={clip.startTime}
                     endTime={clip.endTime}
                     title={clip.title}
+                    compact
                   />
                 </div>
 
-                <div className="mt-1 flex items-center justify-between gap-3">
+                <div className="flex items-center justify-between gap-3">
                   <div className="text-[18px] font-semibold leading-none text-[#72e695]">
                     {Math.round(clip.shareabilityScore * 10)}
                   </div>
@@ -318,7 +321,7 @@ export function ClipWorkspacePage() {
                   </div>
                 </div>
 
-                <h2 className="text-[18px] font-medium leading-8 text-text-primary">
+                <h2 className="clip-card-grid-title">
                   {clip.title}
                 </h2>
 
@@ -337,7 +340,7 @@ export function ClipWorkspacePage() {
                 <div className="clip-actions clip-actions-grid">
                   <button
                     type="button"
-                    className="btn-approve btn-sm"
+                    className="clip-card-button clip-card-button-approve"
                     onClick={() => updateClipStatus(clip.id, 'approved')}
                   >
                     <IoCheckmark size={14} />
@@ -345,7 +348,7 @@ export function ClipWorkspacePage() {
                   </button>
                   <button
                     type="button"
-                    className="btn-reject btn-sm"
+                    className="clip-card-button clip-card-button-reject"
                     onClick={() => updateClipStatus(clip.id, 'rejected')}
                   >
                     <IoClose size={14} />
@@ -353,7 +356,7 @@ export function ClipWorkspacePage() {
                   </button>
                   <button
                     type="button"
-                    className="btn-primary btn-sm"
+                    className="clip-card-button clip-card-button-secondary"
                     onClick={() => navigate(`/content/${episodeId}/${clip.id}`)}
                   >
                     <IoCreateOutline size={14} />
@@ -361,7 +364,7 @@ export function ClipWorkspacePage() {
                   </button>
                   <button
                     type="button"
-                    className="btn-primary btn-sm"
+                    className="clip-card-button clip-card-button-secondary"
                     onClick={() => navigate(`/export/${episodeId}`)}
                   >
                     <IoShareOutline size={14} />
