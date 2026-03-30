@@ -492,7 +492,7 @@ export function BrandTemplatePage() {
       setPresets(response.presets)
       setActivePresetId(response.activePresetId)
       applyTemplateState(response.brandTemplate)
-      setIsPresetMenuOpen(false)
+      setIsPresetMenuOpen(true)
     } catch (error) {
       console.error('Failed to create brand template preset:', error)
     }
