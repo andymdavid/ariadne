@@ -5,6 +5,7 @@ import {
   IoChevronForward,
   IoGridOutline,
   IoImagesOutline,
+  IoMusicalNotesOutline,
   IoResizeOutline,
   IoScanOutline,
   IoSquareOutline,
@@ -187,7 +188,8 @@ const defaultBrandTemplate: BrandTemplate = {
 export function BrandTemplatePage() {
   const [template, setTemplate] = useState<BrandTemplate | null>(null)
   const [logos, setLogos] = useState<string[]>([])
-  const [activeMenu, setActiveMenu] = useState<'layout' | 'caption' | 'overlay' | 'intro-outro' | null>(null)
+  const [musicTracks, setMusicTracks] = useState<string[]>([])
+  const [activeMenu, setActiveMenu] = useState<'layout' | 'caption' | 'overlay' | 'intro-outro' | 'music' | null>(null)
   const [activeCaptionTab, setActiveCaptionTab] = useState<(typeof captionTabOptions)[number]>('presets')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -293,10 +295,11 @@ export function BrandTemplatePage() {
       setIsLoading(true)
       setLoadError(null)
 
-      const [loadedTemplate, loadedConfig, loadedLogos] = await Promise.all([
+      const [loadedTemplate, loadedConfig, loadedLogos, loadedMusic] = await Promise.all([
         window.electronAPI?.getBrandTemplate?.() ?? Promise.resolve(undefined),
         window.electronAPI?.getConfig?.() ?? Promise.resolve(undefined),
-        window.electronAPI?.listLogos?.() ?? Promise.resolve([])
+        window.electronAPI?.listLogos?.() ?? Promise.resolve([]),
+        window.electronAPI?.listMusic?.() ?? Promise.resolve([])
       ])
 
       const resolvedTemplate = loadedTemplate ?? loadedConfig?.brandTemplate ?? defaultBrandTemplate
@@ -330,6 +333,7 @@ export function BrandTemplatePage() {
         }
       })
       setLogos(loadedLogos ?? [])
+      setMusicTracks(loadedMusic ?? [])
     } catch (error) {
       console.error('Failed to load brand template:', error)
       setTemplate(defaultBrandTemplate)
@@ -408,6 +412,21 @@ export function BrandTemplatePage() {
       ...template,
       introOutro: {
         ...template.introOutro,
+        ...updates
+      }
+    }
+
+    setTemplate(nextTemplate)
+    void persistTemplate(nextTemplate)
+  }
+
+  const updateMusic = (updates: Partial<BrandTemplate['music']>) => {
+    if (!template) return
+
+    const nextTemplate: BrandTemplate = {
+      ...template,
+      music: {
+        ...template.music,
         ...updates
       }
     }
@@ -598,14 +617,23 @@ export function BrandTemplatePage() {
                             <IoChevronForward size={15} />
                           </div>
                         </button>
-                        <div className="template-settings-row">
+                        <button
+                          type="button"
+                          className={`template-settings-row template-settings-row-button ${
+                            activeMenu === 'music' ? 'is-active' : ''
+                          }`}
+                          onClick={() => setActiveMenu(activeMenu === 'music' ? null : 'music')}
+                        >
                           <div className="template-settings-row-main">
                             <div className="template-settings-row-title">Music</div>
                           </div>
                           <div className="template-settings-row-meta">
+                            <span className="template-settings-row-value truncate">
+                              {template.music.assetPath ? formatName(template.music.assetPath) : 'No music'}
+                            </span>
                             <IoChevronForward size={15} />
                           </div>
-                        </div>
+                        </button>
                       </div>
                     </div>
 
@@ -1108,6 +1136,63 @@ export function BrandTemplatePage() {
                           <span>{template.introOutro.outroPath ? formatName(template.introOutro.outroPath) : 'Upload outro'}</span>
                         </div>
                       </button>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {activeMenu === 'music' ? (
+                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0 self-start">
+                  <div className="workspace-panel-scroll">
+                    <div className="workspace-panel-header">
+                      <div>
+                        <h2 className="workspace-panel-title !mt-0">Music</h2>
+                      </div>
+                    </div>
+
+                    <div className="template-settings-divider" />
+
+                    <div className="template-layout-menu pt-5">
+                      <button
+                        type="button"
+                        className={`template-asset-row ${!template.music.assetPath ? 'is-active' : ''}`}
+                        onClick={() =>
+                          updateMusic({
+                            enabled: false,
+                            assetPath: null
+                          })
+                        }
+                      >
+                        <div className="template-asset-row-main">
+                          <div className="template-settings-row-icon">
+                            <IoMusicalNotesOutline size={16} />
+                          </div>
+                          <span className="truncate">No music</span>
+                        </div>
+                      </button>
+
+                      {musicTracks.map((trackPath) => (
+                        <button
+                          key={trackPath}
+                          type="button"
+                          className={`template-asset-row ${
+                            template.music.assetPath === trackPath ? 'is-active' : ''
+                          }`}
+                          onClick={() =>
+                            updateMusic({
+                              enabled: true,
+                              assetPath: trackPath
+                            })
+                          }
+                        >
+                          <div className="template-asset-row-main">
+                            <div className="template-settings-row-icon">
+                              <IoMusicalNotesOutline size={16} />
+                            </div>
+                            <span className="truncate">{formatName(trackPath)}</span>
+                          </div>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </section>
