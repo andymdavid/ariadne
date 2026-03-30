@@ -5,6 +5,7 @@ import {
   IoChevronForward,
   IoGridOutline,
   IoImagesOutline,
+  IoMusicalNotes,
   IoMusicalNotesOutline,
   IoResizeOutline,
   IoScanOutline,
@@ -198,10 +199,25 @@ export function BrandTemplatePage() {
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
   const [isResizingLogo, setIsResizingLogo] = useState(false)
   const [isLogoSelected, setIsLogoSelected] = useState(false)
+  const [isDemoPlaying, setIsDemoPlaying] = useState(false)
+  const [demoPhase, setDemoPhase] = useState<'intro' | 'demo' | 'outro'>('demo')
+  const [captionWordIndex, setCaptionWordIndex] = useState(0)
+  const [demoProgress, setDemoProgress] = useState(0)
   const previewRef = useRef<HTMLDivElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const demoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     void loadPageState()
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      clearDemoTimers()
+      stopMediaPlayback()
+    }
   }, [])
 
   useEffect(() => {
@@ -441,6 +457,104 @@ export function BrandTemplatePage() {
     updateIntroOutro({ [kind]: filePath } as Partial<BrandTemplate['introOutro']>)
   }
 
+  const clearDemoTimers = () => {
+    if (demoTimeoutRef.current) {
+      clearTimeout(demoTimeoutRef.current)
+      demoTimeoutRef.current = null
+    }
+    if (demoIntervalRef.current) {
+      clearInterval(demoIntervalRef.current)
+      demoIntervalRef.current = null
+    }
+  }
+
+  const stopMediaPlayback = () => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
+    if (videoRef.current) {
+      videoRef.current.pause()
+      videoRef.current.currentTime = 0
+    }
+  }
+
+  const stopDemoPlayback = () => {
+    clearDemoTimers()
+    stopMediaPlayback()
+    setIsDemoPlaying(false)
+    setDemoPhase('demo')
+    setCaptionWordIndex(0)
+    setDemoProgress(0)
+  }
+
+  const startDemoPhase = () => {
+    clearDemoTimers()
+    setDemoPhase('demo')
+    setDemoProgress(0)
+    setCaptionWordIndex(0)
+
+    const words = getCaptionWords(template?.caption ?? defaultBrandTemplate.caption)
+    const stepCount = Math.max(words.length, 1)
+    let currentStep = 0
+
+    demoIntervalRef.current = setInterval(() => {
+      currentStep += 1
+      setCaptionWordIndex(Math.min(currentStep, Math.max(words.length - 1, 0)))
+      setDemoProgress(Math.min((currentStep / stepCount) * 100, 100))
+    }, 450)
+
+    const demoDurationMs = Math.max(stepCount * 450 + 600, 2600)
+    demoTimeoutRef.current = setTimeout(() => {
+      clearDemoTimers()
+      if (template?.introOutro.outroPath) {
+        setDemoPhase('outro')
+        setDemoProgress(100)
+        const video = videoRef.current
+        if (video) {
+          video.currentTime = 0
+          void video.play().catch(() => {
+            stopDemoPlayback()
+          })
+        } else {
+          stopDemoPlayback()
+        }
+      } else {
+        stopDemoPlayback()
+      }
+    }, demoDurationMs)
+  }
+
+  const startDemoPlayback = () => {
+    if (isDemoPlaying) {
+      stopDemoPlayback()
+      return
+    }
+
+    setIsDemoPlaying(true)
+    setCaptionWordIndex(0)
+    setDemoProgress(0)
+
+    if (template?.music.enabled && template.music.assetPath && audioRef.current) {
+      audioRef.current.currentTime = 0
+      audioRef.current.volume = template.music.volume
+      void audioRef.current.play().catch(() => {
+        // Ignore autoplay failures; the rest of the preview should still run.
+      })
+    }
+
+    if (template?.introOutro.introPath && videoRef.current) {
+      setDemoPhase('intro')
+      videoRef.current.currentTime = 0
+      void videoRef.current.play().catch(() => {
+        startDemoPhase()
+      })
+      return
+    }
+
+    startDemoPhase()
+  }
+
   const applyCaptionPreset = (presetId: (typeof captionPresets)[number]['id']) => {
     const preset = captionPresets.find((item) => item.id === presetId)
     if (!preset) return
@@ -461,9 +575,19 @@ export function BrandTemplatePage() {
   const previewAspectRatio = toCssAspectRatio(template?.frame.aspectRatio ?? defaultBrandTemplate.frame.aspectRatio)
   const previewMaxWidth = getPreviewMaxWidth(template?.frame.aspectRatio ?? defaultBrandTemplate.frame.aspectRatio)
   const previewImageStyle = getPreviewImageStyle(template?.frame.cropMode ?? defaultBrandTemplate.frame.cropMode)
-  const previewCaptionText = formatPreviewCaptionText(template?.caption ?? defaultBrandTemplate.caption)
+  const previewCaptionText = formatPreviewCaptionText(
+    template?.caption ?? defaultBrandTemplate.caption,
+    captionWordIndex
+  )
   const previewCaptionCardStyle = getPreviewCaptionCardStyle(template?.caption ?? defaultBrandTemplate.caption)
   const previewCaptionTextStyle = getPreviewCaptionTextStyle(template?.caption ?? defaultBrandTemplate.caption)
+  const activeVideoPath =
+    demoPhase === 'intro'
+      ? template?.introOutro.introPath ?? null
+      : demoPhase === 'outro'
+        ? template?.introOutro.outroPath ?? null
+        : null
+  const musicSelected = Boolean(template?.music.enabled && template.music.assetPath)
 
   if (isLoading) {
     return (
@@ -1211,6 +1335,24 @@ export function BrandTemplatePage() {
                 }}
                 onMouseDown={() => setIsLogoSelected(false)}
               >
+                    {activeVideoPath ? (
+                      <video
+                        ref={videoRef}
+                        key={activeVideoPath}
+                        src={`app-file://${activeVideoPath}`}
+                        className="absolute inset-0 z-[1] h-full w-full object-cover"
+                        muted={false}
+                        playsInline
+                        onEnded={() => {
+                          if (demoPhase === 'intro') {
+                            startDemoPhase()
+                          } else {
+                            stopDemoPlayback()
+                          }
+                        }}
+                      />
+                    ) : null}
+
                     {template.frame.cropMode === 'blur' ? (
                       <>
                         <img
@@ -1229,6 +1371,12 @@ export function BrandTemplatePage() {
                       style={previewImageStyle}
                     />
                     <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/20" />
+
+                    {musicSelected ? (
+                      <div className="absolute right-4 top-4 z-20 rounded-full bg-black/28 p-2 text-white/85">
+                        <IoMusicalNotes size={16} />
+                      </div>
+                    ) : null}
 
                     {template.logo.enabled && template.logo.assetPath && (
                       <div
@@ -1290,7 +1438,7 @@ export function BrandTemplatePage() {
                       </div>
                     )}
 
-                    {template.caption.presetId !== 'none' && (
+                    {template.caption.presetId !== 'none' && demoPhase === 'demo' && (
                       <div
                         className="absolute z-20 max-w-[78%] cursor-grab select-none"
                         style={captionStyle}
@@ -1318,11 +1466,29 @@ export function BrandTemplatePage() {
                     )}
 
                     <div className="absolute bottom-5 left-5 right-5 flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white">▶</div>
+                      <button
+                        type="button"
+                        className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          startDemoPlayback()
+                        }}
+                      >
+                        {isDemoPlaying ? '■' : '▶'}
+                      </button>
                       <div className="h-1.5 flex-1 rounded-full bg-white/20">
-                        <div className="h-full w-20 rounded-full bg-white/60" />
+                        <div
+                          className="h-full rounded-full bg-white/60 transition-all duration-200"
+                          style={{ width: `${Math.max(demoProgress, 6)}%` }}
+                        />
                       </div>
                     </div>
+
+                    <audio
+                      ref={audioRef}
+                      src={template.music.assetPath ? `app-file://${template.music.assetPath}` : undefined}
+                      preload="auto"
+                    />
               </div>
             </div>
           </div>
@@ -1391,12 +1557,17 @@ function getPreviewImageStyle(cropMode: BrandTemplate['frame']['cropMode']): CSS
   }
 }
 
-function formatPreviewCaptionText(caption: BrandTemplate['caption']) {
+function getCaptionWords(caption: BrandTemplate['caption']) {
   const source = caption.uppercase ? caption.text.toUpperCase() : caption.text
+  return source.split(' ').filter(Boolean)
+}
+
+function formatPreviewCaptionText(caption: BrandTemplate['caption'], activeWordIndex = 0) {
+  const words = getCaptionWords(caption)
+  const source = words.join(' ')
   if (!source) return { highlighted: '', remaining: '' }
 
   if (caption.lineMode === 'three-lines') {
-    const words = source.split(' ')
     const chunkSize = Math.max(1, Math.ceil(words.length / 3))
     const lines = [
       words.slice(0, chunkSize).join(' '),
@@ -1409,7 +1580,9 @@ function formatPreviewCaptionText(caption: BrandTemplate['caption']) {
     }
   }
 
-  const [highlighted, ...rest] = source.split(' ')
+  const safeIndex = clamp(activeWordIndex, 0, Math.max(words.length - 1, 0))
+  const highlighted = words[safeIndex] ?? ''
+  const rest = words.filter((_, index) => index !== safeIndex)
   return {
     highlighted,
     remaining: rest.join(' ')

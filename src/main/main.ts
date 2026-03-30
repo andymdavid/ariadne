@@ -568,6 +568,7 @@ ipcMain.handle('select-file', async () => {
   });
 
   if (!result.canceled && result.filePaths.length > 0) {
+    allowedMediaPaths.add(result.filePaths[0]);
     return result.filePaths[0];
   }
   return null;
