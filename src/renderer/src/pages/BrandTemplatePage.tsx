@@ -13,12 +13,69 @@ import type { BrandTemplate } from '@shared/types'
 import { MainContentPanel } from '../components/MainContentPanel'
 
 const captionPresets = [
-  { id: 'none', label: 'No captions', text: '' },
-  { id: 'karaoke', label: 'Karaoke', text: 'TO GET STARTED' },
-  { id: 'beasty', label: 'Beasty', text: 'Build clips that hook fast' },
-  { id: 'deep-diver', label: 'Deep Diver', text: 'One Line' },
-  { id: 'youshaei', label: 'Youshaei', text: 'Sharp ideas only' },
-  { id: 'pod-p', label: 'Pod P', text: 'Talk to camera' }
+  {
+    id: 'none',
+    label: 'No captions',
+    text: '',
+    font: 'Inter',
+    fontWeight: '700' as const,
+    highlightColor: '#111111',
+    backgroundColor: 'rgba(255, 255, 255, 0.88)'
+  },
+  {
+    id: 'karaoke',
+    label: 'Karaoke',
+    text: 'TO GET STARTED',
+    font: 'Inter',
+    fontWeight: '800' as const,
+    highlightColor: '#ffffff',
+    backgroundColor: 'rgba(17, 17, 17, 0.42)'
+  },
+  {
+    id: 'beasty',
+    label: 'Beasty',
+    text: 'Build clips that hook fast',
+    font: 'Inter',
+    fontWeight: '800' as const,
+    highlightColor: '#111111',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)'
+  },
+  {
+    id: 'deep-diver',
+    label: 'Deep Diver',
+    text: 'One Line',
+    font: 'Inter',
+    fontWeight: '700' as const,
+    highlightColor: '#111111',
+    backgroundColor: 'rgba(255, 255, 255, 0.88)'
+  },
+  {
+    id: 'youshaei',
+    label: 'Youshaei',
+    text: 'TO GET STARTED',
+    font: 'Inter',
+    fontWeight: '700' as const,
+    highlightColor: '#59f0c2',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)'
+  },
+  {
+    id: 'pod-p',
+    label: 'Pod P',
+    text: 'TO GET',
+    font: 'Inter',
+    fontWeight: '800' as const,
+    highlightColor: '#ff4fe1',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)'
+  }
+] as const
+
+const captionFontOptions = ['Inter', 'Poppins', 'Montserrat', 'Oswald'] as const
+const captionTabOptions = ['presets', 'font', 'effects'] as const
+const captionPositionOptions = [
+  { value: 'top', label: 'Top' },
+  { value: 'center', label: 'Middle' },
+  { value: 'bottom', label: 'Bottom' },
+  { value: 'custom', label: 'Custom' }
 ] as const
 
 const aiToggleOrder: Array<keyof BrandTemplate['ai']> = [
@@ -60,9 +117,25 @@ const defaultBrandTemplate: BrandTemplate = {
     presetId: 'deep-diver',
     text: 'One Line',
     font: 'Inter',
+    fontSize: 30,
+    fontWeight: '700',
+    italic: false,
+    underline: false,
+    uppercase: false,
     position: 'bottom',
     customX: null,
-    customY: null
+    customY: null,
+    animation: 'box',
+    lineMode: 'one-line',
+    highlightColor: '#111111',
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    strokeColor: '#000000',
+    strokeWidth: 0,
+    shadowEnabled: false,
+    shadowColor: '#000000',
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
+    shadowBlur: 0
   },
   logo: {
     enabled: false,
@@ -94,7 +167,8 @@ const defaultBrandTemplate: BrandTemplate = {
 
 export function BrandTemplatePage() {
   const [template, setTemplate] = useState<BrandTemplate | null>(null)
-  const [activeMenu, setActiveMenu] = useState<'layout' | null>(null)
+  const [activeMenu, setActiveMenu] = useState<'layout' | 'caption' | null>(null)
+  const [activeCaptionTab, setActiveCaptionTab] = useState<(typeof captionTabOptions)[number]>('presets')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -246,11 +320,43 @@ export function BrandTemplatePage() {
     void persistTemplate(nextTemplate)
   }
 
+  const updateCaption = (updates: Partial<BrandTemplate['caption']>) => {
+    if (!template) return
+
+    const nextTemplate: BrandTemplate = {
+      ...template,
+      caption: {
+        ...template.caption,
+        ...updates
+      }
+    }
+
+    setTemplate(nextTemplate)
+    void persistTemplate(nextTemplate)
+  }
+
+  const applyCaptionPreset = (presetId: (typeof captionPresets)[number]['id']) => {
+    const preset = captionPresets.find((item) => item.id === presetId)
+    if (!preset) return
+
+    updateCaption({
+      presetId: preset.id,
+      text: preset.text,
+      font: preset.font,
+      fontWeight: preset.fontWeight,
+      highlightColor: preset.highlightColor,
+      backgroundColor: preset.backgroundColor
+    })
+  }
+
   const captionStyle = getCaptionPositionStyle(template?.caption)
   const logoPreviewSize = `${Math.max((template?.logo.scale ?? 0.18) * 100, 12)}%`
   const previewAspectRatio = toCssAspectRatio(template?.frame.aspectRatio ?? defaultBrandTemplate.frame.aspectRatio)
   const previewMaxWidth = getPreviewMaxWidth(template?.frame.aspectRatio ?? defaultBrandTemplate.frame.aspectRatio)
   const previewImageStyle = getPreviewImageStyle(template?.frame.cropMode ?? defaultBrandTemplate.frame.cropMode)
+  const previewCaptionText = formatPreviewCaptionText(template?.caption ?? defaultBrandTemplate.caption)
+  const previewCaptionCardStyle = getPreviewCaptionCardStyle(template?.caption ?? defaultBrandTemplate.caption)
+  const previewCaptionTextStyle = getPreviewCaptionTextStyle(template?.caption ?? defaultBrandTemplate.caption)
 
   if (isLoading) {
     return (
@@ -329,9 +435,9 @@ export function BrandTemplatePage() {
                         <button
                           type="button"
                           className={`template-settings-row template-settings-row-button ${
-                            activeMenu === 'layout' ? 'is-active' : ''
-                          }`}
-                          onClick={() => setActiveMenu(activeMenu === 'layout' ? null : 'layout')}
+                          activeMenu === 'layout' ? 'is-active' : ''
+                        }`}
+                        onClick={() => setActiveMenu(activeMenu === 'layout' ? null : 'layout')}
                         >
                           <div className="template-settings-row-main">
                             <div className="template-settings-row-icon">
@@ -346,7 +452,13 @@ export function BrandTemplatePage() {
                             <IoChevronForward size={15} />
                           </div>
                         </button>
-                        <div className="template-settings-row">
+                        <button
+                          type="button"
+                          className={`template-settings-row template-settings-row-button ${
+                            activeMenu === 'caption' ? 'is-active' : ''
+                          }`}
+                          onClick={() => setActiveMenu(activeMenu === 'caption' ? null : 'caption')}
+                        >
                           <div className="template-settings-row-main">
                             <div className="template-settings-row-icon">
                               <IoTextOutline size={15} />
@@ -357,7 +469,7 @@ export function BrandTemplatePage() {
                             <span className="template-settings-row-value truncate">{selectedCaptionPreset.label}</span>
                             <IoChevronForward size={15} />
                           </div>
-                        </div>
+                        </button>
                       </div>
                     </div>
 
@@ -482,6 +594,276 @@ export function BrandTemplatePage() {
                   </div>
                 </section>
               ) : null}
+
+              {activeMenu === 'caption' ? (
+                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
+                  <div className="workspace-panel-scroll">
+                    <div className="workspace-panel-header">
+                      <div>
+                        <h2 className="workspace-panel-title !mt-0">Caption</h2>
+                      </div>
+                    </div>
+
+                    <div className="template-settings-divider" />
+
+                    <div className="template-caption-tabs">
+                      {captionTabOptions.map((tab) => (
+                        <button
+                          key={tab}
+                          type="button"
+                          className={`template-caption-tab ${activeCaptionTab === tab ? 'is-active' : ''}`}
+                          onClick={() => setActiveCaptionTab(tab)}
+                        >
+                          {tab === 'presets' ? 'Presets' : tab === 'font' ? 'Font' : 'Effects'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="template-settings-divider" />
+
+                    {activeCaptionTab === 'presets' ? (
+                      <div className="template-caption-preset-grid">
+                        {captionPresets.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            className={`template-caption-preset-card ${
+                              template.caption.presetId === preset.id ? 'is-active' : ''
+                            }`}
+                            onClick={() => applyCaptionPreset(preset.id)}
+                          >
+                            <div
+                              className="template-caption-preset-preview"
+                              style={{
+                                background: preset.backgroundColor,
+                                color: preset.highlightColor,
+                                fontFamily: preset.font,
+                                fontWeight: preset.fontWeight
+                              }}
+                            >
+                              {preset.text || '∅'}
+                            </div>
+                            <div className="template-caption-preset-label">{preset.label}</div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {activeCaptionTab === 'font' ? (
+                      <div className="template-layout-menu">
+                        <div>
+                          <div className="template-settings-group-label">Font settings</div>
+                          <div className="template-form-stack">
+                            <select
+                              className="template-form-select"
+                              value={template.caption.font}
+                              onChange={(event) => updateCaption({ font: event.target.value })}
+                            >
+                              {captionFontOptions.map((font) => (
+                                <option key={font} value={font}>
+                                  {font}
+                                </option>
+                              ))}
+                            </select>
+
+                            <div className="template-form-row">
+                              <input
+                                className="template-form-input"
+                                type="number"
+                                min={18}
+                                max={72}
+                                value={template.caption.fontSize}
+                                onChange={(event) => updateCaption({ fontSize: Number(event.target.value) || 30 })}
+                              />
+                              <select
+                                className="template-form-select"
+                                value={template.caption.fontWeight}
+                                onChange={(event) =>
+                                  updateCaption({ fontWeight: event.target.value as BrandTemplate['caption']['fontWeight'] })
+                                }
+                              >
+                                <option value="500">Medium</option>
+                                <option value="600">Semi Bold</option>
+                                <option value="700">Bold</option>
+                                <option value="800">Extra Bold</option>
+                              </select>
+                            </div>
+
+                            <div className="template-inline-actions">
+                              <button
+                                type="button"
+                                className={`template-inline-chip ${template.caption.italic ? 'is-active' : ''}`}
+                                onClick={() => updateCaption({ italic: !template.caption.italic })}
+                              >
+                                Italic
+                              </button>
+                              <button
+                                type="button"
+                                className={`template-inline-chip ${template.caption.underline ? 'is-active' : ''}`}
+                                onClick={() => updateCaption({ underline: !template.caption.underline })}
+                              >
+                                Underline
+                              </button>
+                            </div>
+
+                            <div className="template-form-row template-form-row-spread">
+                              <span className="template-settings-group-label !mb-0">Uppercase</span>
+                              <button
+                                type="button"
+                                className={`template-settings-toggle ${template.caption.uppercase ? 'is-on' : ''}`}
+                                onClick={() => updateCaption({ uppercase: !template.caption.uppercase })}
+                                aria-label="Toggle uppercase"
+                              >
+                                <span className="template-settings-toggle-thumb" />
+                              </button>
+                            </div>
+
+                            <div className="template-form-row">
+                              <input
+                                className="template-form-color"
+                                type="color"
+                                value={toHexColor(template.caption.strokeColor)}
+                                onChange={(event) => updateCaption({ strokeColor: event.target.value })}
+                              />
+                              <input
+                                className="template-form-input"
+                                type="number"
+                                min={0}
+                                max={8}
+                                value={template.caption.strokeWidth}
+                                onChange={(event) => updateCaption({ strokeWidth: Number(event.target.value) || 0 })}
+                              />
+                            </div>
+
+                            <div className="template-form-row template-form-row-spread">
+                              <span className="template-settings-group-label !mb-0">Font shadows</span>
+                              <button
+                                type="button"
+                                className={`template-settings-toggle ${template.caption.shadowEnabled ? 'is-on' : ''}`}
+                                onClick={() => updateCaption({ shadowEnabled: !template.caption.shadowEnabled })}
+                                aria-label="Toggle font shadow"
+                              >
+                                <span className="template-settings-toggle-thumb" />
+                              </button>
+                            </div>
+
+                            {template.caption.shadowEnabled ? (
+                              <>
+                                <div className="template-form-row">
+                                  <input
+                                    className="template-form-color"
+                                    type="color"
+                                    value={toHexColor(template.caption.shadowColor)}
+                                    onChange={(event) => updateCaption({ shadowColor: event.target.value })}
+                                  />
+                                  <input
+                                    className="template-form-input"
+                                    type="number"
+                                    value={template.caption.shadowOffsetX}
+                                    onChange={(event) => updateCaption({ shadowOffsetX: Number(event.target.value) || 0 })}
+                                  />
+                                  <input
+                                    className="template-form-input"
+                                    type="number"
+                                    value={template.caption.shadowOffsetY}
+                                    onChange={(event) => updateCaption({ shadowOffsetY: Number(event.target.value) || 0 })}
+                                  />
+                                  <input
+                                    className="template-form-input"
+                                    type="number"
+                                    min={0}
+                                    value={template.caption.shadowBlur}
+                                    onChange={(event) => updateCaption({ shadowBlur: Number(event.target.value) || 0 })}
+                                  />
+                                </div>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {activeCaptionTab === 'effects' ? (
+                      <div className="template-layout-menu">
+                        <div>
+                          <div className="template-settings-group-label">Position</div>
+                          <div className="template-option-grid template-option-grid-wide">
+                            {captionPositionOptions.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`template-option-chip ${
+                                  template.caption.position === option.value ? 'is-active' : ''
+                                }`}
+                                onClick={() => updateCaption({ position: option.value })}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="template-settings-group-label">Animation</div>
+                          <select
+                            className="template-form-select"
+                            value={template.caption.animation}
+                            onChange={(event) =>
+                              updateCaption({ animation: event.target.value as BrandTemplate['caption']['animation'] })
+                            }
+                          >
+                            <option value="box">Box</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <div className="template-settings-group-label">Lines</div>
+                          <div className="template-option-grid template-option-grid-wide">
+                            <button
+                              type="button"
+                              className={`template-option-chip ${
+                                template.caption.lineMode === 'three-lines' ? 'is-active' : ''
+                              }`}
+                              onClick={() => updateCaption({ lineMode: 'three-lines' })}
+                            >
+                              Three lines
+                            </button>
+                            <button
+                              type="button"
+                              className={`template-option-chip ${
+                                template.caption.lineMode === 'one-line' ? 'is-active' : ''
+                              }`}
+                              onClick={() => updateCaption({ lineMode: 'one-line' })}
+                            >
+                              One line
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="template-form-row template-form-row-spread">
+                          <span className="template-settings-group-label !mb-0">Highlighted word color</span>
+                          <input
+                            className="template-form-color"
+                            type="color"
+                            value={toHexColor(template.caption.highlightColor)}
+                            onChange={(event) => updateCaption({ highlightColor: event.target.value })}
+                          />
+                        </div>
+
+                        <div className="template-form-row template-form-row-spread">
+                          <span className="template-settings-group-label !mb-0">Word background color</span>
+                          <input
+                            className="template-form-color"
+                            type="color"
+                            value={toHexColor(template.caption.backgroundColor)}
+                            onChange={(event) => updateCaption({ backgroundColor: event.target.value })}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
             </div>
 
             <div className="flex min-h-[720px] items-center justify-center">
@@ -552,13 +934,18 @@ export function BrandTemplatePage() {
                           setIsDraggingCaption(true)
                         }}
                       >
-                        <div className={`rounded-2xl bg-white/88 px-6 py-3 text-center shadow-lg ${isDraggingCaption ? 'ring-2 ring-white/80' : ''}`}>
-                          <span
-                            className="text-[30px] font-semibold text-black"
-                            style={{ fontFamily: template.caption.font }}
-                          >
-                            {template.caption.text.split(' ')[0]}{' '}
-                            <span className="text-black/18">{template.caption.text.split(' ').slice(1).join(' ')}</span>
+                        <div
+                          className={`rounded-2xl px-6 py-3 text-center shadow-lg ${isDraggingCaption ? 'ring-2 ring-white/80' : ''}`}
+                          style={previewCaptionCardStyle}
+                        >
+                          <span style={previewCaptionTextStyle}>
+                            {previewCaptionText.highlighted}
+                            {previewCaptionText.remaining ? (
+                              <>
+                                {' '}
+                                <span className="text-black/35">{previewCaptionText.remaining}</span>
+                              </>
+                            ) : null}
                           </span>
                         </div>
                       </div>
@@ -636,6 +1023,67 @@ function getPreviewImageStyle(cropMode: BrandTemplate['frame']['cropMode']): CSS
     objectFit: 'cover',
     objectPosition: 'center center'
   }
+}
+
+function formatPreviewCaptionText(caption: BrandTemplate['caption']) {
+  const source = caption.uppercase ? caption.text.toUpperCase() : caption.text
+  if (!source) return { highlighted: '', remaining: '' }
+
+  if (caption.lineMode === 'three-lines') {
+    const words = source.split(' ')
+    const chunkSize = Math.max(1, Math.ceil(words.length / 3))
+    const lines = [
+      words.slice(0, chunkSize).join(' '),
+      words.slice(chunkSize, chunkSize * 2).join(' '),
+      words.slice(chunkSize * 2).join(' ')
+    ].filter(Boolean)
+    return {
+      highlighted: lines[0] ?? '',
+      remaining: lines.slice(1).join('\n')
+    }
+  }
+
+  const [highlighted, ...rest] = source.split(' ')
+  return {
+    highlighted,
+    remaining: rest.join(' ')
+  }
+}
+
+function getPreviewCaptionCardStyle(caption: BrandTemplate['caption']): CSSProperties {
+  return {
+    background: caption.backgroundColor
+  }
+}
+
+function getPreviewCaptionTextStyle(caption: BrandTemplate['caption']): CSSProperties {
+  const textShadow = caption.shadowEnabled
+    ? `${caption.shadowOffsetX}px ${caption.shadowOffsetY}px ${caption.shadowBlur}px ${caption.shadowColor}`
+    : undefined
+
+  return {
+    display: 'inline-block',
+    whiteSpace: caption.lineMode === 'three-lines' ? 'pre-line' : 'normal',
+    fontFamily: caption.font,
+    fontSize: `${caption.fontSize}px`,
+    fontWeight: caption.fontWeight,
+    fontStyle: caption.italic ? 'italic' : 'normal',
+    textDecoration: caption.underline ? 'underline' : 'none',
+    color: caption.highlightColor,
+    WebkitTextStroke:
+      caption.strokeWidth > 0 ? `${caption.strokeWidth}px ${caption.strokeColor}` : undefined,
+    textShadow
+  }
+}
+
+function toHexColor(color: string) {
+  if (color.startsWith('#')) return color
+  const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+  if (!rgbaMatch) return '#ffffff'
+  const [, r, g, b] = rgbaMatch
+  return `#${Number(r).toString(16).padStart(2, '0')}${Number(g)
+    .toString(16)
+    .padStart(2, '0')}${Number(b).toString(16).padStart(2, '0')}`
 }
 
 function formatName(path: string) {

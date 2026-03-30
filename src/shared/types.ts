@@ -135,9 +135,25 @@ export interface BrandTemplateCaptionDefaults {
   presetId: string;
   text: string;
   font: string;
+  fontSize: number;
+  fontWeight: '500' | '600' | '700' | '800';
+  italic: boolean;
+  underline: boolean;
+  uppercase: boolean;
   position: 'top' | 'center' | 'bottom' | 'custom';
   customX?: number | null;
   customY?: number | null;
+  animation: 'box';
+  lineMode: 'one-line' | 'three-lines';
+  highlightColor: string;
+  backgroundColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  shadowEnabled: boolean;
+  shadowColor: string;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+  shadowBlur: number;
 }
 
 export interface BrandTemplateLogoDefaults {
