@@ -497,14 +497,15 @@ export function BrandTemplatePage() {
     const words = getCaptionWords(template?.caption ?? defaultBrandTemplate.caption)
     const stepCount = Math.max(words.length, 1)
     let currentStep = 0
+    const demoDurationMs = 5000
+    const stepIntervalMs = Math.max(Math.floor(demoDurationMs / stepCount), 1)
 
     demoIntervalRef.current = setInterval(() => {
       currentStep += 1
       setCaptionWordIndex(Math.min(currentStep, Math.max(words.length - 1, 0)))
       setDemoProgress(Math.min((currentStep / stepCount) * 100, 100))
-    }, 450)
+    }, stepIntervalMs)
 
-    const demoDurationMs = Math.max(stepCount * 450 + 600, 2600)
     demoTimeoutRef.current = setTimeout(() => {
       clearDemoTimers()
       if (template?.introOutro.outroPath) {
