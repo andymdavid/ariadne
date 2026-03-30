@@ -8,9 +8,10 @@ import {
   IoPlay,
   IoPause,
   IoResizeOutline,
-  IoSaveOutline
+  IoTextOutline
 } from 'react-icons/io5'
 import type { BrandTemplate } from '@shared/types'
+import { MainContentPanel } from '../components/MainContentPanel'
 
 type ClipRecord = {
   id: string
@@ -541,303 +542,406 @@ export function ClipEditorPage() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#08090c]">
-        <div className="text-center">
-          <div className="text-lg text-text-primary">Loading clip editor…</div>
-          <div className="text-sm text-text-muted">Preparing transcript and preview</div>
+      <MainContentPanel>
+        <div className="app-page">
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center">
+              <div className="text-lg text-text-primary">Loading clip editor…</div>
+              <div className="text-sm text-text-muted">Preparing transcript and preview</div>
+            </div>
+          </div>
         </div>
-      </div>
+      </MainContentPanel>
     )
   }
 
   if (error || !clip || !episodeId) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#08090c]">
-        <div className="max-w-md text-center">
-          <div className="text-lg text-text-primary">Editor unavailable</div>
-          <div className="mt-2 text-sm text-text-muted">{error || 'Clip data could not be loaded.'}</div>
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#12151b] px-4 py-2 text-sm text-text-primary transition-colors hover:bg-[#171b22]"
-          >
-            <IoArrowBack size={15} />
-            Back home
-          </button>
+      <MainContentPanel>
+        <div className="app-page">
+          <div className="flex h-full items-center justify-center">
+            <div className="max-w-md text-center">
+              <div className="text-lg text-text-primary">Editor unavailable</div>
+              <div className="mt-2 text-sm text-text-muted">{error || 'Clip data could not be loaded.'}</div>
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#12151b] px-4 py-2 text-sm text-text-primary transition-colors hover:bg-[#171b22]"
+              >
+                <IoArrowBack size={15} />
+                Back home
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      </MainContentPanel>
     )
   }
 
   return (
-    <div className="ml-[220px] flex h-full flex-col bg-[#08090c] text-text-primary">
-      <header className="flex items-center justify-between border-b border-white/8 px-6 py-4">
-        <div className="flex min-w-0 items-center gap-4">
-          <button
-            type="button"
-            onClick={() => navigate(`/review/${episodeId}`)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-white/6 hover:text-text-primary"
-          >
-            <IoArrowBack size={16} />
-          </button>
-          <div className="min-w-0">
-            <div className="truncate text-[15px] font-medium text-text-primary">{clipTitle}</div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            disabled
-            className="inline-flex items-center gap-2 rounded-xl border border-white/8 bg-[#14171d] px-4 py-2 text-sm font-medium text-text-muted"
-          >
-            <IoSaveOutline size={16} />
-            Save changes
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate(`/export/${episodeId}`)}
-            className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black"
-          >
-            Export
-          </button>
-        </div>
-      </header>
-
-      <div
-        className="grid min-h-0 flex-1 overflow-hidden"
-        style={{ gridTemplateColumns: 'minmax(320px, 1.05fr) minmax(440px, 1fr)' }}
-      >
-        <section className="flex min-h-0 flex-col border-r border-white/8 px-6 py-5">
-          <div className="mb-4 flex items-center justify-between">
-            <label className="inline-flex items-center gap-3 text-sm text-text-secondary">
-              <input
-                type="checkbox"
-                checked={isTranscriptOnly}
-                onChange={(event) => setIsTranscriptOnly(event.target.checked)}
-                className="h-4 w-4 rounded border-white/12 bg-transparent"
-              />
-              Transcript only
-            </label>
-            <button
-              type="button"
-              className="rounded-lg border border-white/8 px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-white/6 hover:text-text-primary"
-            >
-              + Add a section
-            </button>
-          </div>
-
-          <div ref={transcriptScrollerRef} className="min-h-0 flex-1 overflow-y-auto pr-4">
-            <div className="space-y-8 text-[15px] leading-9 text-[#d8dbe2]">
-              {transcriptLines.map((line) => (
-                <div
-                  key={line.id}
-                  data-line-id={line.id}
-                  className={`rounded-xl px-2 py-1 transition-colors ${
-                    activeLineId === line.id ? 'bg-white/8 text-white' : ''
-                  }`}
-                >
-                  {line.text}
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="flex min-h-0 flex-col overflow-hidden">
-          <div className="flex items-center justify-between px-8 py-5">
-            <div className="flex items-center gap-7 text-sm text-text-secondary">
-              <span className="inline-flex items-center gap-2">
-                <IoResizeOutline size={15} />
-                {framePreview?.aspectRatio || '9:16'}
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <IoExpandOutline size={15} />
-                Layout: {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center Crop' : 'Fill'}
-              </span>
-              <span>Tracker: OFF</span>
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-6">
-            <div
-              ref={previewFrameRef}
-              className="relative aspect-[9/16] h-full max-h-[420px] min-h-0 overflow-hidden rounded-[24px] bg-black"
-            >
-              {mediaUrl ? (
-                <video
-                  ref={videoRef}
-                  src={mediaUrl}
-                  className="h-full w-full object-cover"
-                  playsInline
-                  muted
-                  preload="metadata"
-                />
-              ) : null}
-              <div className="absolute left-5 top-5 rounded-full bg-black/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
-                Preview
+    <MainContentPanel>
+      <div className="app-page">
+        <div className="workspace-shell mx-auto w-full max-w-[1480px]">
+          <div className="workspace-header">
+            <div className="workspace-header-copy">
+              <div className="workspace-kicker">Clip Workspace</div>
+              <div className="workspace-title">{clipTitle}</div>
+              <div className="workspace-subtitle">
+                Review transcript timing, validate the current clip frame, and inspect the inherited brand
+                treatment before export.
               </div>
-              {logoPreview?.enabled && logoPreview.assetPath ? (
-                <img
-                  src={`app-file://${logoPreview.assetPath}`}
-                  alt="Brand logo"
-                  className="absolute"
-                  style={{
-                    left: `${logoPreview.positionX}%`,
-                    top: `${logoPreview.positionY}%`,
-                    transform: 'translate(-50%, -50%)',
-                    width: `${logoPreview.scale * 100}%`,
-                    opacity: logoPreview.opacity,
-                    zIndex: 20,
-                    cursor: isDraggingLogo ? 'grabbing' : 'grab'
-                  }}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    setIsDraggingLogo(true)
-                  }}
-                />
-              ) : null}
-              {captionPreview?.text ? (
-                (() => {
-                  const layout = getCaptionLayoutConfig(captionPreview.presetId, previewFrameWidth)
-                  const bubbleWidth = layout.maxWidth
-                    ? Math.min(layout.maxWidth, Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio))
-                    : Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
-                  const fontSize = clamp(
-                    Math.round(previewFrameWidth * layout.fontScale),
-                    layout.minFontSize,
-                    layout.maxFontSize
-                  )
+            </div>
 
-                  return (
-                    <div
-                      className={`absolute left-1/2 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${
-                        layout.maxLines === 1 ? 'whitespace-nowrap leading-[1.2]' : 'leading-[1.28]'
-                      }`}
-                      style={{
-                        fontFamily: captionPreview.font,
-                        fontSize: `${fontSize}px`,
-                        width: `${bubbleWidth}px`,
-                        maxWidth: `${bubbleWidth}px`,
-                        top:
-                          captionPreview.position === 'top'
-                            ? '12%'
-                            : captionPreview.position === 'center'
-                              ? '50%'
-                              : captionPreview.position === 'custom' && captionPreview.customY != null
-                                ? `${captionPreview.customY}%`
-                                : undefined,
-                        bottom:
-                          captionPreview.position === 'bottom'
-                            ? '12%'
-                            : captionPreview.position === 'custom' && captionPreview.customY == null
-                              ? '12%'
-                              : undefined,
-                        left:
-                          captionPreview.position === 'custom' && captionPreview.customX != null
-                            ? `${captionPreview.customX}%`
-                            : '50%',
-                        transform:
-                          captionPreview.position === 'center'
-                            ? 'translate(-50%, -50%)'
-                            : 'translateX(-50%)',
-                        zIndex: 25,
-                        cursor: isDraggingCaption ? 'grabbing' : 'grab'
-                      }}
-                      onMouseDown={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        setIsDraggingCaption(true)
-                      }}
-                    >
-                      {captionPreview.text}
-                    </div>
-                  )
-                })()
-              ) : null}
-              {musicEnabled ? (
-                <div className="absolute bottom-5 left-5 inline-flex items-center gap-2 rounded-full bg-black/55 px-3 py-2 text-xs text-white/85">
-                  <IoMusicalNotesOutline size={14} />
-                  Music on
+            <div className="workspace-actions">
+              <button
+                type="button"
+                onClick={() => navigate(`/review/${episodeId}`)}
+                className="app-action-secondary"
+              >
+                <IoArrowBack size={16} />
+                Back to review
+              </button>
+              <div className="app-chip">{framePreview?.aspectRatio || '9:16'}</div>
+              <button
+                type="button"
+                onClick={() => navigate(`/export/${episodeId}`)}
+                className="app-action-primary"
+              >
+                Export
+              </button>
+            </div>
+          </div>
+
+          <div className="workspace-grid workspace-grid-editor">
+            <section className="workspace-panel">
+              <div className="workspace-panel-scroll">
+                <div className="workspace-panel-header">
+                  <div>
+                    <div className="workspace-panel-kicker">Transcript</div>
+                    <h2 className="workspace-panel-title">Clip script</h2>
+                    <p className="workspace-panel-copy">
+                      Review the transcript lines driving the current caption preview and playback range.
+                    </p>
+                  </div>
+                  <label className="inline-flex items-center gap-3 text-sm text-text-secondary">
+                    <input
+                      type="checkbox"
+                      checked={isTranscriptOnly}
+                      onChange={(event) => setIsTranscriptOnly(event.target.checked)}
+                      className="h-4 w-4 rounded border-white/12 bg-transparent"
+                    />
+                    Transcript only
+                  </label>
                 </div>
-              ) : null}
-            </div>
-          </div>
-        </section>
 
+                <div ref={transcriptScrollerRef} className="min-h-0 overflow-y-auto pr-2">
+                  <div className="space-y-5 text-[15px] leading-8 text-[#d8dbe2]">
+                    {transcriptLines.map((line) => (
+                      <div
+                        key={line.id}
+                        data-line-id={line.id}
+                        className={`rounded-xl px-3 py-2 transition-colors ${
+                          activeLineId === line.id ? 'bg-white/8 text-white' : ''
+                        }`}
+                      >
+                        {line.text}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="workspace-panel">
+              <div className="workspace-panel-scroll">
+                <div className="workspace-panel-header">
+                  <div>
+                    <div className="workspace-panel-kicker">Preview</div>
+                    <h2 className="workspace-panel-title">Current clip output</h2>
+                    <p className="workspace-panel-copy">
+                      Preview the active framing, caption treatment, logo placement, and playback timing.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm text-text-secondary">
+                    <span className="inline-flex items-center gap-2">
+                      <IoResizeOutline size={15} />
+                      {framePreview?.aspectRatio || '9:16'}
+                    </span>
+                    <span className="inline-flex items-center gap-2">
+                      <IoExpandOutline size={15} />
+                      {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center Crop' : 'Fill'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="workspace-preview-shell">
+                  <div
+                    ref={previewFrameRef}
+                    className="relative aspect-[9/16] h-full max-h-[520px] min-h-0 overflow-hidden rounded-[24px] bg-black"
+                  >
+                    {mediaUrl ? (
+                      <video
+                        ref={videoRef}
+                        src={mediaUrl}
+                        className="h-full w-full object-cover"
+                        playsInline
+                        muted
+                        preload="metadata"
+                      />
+                    ) : null}
+                    <div className="absolute left-5 top-5 rounded-full bg-black/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
+                      Preview
+                    </div>
+                    {logoPreview?.enabled && logoPreview.assetPath ? (
+                      <img
+                        src={`app-file://${logoPreview.assetPath}`}
+                        alt="Brand logo"
+                        className="absolute"
+                        style={{
+                          left: `${logoPreview.positionX}%`,
+                          top: `${logoPreview.positionY}%`,
+                          transform: 'translate(-50%, -50%)',
+                          width: `${logoPreview.scale * 100}%`,
+                          opacity: logoPreview.opacity,
+                          zIndex: 20,
+                          cursor: isDraggingLogo ? 'grabbing' : 'grab'
+                        }}
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setIsDraggingLogo(true)
+                        }}
+                      />
+                    ) : null}
+                    {captionPreview?.text ? (
+                      (() => {
+                        const layout = getCaptionLayoutConfig(captionPreview.presetId, previewFrameWidth)
+                        const bubbleWidth = layout.maxWidth
+                          ? Math.min(layout.maxWidth, Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio))
+                          : Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
+                        const fontSize = clamp(
+                          Math.round(previewFrameWidth * layout.fontScale),
+                          layout.minFontSize,
+                          layout.maxFontSize
+                        )
+
+                        return (
+                          <div
+                            className={`absolute left-1/2 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${
+                              layout.maxLines === 1 ? 'whitespace-nowrap leading-[1.2]' : 'leading-[1.28]'
+                            }`}
+                            style={{
+                              fontFamily: captionPreview.font,
+                              fontSize: `${fontSize}px`,
+                              width: `${bubbleWidth}px`,
+                              maxWidth: `${bubbleWidth}px`,
+                              top:
+                                captionPreview.position === 'top'
+                                  ? '12%'
+                                  : captionPreview.position === 'center'
+                                    ? '50%'
+                                    : captionPreview.position === 'custom' && captionPreview.customY != null
+                                      ? `${captionPreview.customY}%`
+                                      : undefined,
+                              bottom:
+                                captionPreview.position === 'bottom'
+                                  ? '12%'
+                                  : captionPreview.position === 'custom' && captionPreview.customY == null
+                                    ? '12%'
+                                    : undefined,
+                              left:
+                                captionPreview.position === 'custom' && captionPreview.customX != null
+                                  ? `${captionPreview.customX}%`
+                                  : '50%',
+                              transform:
+                                captionPreview.position === 'center'
+                                  ? 'translate(-50%, -50%)'
+                                  : 'translateX(-50%)',
+                              zIndex: 25,
+                              cursor: isDraggingCaption ? 'grabbing' : 'grab'
+                            }}
+                            onMouseDown={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              setIsDraggingCaption(true)
+                            }}
+                          >
+                            {captionPreview.text}
+                          </div>
+                        )
+                      })()
+                    ) : null}
+                    {musicEnabled ? (
+                      <div className="absolute bottom-5 left-5 inline-flex items-center gap-2 rounded-full bg-black/55 px-3 py-2 text-xs text-white/85">
+                        <IoMusicalNotesOutline size={14} />
+                        Music on
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="workspace-panel">
+              <div className="workspace-panel-scroll">
+                <div className="workspace-panel-header">
+                  <div>
+                    <div className="workspace-panel-kicker">Context</div>
+                    <h2 className="workspace-panel-title">Clip settings</h2>
+                    <p className="workspace-panel-copy">
+                      Quick readout of the inherited template state and the controls already reflected in the preview.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-5">
+                  <div>
+                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
+                      <IoTextOutline size={16} />
+                      Captions
+                    </div>
+                    <div className="space-y-2">
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Preset</div>
+                          <div className="workspace-summary-row-value">{captionPreview?.presetId || 'None'}</div>
+                        </div>
+                      </div>
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Font</div>
+                          <div className="workspace-summary-row-value">{captionPreview?.font || 'Inter'}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-3 text-sm font-medium text-text-muted">Frame</div>
+                    <div className="space-y-2">
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Aspect ratio</div>
+                          <div className="workspace-summary-row-value">{framePreview?.aspectRatio || '9:16'}</div>
+                        </div>
+                      </div>
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Layout</div>
+                          <div className="workspace-summary-row-value">
+                            {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center Crop' : 'Fill'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-3 text-sm font-medium text-text-muted">Clip range</div>
+                    <div className="space-y-2">
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Duration</div>
+                          <div className="workspace-summary-row-value">{formatClockTime(clip.duration)}</div>
+                        </div>
+                      </div>
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Time range</div>
+                          <div className="workspace-summary-row-value">
+                            {formatClockTime(clip.startTime)} - {formatClockTime(clip.endTime)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/8 bg-[#0d1014] p-4 text-sm text-text-secondary">
+                    Drag caption and logo elements directly in the preview where supported. Playback and timeline
+                    controls below remain unchanged.
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <footer className="workspace-panel shrink-0">
+            <div className="workspace-panel-scroll !p-0">
+              <div className="flex items-center justify-between border-b border-white/8 px-6 py-3">
+                <div className="flex items-center gap-4 text-sm text-text-secondary">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 hover:text-text-primary"
+                  >
+                    <IoCheckmarkCircleOutline size={15} />
+                    Timeline
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => seekWithinClip(currentTime - 1)}
+                    className="text-text-secondary transition-colors hover:text-text-primary"
+                  >
+                    ‹‹
+                  </button>
+                  <button
+                    type="button"
+                    onClick={togglePlayback}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-black"
+                  >
+                    {isPlaying ? <IoPause size={16} /> : <IoPlay size={16} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => seekWithinClip(currentTime + 1)}
+                    className="text-text-secondary transition-colors hover:text-text-primary"
+                  >
+                    ››
+                  </button>
+                  <div className="text-sm text-text-secondary">
+                    {formatClockTime(currentTime - clip.startTime)} / {formatClockTime(clip.duration)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-6 py-4">
+                <div className="relative mb-4 h-1 rounded-full bg-white/8">
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full bg-white"
+                    style={{ width: `${Math.min(Math.max(timelineProgress, 0), 100)}%` }}
+                  />
+                </div>
+
+                <div className="flex items-end gap-2 overflow-x-auto pb-2">
+                  {transcriptLines.map((line) => {
+                    const width = episodeDuration > 0 ? Math.max(((line.end - line.start) / episodeDuration) * 1000, 54) : 72
+                    const isActive = activeLineId === line.id
+
+                    return (
+                      <button
+                        key={line.id}
+                        type="button"
+                        onClick={() => seekWithinClip(line.start)}
+                        className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                          isActive
+                            ? 'border-white/20 bg-white/10 text-white'
+                            : 'border-white/8 bg-[#11141a] text-text-secondary hover:border-white/14 hover:text-text-primary'
+                        }`}
+                        style={{ width }}
+                      >
+                        <div className="mb-1 text-[11px] uppercase tracking-[0.16em] text-text-muted">Segment</div>
+                        <div className="truncate text-xs">{line.text}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </footer>
+        </div>
       </div>
-
-      <footer className="shrink-0 border-t border-white/8 bg-[#090b0f]">
-        <div className="flex items-center justify-between border-b border-white/8 px-6 py-3">
-          <div className="flex items-center gap-4 text-sm text-text-secondary">
-            <button type="button" className="inline-flex items-center gap-2 hover:text-text-primary">
-              <IoCheckmarkCircleOutline size={15} />
-              Hide timeline
-            </button>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={() => seekWithinClip(currentTime - 1)}
-              className="text-text-secondary transition-colors hover:text-text-primary"
-            >
-              ‹‹
-            </button>
-            <button
-              type="button"
-              onClick={togglePlayback}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-black"
-            >
-              {isPlaying ? <IoPause size={16} /> : <IoPlay size={16} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => seekWithinClip(currentTime + 1)}
-              className="text-text-secondary transition-colors hover:text-text-primary"
-            >
-              ››
-            </button>
-            <div className="text-sm text-text-secondary">
-              {formatClockTime(currentTime - clip.startTime)} / {formatClockTime(clip.duration)}
-            </div>
-          </div>
-        </div>
-
-        <div className="px-6 py-4">
-          <div className="relative mb-4 h-1 rounded-full bg-white/8">
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-white"
-              style={{ width: `${Math.min(Math.max(timelineProgress, 0), 100)}%` }}
-            />
-          </div>
-
-          <div className="flex items-end gap-2 overflow-x-auto pb-2">
-            {transcriptLines.map((line) => {
-              const width = episodeDuration > 0 ? Math.max(((line.end - line.start) / episodeDuration) * 1000, 54) : 72
-              const isActive = activeLineId === line.id
-
-              return (
-                <button
-                  key={line.id}
-                  type="button"
-                  onClick={() => seekWithinClip(line.start)}
-                  className={`rounded-xl border px-3 py-2 text-left transition-colors ${
-                    isActive
-                      ? 'border-white/20 bg-white/10 text-white'
-                      : 'border-white/8 bg-[#11141a] text-text-secondary hover:border-white/14 hover:text-text-primary'
-                  }`}
-                  style={{ width }}
-                >
-                  <div className="mb-1 text-[11px] uppercase tracking-[0.16em] text-text-muted">Segment</div>
-                  <div className="truncate text-xs">{line.text}</div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </footer>
-    </div>
+    </MainContentPanel>
   )
 }
