@@ -781,12 +781,12 @@
     gap: 14px;
     min-width: 240px;
     justify-content: center;
-    min-height: 56px;
+    min-height: 48px;
     border-radius: 5px;
     border: 1px solid rgba(255, 255, 255, 0.05);
     background: rgba(255, 255, 255, 0.04);
     color: #f3f5f7;
-    padding: 0 20px;
+    padding: 0 18px;
     font-size: 16px;
     font-weight: 500;
   }
