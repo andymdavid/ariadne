@@ -783,6 +783,10 @@ ipcMain.handle('set-active-brand-template-preset', (event, presetId: string) => 
   }
 })
 
+ipcMain.handle('delete-brand-template-preset', (event, presetId: string) => {
+  return configService.deleteBrandTemplatePreset(presetId)
+})
+
 // Clip playback - extract and play actual clip
 ipcMain.handle('play-clip', async (event, episodeId: string, startTime: number, endTime: number, clipId: string) => {
   try {

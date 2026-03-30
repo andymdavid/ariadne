@@ -166,6 +166,13 @@ const electronAPI = {
       activePresetId: string
       brandTemplate: BrandTemplate
     }>,
+  deleteBrandTemplatePreset: (presetId: string) =>
+    ipcRenderer.invoke('delete-brand-template-preset', presetId) as Promise<{
+      deletedPresetId: string
+      presets: BrandTemplatePreset[]
+      activePresetId: string
+      brandTemplate: BrandTemplate
+    }>,
   validateConfig: () => ipcRenderer.invoke('validate-config'),
 
   // Export operations
@@ -322,6 +329,12 @@ declare global {
       }>;
       setActiveBrandTemplatePreset: (presetId: string) => Promise<{
         preset: BrandTemplatePreset;
+        presets: BrandTemplatePreset[];
+        activePresetId: string;
+        brandTemplate: BrandTemplate;
+      }>;
+      deleteBrandTemplatePreset: (presetId: string) => Promise<{
+        deletedPresetId: string;
         presets: BrandTemplatePreset[];
         activePresetId: string;
         brandTemplate: BrandTemplate;

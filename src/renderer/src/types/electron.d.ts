@@ -98,6 +98,12 @@ declare global {
         activePresetId: string;
         brandTemplate: BrandTemplate;
       }>;
+      deleteBrandTemplatePreset: (presetId: string) => Promise<{
+        deletedPresetId: string;
+        presets: BrandTemplatePreset[];
+        activePresetId: string;
+        brandTemplate: BrandTemplate;
+      }>;
       validateConfig: () => Promise<{ isValid: boolean; errors: string[] }>;
 
       // Export operations

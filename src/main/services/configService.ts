@@ -346,6 +346,40 @@ class ConfigService {
     this.store.set('brandTemplate', cloneBrandTemplate(preset.template))
     return preset
   }
+
+  deleteBrandTemplatePreset(presetId: string): {
+    deletedPresetId: string
+    presets: BrandTemplatePreset[]
+    activePresetId: string
+    brandTemplate: BrandTemplate
+  } {
+    const presets = this.getBrandTemplatePresets()
+    if (presets.length <= 1) {
+      throw new Error('At least one preset must remain')
+    }
+
+    const nextPresets = presets.filter((preset) => preset.id !== presetId)
+    if (nextPresets.length === presets.length) {
+      throw new Error('Brand template preset not found')
+    }
+
+    const currentActiveId = this.getActiveBrandTemplatePresetId()
+    const nextActivePreset =
+      currentActiveId === presetId
+        ? nextPresets[0]
+        : nextPresets.find((preset) => preset.id === currentActiveId) ?? nextPresets[0]
+
+    this.store.set('brandTemplatePresets', nextPresets)
+    this.store.set('activeBrandTemplatePresetId', nextActivePreset.id)
+    this.store.set('brandTemplate', cloneBrandTemplate(nextActivePreset.template))
+
+    return {
+      deletedPresetId: presetId,
+      presets: nextPresets,
+      activePresetId: nextActivePreset.id,
+      brandTemplate: cloneBrandTemplate(nextActivePreset.template)
+    }
+  }
   
   // Validation
   isConfigured(): boolean {

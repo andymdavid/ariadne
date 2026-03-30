@@ -513,6 +513,19 @@ export function BrandTemplatePage() {
     }
   }
 
+  const handleDeletePreset = async (presetId: string) => {
+    try {
+      const response = await window.electronAPI?.deleteBrandTemplatePreset?.(presetId)
+      if (!response) return
+      setPresets(response.presets)
+      setActivePresetId(response.activePresetId)
+      applyTemplateState(response.brandTemplate)
+      setIsPresetMenuOpen(true)
+    } catch (error) {
+      console.error('Failed to delete brand template preset:', error)
+    }
+  }
+
   const pickIntroOutroFile = async (kind: 'introPath' | 'outroPath') => {
     const filePath = await window.electronAPI?.selectFile?.()
     if (!filePath) return
@@ -743,14 +756,29 @@ export function BrandTemplatePage() {
                           </div>
                           <div className="brand-preset-card-footer">
                             <div className="brand-preset-card-name">{preset.name}</div>
-                            <div className="brand-preset-card-swatches">
-                              {getPresetSwatches(preset.template).map((color) => (
-                                <span
-                                  key={`${preset.id}-${color}`}
-                                  className="brand-preset-card-swatch"
-                                  style={{ backgroundColor: color }}
-                                />
-                              ))}
+                            <div className="brand-preset-card-footer-right">
+                              <div className="brand-preset-card-swatches">
+                                {getPresetSwatches(preset.template).map((color) => (
+                                  <span
+                                    key={`${preset.id}-${color}`}
+                                    className="brand-preset-card-swatch"
+                                    style={{ backgroundColor: color }}
+                                  />
+                                ))}
+                              </div>
+                              {presets.length > 1 ? (
+                                <button
+                                  type="button"
+                                  className="brand-preset-delete"
+                                  aria-label={`Delete ${preset.name}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    void handleDeletePreset(preset.id)
+                                  }}
+                                >
+                                  <IoTrashOutline size={14} />
+                                </button>
+                              ) : null}
                             </div>
                           </div>
                         </button>
