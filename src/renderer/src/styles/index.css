@@ -428,6 +428,51 @@
     grid-template-columns: minmax(340px, 1.05fr) minmax(460px, 1.1fr) 300px;
   }
 
+  .clip-editor-grid {
+    grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+  }
+
+  .clip-editor-header-action {
+    border-radius: 5px;
+    min-height: 42px;
+  }
+
+  .clip-editor-preview-stage {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: 24px;
+    padding-top: 6px;
+  }
+
+  .clip-editor-preview-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 28px;
+    color: rgba(240, 246, 252, 0.9);
+    font-size: 15px;
+    line-height: 1.2;
+  }
+
+  .clip-editor-preview-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: rgba(240, 246, 252, 0.9);
+  }
+
+  .clip-editor-preview-canvas {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0 0;
+  }
+
   .workspace-panel {
     min-height: 0;
     border-radius: 5px;

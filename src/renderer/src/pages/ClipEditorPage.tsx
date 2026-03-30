@@ -4,6 +4,7 @@ import {
   IoArrowBack,
   IoCheckmarkCircleOutline,
   IoExpandOutline,
+  IoFlashOffOutline,
   IoMusicalNotesOutline,
   IoPlay,
   IoPause,
@@ -175,6 +176,13 @@ export function ClipEditorPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const transcriptScrollerRef = useRef<HTMLDivElement>(null)
   const previewFrameRef = useRef<HTMLDivElement>(null)
+
+  const previewAspectClass =
+    framePreview?.aspectRatio === '1:1'
+      ? 'aspect-square w-full max-w-[560px]'
+      : framePreview?.aspectRatio === '16:9'
+        ? 'aspect-video w-full max-w-[900px]'
+        : 'aspect-[9/16] h-full max-h-[620px] w-full max-w-[360px]'
 
   const getPreviewCaptionText = (
     line: TranscriptLine | undefined,
@@ -581,7 +589,7 @@ export function ClipEditorPage() {
             <button
               type="button"
               onClick={() => navigate(`/review/${episodeId}`)}
-              className="app-action-secondary"
+              className="app-action-secondary clip-editor-header-action"
             >
               <IoArrowBack size={16} />
               Back to review
@@ -589,80 +597,72 @@ export function ClipEditorPage() {
             <button
               type="button"
               onClick={() => navigate(`/export/${episodeId}`)}
-              className="app-action-primary"
+              className="app-action-primary clip-editor-header-action"
             >
               Export
             </button>
           </div>
         </div>
 
-        <div className="workspace-grid workspace-grid-editor">
+        <div className="workspace-grid clip-editor-grid">
           <section className="workspace-panel">
-              <div className="workspace-panel-scroll">
-                <div className="workspace-panel-header">
-                  <div>
-                    <div className="workspace-panel-kicker">Transcript</div>
-                    <h2 className="workspace-panel-title">Clip script</h2>
-                    <p className="workspace-panel-copy">
-                      Review the transcript lines driving the current caption preview and playback range.
-                    </p>
-                  </div>
-                  <label className="inline-flex items-center gap-3 text-sm text-text-secondary">
-                    <input
-                      type="checkbox"
-                      checked={isTranscriptOnly}
-                      onChange={(event) => setIsTranscriptOnly(event.target.checked)}
-                      className="h-4 w-4 rounded border-white/12 bg-transparent"
-                    />
-                    Transcript only
-                  </label>
-                </div>
+            <div className="workspace-panel-scroll">
+              <div className="mb-5 flex items-center justify-between gap-4">
+                <h2 className="workspace-panel-title !mt-0">Transcript</h2>
+                <label className="inline-flex items-center gap-3 text-sm text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={isTranscriptOnly}
+                    onChange={(event) => setIsTranscriptOnly(event.target.checked)}
+                    className="h-4 w-4 rounded border-white/12 bg-transparent"
+                  />
+                  Transcript only
+                </label>
+              </div>
 
-                <div ref={transcriptScrollerRef} className="min-h-0 overflow-y-auto pr-2">
-                  <div className="space-y-5 text-[15px] leading-8 text-[#d8dbe2]">
-                    {transcriptLines.map((line) => (
-                      <div
-                        key={line.id}
-                        data-line-id={line.id}
-                        className={`rounded-xl px-3 py-2 transition-colors ${
-                          activeLineId === line.id ? 'bg-white/8 text-white' : ''
-                        }`}
-                      >
-                        {line.text}
-                      </div>
-                    ))}
-                  </div>
+              <div ref={transcriptScrollerRef} className="min-h-0 overflow-y-auto pr-2">
+                <div className="space-y-5 text-[15px] leading-8 text-[#d8dbe2]">
+                  {transcriptLines.map((line) => (
+                    <div
+                      key={line.id}
+                      data-line-id={line.id}
+                      className={`rounded-xl px-3 py-2 transition-colors ${
+                        activeLineId === line.id ? 'bg-white/8 text-white' : ''
+                      }`}
+                    >
+                      {line.text}
+                    </div>
+                  ))}
                 </div>
               </div>
+            </div>
           </section>
 
-          <section className="workspace-panel">
-              <div className="workspace-panel-scroll">
-                <div className="workspace-panel-header">
-                  <div>
-                    <div className="workspace-panel-kicker">Preview</div>
-                    <h2 className="workspace-panel-title">Current clip output</h2>
-                    <p className="workspace-panel-copy">
-                      Preview the active framing, caption treatment, logo placement, and playback timing.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-text-secondary">
-                    <span className="inline-flex items-center gap-2">
-                      <IoResizeOutline size={15} />
-                      {framePreview?.aspectRatio || '9:16'}
-                    </span>
-                    <span className="inline-flex items-center gap-2">
-                      <IoExpandOutline size={15} />
-                      {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center Crop' : 'Fill'}
-                    </span>
-                  </div>
-                </div>
+          <section className="clip-editor-preview-stage">
+            <div className="clip-editor-preview-meta">
+              <span className="clip-editor-preview-meta-item">
+                <IoResizeOutline size={15} />
+                {framePreview?.aspectRatio || '9:16'}
+              </span>
+              <span className="clip-editor-preview-meta-item">
+                <IoExpandOutline size={15} />
+                Layout: {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center' : 'Fit'}
+              </span>
+              <span className="clip-editor-preview-meta-item">
+                <IoTextOutline size={15} />
+                {captionPreview?.presetId || 'Default captions'}
+              </span>
+              <span className="clip-editor-preview-meta-item">
+                {musicEnabled ? <IoMusicalNotesOutline size={15} /> : <IoFlashOffOutline size={15} />}
+                {musicEnabled ? 'Music on' : 'Tracker: OFF'}
+              </span>
+            </div>
 
-                <div className="workspace-preview-shell">
-                  <div
-                    ref={previewFrameRef}
-                    className="relative aspect-[9/16] h-full max-h-[520px] min-h-0 overflow-hidden rounded-[24px] bg-black"
-                  >
+            <div className="clip-editor-preview-canvas">
+              <div
+                ref={previewFrameRef}
+                className={`relative min-h-0 overflow-hidden rounded-[5px] bg-black ${previewAspectClass}`}
+              >
                     {mediaUrl ? (
                       <video
                         ref={videoRef}
@@ -673,9 +673,6 @@ export function ClipEditorPage() {
                         preload="metadata"
                       />
                     ) : null}
-                    <div className="absolute left-5 top-5 rounded-full bg-black/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
-                      Preview
-                    </div>
                     {logoPreview?.enabled && logoPreview.assetPath ? (
                       <img
                         src={`app-file://${logoPreview.assetPath}`}
@@ -761,89 +758,6 @@ export function ClipEditorPage() {
                         Music on
                       </div>
                     ) : null}
-                  </div>
-                </div>
-              </div>
-          </section>
-
-          <section className="workspace-panel">
-              <div className="workspace-panel-scroll">
-                <div className="workspace-panel-header">
-                  <div>
-                    <div className="workspace-panel-kicker">Context</div>
-                    <h2 className="workspace-panel-title">Clip settings</h2>
-                    <p className="workspace-panel-copy">
-                      Quick readout of the inherited template state and the controls already reflected in the preview.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-5">
-                  <div>
-                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
-                      <IoTextOutline size={16} />
-                      Captions
-                    </div>
-                    <div className="space-y-2">
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Preset</div>
-                          <div className="workspace-summary-row-value">{captionPreview?.presetId || 'None'}</div>
-                        </div>
-                      </div>
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Font</div>
-                          <div className="workspace-summary-row-value">{captionPreview?.font || 'Inter'}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-3 text-sm font-medium text-text-muted">Frame</div>
-                    <div className="space-y-2">
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Aspect ratio</div>
-                          <div className="workspace-summary-row-value">{framePreview?.aspectRatio || '9:16'}</div>
-                        </div>
-                      </div>
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Layout</div>
-                          <div className="workspace-summary-row-value">
-                            {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center Crop' : 'Fill'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-3 text-sm font-medium text-text-muted">Clip range</div>
-                    <div className="space-y-2">
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Duration</div>
-                          <div className="workspace-summary-row-value">{formatClockTime(clip.duration)}</div>
-                        </div>
-                      </div>
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Time range</div>
-                          <div className="workspace-summary-row-value">
-                            {formatClockTime(clip.startTime)} - {formatClockTime(clip.endTime)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/8 bg-[#0d1014] p-4 text-sm text-text-secondary">
-                    Drag caption and logo elements directly in the preview where supported. Playback and timeline
-                    controls below remain unchanged.
-                  </div>
                 </div>
               </div>
           </section>
