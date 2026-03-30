@@ -242,8 +242,8 @@ export function BrandTemplatePage() {
 
   return (
     <MainContentPanel>
-      <div className="app-page">
-        <div className="mx-auto w-full max-w-[1380px]">
+      <div className="app-page flex h-full flex-col overflow-hidden pb-0">
+        <div className="mx-auto flex h-full w-full max-w-[1380px] flex-col">
           <div className="app-page-header">
             <div className="mx-auto w-full max-w-[1380px]">
               <div className="flex items-center justify-between gap-4">
@@ -270,7 +270,7 @@ export function BrandTemplatePage() {
             </div>
           </div>
 
-          <div className="grid min-h-[calc(100vh-180px)] gap-10 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-center">
+          <div className="grid flex-1 items-center gap-10 lg:grid-cols-[320px_minmax(0,1fr)]">
             <section className="workspace-panel brand-settings-panel">
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
