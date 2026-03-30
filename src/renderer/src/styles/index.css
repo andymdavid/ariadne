@@ -3124,6 +3124,52 @@ body.dark-mode .clip-card.selected {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.clip-card-grid {
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 16px;
+  gap: 14px;
+  transform: none;
+  opacity: 1;
+  cursor: default;
+  border-radius: 5px;
+  background: rgba(13, 17, 23, 0.92);
+}
+
+.clip-card-grid::after {
+  border-radius: 5px 5px 0 0;
+}
+
+.clip-card-grid:hover:not(.selected) {
+  transform: none;
+  opacity: 1;
+}
+
+.clip-card-grid.selected {
+  transform: none;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.clip-card-preview-shell {
+  overflow: hidden;
+  border-radius: 5px;
+}
+
+.clip-card-grid .clip-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.clip-card-grid .btn-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
 .btn-sm {
   padding: 8px 16px;
   font-size: 13px;

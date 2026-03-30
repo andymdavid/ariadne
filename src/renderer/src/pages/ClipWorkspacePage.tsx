@@ -221,7 +221,7 @@ export function ClipWorkspacePage() {
     target.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [clipId, clips])
 
-  const selectedClipId = useMemo(() => clipId || clips[0]?.id || null, [clipId, clips])
+  const selectedClipId = useMemo(() => clipId || null, [clipId])
 
   const updateClipStatus = async (targetClipId: string, status: Clip['status']) => {
     try {
@@ -270,135 +270,108 @@ export function ClipWorkspacePage() {
 
   return (
     <div className="ml-[220px] h-full overflow-y-auto bg-[#0a0b0f] px-10 py-8">
-      <div className="w-full space-y-0 pb-16">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-[#12151b]/88 px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#171b22] hover:text-text-primary"
-          >
-            <IoArrowBack size={15} />
-            <span>Back home</span>
-          </button>
+      <div className="w-full pb-16">
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="inline-flex items-center gap-2 rounded-[5px] border border-white/8 bg-[#12151b]/88 px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#171b22] hover:text-text-primary"
+        >
+          <IoArrowBack size={15} />
+          <span>Back home</span>
+        </button>
 
+        <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
           {clips.map((clip) => {
             const isFocused = clip.id === selectedClipId
 
             return (
-              <section
+              <article
                 key={clip.id}
                 ref={(node) => {
                   cardRefs.current[clip.id] = node
                 }}
-                className={`w-full border-b px-0 py-8 transition-colors ${
-                  isFocused ? 'border-white/14' : 'border-white/8'
-                }`}
+                className={`clip-card clip-card-grid ${isFocused ? 'selected' : ''}`}
               >
-                <div className="mb-7 flex items-start justify-between gap-6">
-                  <div className="max-w-4xl">
-                    <h1 className="text-[22px] font-semibold leading-[1.35] tracking-[-0.02em] text-text-primary">
-                      {clip.title}
-                    </h1>
-                    {clip.reason ? (
-                      <p className="mt-3 text-sm leading-6 text-text-secondary">{clip.reason}</p>
-                    ) : null}
+                {clip.status !== 'pending' && (
+                  <div className={`status-badge ${clip.status}`}>
+                    {clip.status === 'approved' ? '✓' : '✗'}
                   </div>
-                </div>
+                )}
 
-                <div className="grid grid-cols-[140px_320px_minmax(0,1fr)_180px] gap-6">
-                  <aside className="space-y-3">
-                    <div className="rounded-2xl border border-white/8 bg-[#0d1014] p-4">
-                      <div className="text-[12px] uppercase tracking-[0.16em] text-text-muted">Score</div>
-                      <div className="mt-3 text-[48px] font-semibold leading-none text-[#8df0a7]">
-                        {Math.round(clip.shareabilityScore * 10)}
-                      </div>
-                      <div className="mt-2 text-sm text-text-secondary">{clip.contentType.replace('_', ' ')}</div>
-                    </div>
-                    <div className="rounded-2xl border border-white/8 bg-[#0d1014] space-y-3 p-4 text-sm text-text-secondary">
-                      <div>
-                        <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Duration</div>
-                        <div className="mt-1 text-text-primary">{formatTime(clip.duration)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Range</div>
-                        <div className="mt-1 text-text-primary">
-                          {formatTime(clip.startTime)} - {formatTime(clip.endTime)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Status</div>
-                        <div className="mt-1 capitalize text-text-primary">{clip.status}</div>
-                      </div>
-                    </div>
-                  </aside>
-
+                <div className="clip-card-preview-shell">
                   <ClipPreview
                     mediaUrl={mediaUrl}
                     startTime={clip.startTime}
                     endTime={clip.endTime}
                     title={clip.title}
                   />
-
-                  <section className="min-h-[568px] rounded-2xl border border-white/8 bg-[#0d1014] p-5">
-                    <div className="mb-4 flex items-center justify-between gap-4 border-b border-white/8 pb-4">
-                      <div className="text-sm font-medium text-text-primary">Transcript</div>
-                      <div className="text-xs text-text-muted">
-                        {clip.transcriptLines.length} segments
-                      </div>
-                    </div>
-                    <div className="max-h-[500px] space-y-4 overflow-y-auto pr-2">
-                      {clip.transcriptLines.length > 0 ? (
-                        clip.transcriptLines.map((segment) => (
-                          <div key={segment.id} className="text-[15px] leading-8 text-text-secondary">
-                            <span className="mr-2 text-xs text-text-muted">
-                              [{formatTime(segment.start)}-{formatTime(segment.end)}]
-                            </span>
-                            <span>{segment.text}</span>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="pt-20 text-center text-sm text-text-muted">No transcript available for this clip.</div>
-                      )}
-                    </div>
-                  </section>
-
-                  <aside className="space-y-3">
-                    <button
-                      type="button"
-                      onClick={() => updateClipStatus(clip.id, 'approved')}
-                      className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/8 bg-[#181d24] px-4 py-3 text-sm font-medium text-text-primary transition-colors hover:border-white/12 hover:bg-[#1d232c]"
-                    >
-                      <IoCheckmark size={16} />
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateClipStatus(clip.id, 'rejected')}
-                      className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/8 bg-[#181d24] px-4 py-3 text-sm font-medium text-text-primary transition-colors hover:border-white/12 hover:bg-[#1d232c]"
-                    >
-                      <IoClose size={16} />
-                      Reject
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/content/${episodeId}/${clip.id}`)}
-                      className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/8 bg-[#181d24] px-4 py-3 text-sm font-medium text-text-primary transition-colors hover:border-white/12 hover:bg-[#1d232c]"
-                    >
-                      <IoCreateOutline size={16} />
-                      Edit Clip
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/export/${episodeId}`)}
-                      className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/8 bg-[#181d24] px-4 py-3 text-sm font-medium text-text-primary transition-colors hover:border-white/12 hover:bg-[#1d232c]"
-                    >
-                      <IoShareOutline size={16} />
-                      Export
-                    </button>
-                  </aside>
                 </div>
-              </section>
+
+                <div className="mt-1 flex items-center justify-between gap-3">
+                  <div className="text-[18px] font-semibold leading-none text-[#72e695]">
+                    {Math.round(clip.shareabilityScore * 10)}
+                  </div>
+                  <div className="clip-card-header !mb-0">
+                    <span className={`content-type ${clip.contentType}`}>
+                      {clip.contentType}
+                    </span>
+                  </div>
+                </div>
+
+                <h2 className="text-[18px] font-medium leading-8 text-text-primary">
+                  {clip.title}
+                </h2>
+
+                <div className="clip-metadata">
+                  <span className="duration">{formatTime(clip.duration)}</span>
+                  <span className="divider">•</span>
+                  <span className="timestamp">
+                    {formatTime(clip.startTime)} - {formatTime(clip.endTime)}
+                  </span>
+                </div>
+
+                <p className="clip-reason">
+                  {clip.reason || `${clip.transcriptLines.length} transcript segments available`}
+                </p>
+
+                <div className="clip-actions clip-actions-grid">
+                  <button
+                    type="button"
+                    className="btn-approve btn-sm"
+                    onClick={() => updateClipStatus(clip.id, 'approved')}
+                  >
+                    <IoCheckmark size={14} />
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-reject btn-sm"
+                    onClick={() => updateClipStatus(clip.id, 'rejected')}
+                  >
+                    <IoClose size={14} />
+                    Reject
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={() => navigate(`/content/${episodeId}/${clip.id}`)}
+                  >
+                    <IoCreateOutline size={14} />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={() => navigate(`/export/${episodeId}`)}
+                  >
+                    <IoShareOutline size={14} />
+                    Export
+                  </button>
+                </div>
+              </article>
             )
           })}
+        </div>
       </div>
     </div>
   )
