@@ -203,3 +203,11 @@ export interface BrandTemplate {
   ai: BrandTemplateAiDefaults;
   updatedAt: string;
 }
+
+export interface BrandTemplatePreset {
+  id: string;
+  name: string;
+  template: BrandTemplate;
+  createdAt: string;
+  updatedAt: string;
+}

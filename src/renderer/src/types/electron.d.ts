@@ -1,4 +1,4 @@
-import type { BrandTemplate, ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
+import type { BrandTemplate, BrandTemplatePreset, ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
 import type {
   GetActivePipelineJobResponseDTO,
   GetPipelineRunComparisonResponseDTO,
@@ -82,6 +82,22 @@ declare global {
       updateUserPreferences: (preferences: any) => Promise<boolean>;
       getBrandTemplate: () => Promise<BrandTemplate>;
       updateBrandTemplate: (template: Partial<BrandTemplate>) => Promise<BrandTemplate>;
+      getBrandTemplatePresets: () => Promise<{
+        presets: BrandTemplatePreset[];
+        activePresetId: string;
+      }>;
+      createBrandTemplatePreset: (name?: string) => Promise<{
+        preset: BrandTemplatePreset;
+        presets: BrandTemplatePreset[];
+        activePresetId: string;
+        brandTemplate: BrandTemplate;
+      }>;
+      setActiveBrandTemplatePreset: (presetId: string) => Promise<{
+        preset: BrandTemplatePreset;
+        presets: BrandTemplatePreset[];
+        activePresetId: string;
+        brandTemplate: BrandTemplate;
+      }>;
       validateConfig: () => Promise<{ isValid: boolean; errors: string[] }>;
 
       // Export operations

@@ -13,7 +13,7 @@ import {
   IoTextOutline,
   IoTrashOutline
 } from 'react-icons/io5'
-import type { BrandTemplate } from '@shared/types'
+import type { BrandTemplate, BrandTemplatePreset } from '@shared/types'
 import { MainContentPanel } from '../components/MainContentPanel'
 
 const captionPresets = [
@@ -172,6 +172,8 @@ const defaultBrandTemplate: BrandTemplate = {
 
 export function BrandTemplatePage() {
   const [template, setTemplate] = useState<BrandTemplate | null>(null)
+  const [presets, setPresets] = useState<BrandTemplatePreset[]>([])
+  const [activePresetId, setActivePresetId] = useState<string>('')
   const [logos, setLogos] = useState<string[]>([])
   const [musicTracks, setMusicTracks] = useState<string[]>([])
   const [activeMenu, setActiveMenu] = useState<'layout' | 'caption' | 'overlay' | 'intro-outro' | 'music' | null>(null)
@@ -290,53 +292,82 @@ export function BrandTemplatePage() {
   const selectedCaptionPreset =
     captionPresets.find((preset) => preset.id === template?.caption.presetId) ?? captionPresets[3]
 
+  const applyTemplateState = (resolvedTemplate: BrandTemplate) => {
+    setTemplate({
+      ...defaultBrandTemplate,
+      ...resolvedTemplate,
+      caption: {
+        ...defaultBrandTemplate.caption,
+        ...resolvedTemplate.caption
+      },
+      logo: {
+        ...defaultBrandTemplate.logo,
+        ...resolvedTemplate.logo
+      },
+      music: {
+        ...defaultBrandTemplate.music,
+        ...resolvedTemplate.music
+      },
+      introOutro: {
+        ...defaultBrandTemplate.introOutro,
+        ...resolvedTemplate.introOutro
+      },
+      frame: {
+        ...defaultBrandTemplate.frame,
+        ...resolvedTemplate.frame
+      },
+      ai: {
+        ...defaultBrandTemplate.ai,
+        ...resolvedTemplate.ai
+      }
+    })
+  }
+
   const loadPageState = async () => {
     try {
       setIsLoading(true)
       setLoadError(null)
 
-      const [loadedTemplate, loadedConfig, loadedLogos, loadedMusic] = await Promise.all([
+      const [loadedTemplate, loadedConfig, presetState, loadedLogos, loadedMusic] = await Promise.all([
         window.electronAPI?.getBrandTemplate?.() ?? Promise.resolve(undefined),
         window.electronAPI?.getConfig?.() ?? Promise.resolve(undefined),
+        window.electronAPI?.getBrandTemplatePresets?.() ?? Promise.resolve({ presets: [], activePresetId: '' }),
         window.electronAPI?.listLogos?.() ?? Promise.resolve([]),
         window.electronAPI?.listMusic?.() ?? Promise.resolve([])
       ])
 
       const resolvedTemplate = loadedTemplate ?? loadedConfig?.brandTemplate ?? defaultBrandTemplate
+      const resolvedPresets =
+        presetState.presets.length > 0
+          ? presetState.presets
+          : [
+              {
+                id: 'default-preset',
+                name: 'Preset template 1',
+                template: resolvedTemplate,
+                createdAt: resolvedTemplate.updatedAt,
+                updatedAt: resolvedTemplate.updatedAt
+              }
+            ]
 
-      setTemplate({
-        ...defaultBrandTemplate,
-        ...resolvedTemplate,
-        caption: {
-          ...defaultBrandTemplate.caption,
-          ...resolvedTemplate.caption
-        },
-        logo: {
-          ...defaultBrandTemplate.logo,
-          ...resolvedTemplate.logo
-        },
-        music: {
-          ...defaultBrandTemplate.music,
-          ...resolvedTemplate.music
-        },
-        introOutro: {
-          ...defaultBrandTemplate.introOutro,
-          ...resolvedTemplate.introOutro
-        },
-        frame: {
-          ...defaultBrandTemplate.frame,
-          ...resolvedTemplate.frame
-        },
-        ai: {
-          ...defaultBrandTemplate.ai,
-          ...resolvedTemplate.ai
-        }
-      })
+      applyTemplateState(resolvedTemplate)
+      setPresets(resolvedPresets)
+      setActivePresetId(presetState.activePresetId || resolvedPresets[0]?.id || '')
       setLogos(loadedLogos ?? [])
       setMusicTracks(loadedMusic ?? [])
     } catch (error) {
       console.error('Failed to load brand template:', error)
-      setTemplate(defaultBrandTemplate)
+      applyTemplateState(defaultBrandTemplate)
+      setPresets([
+        {
+          id: 'default-preset',
+          name: 'Preset template 1',
+          template: defaultBrandTemplate,
+          createdAt: defaultBrandTemplate.updatedAt,
+          updatedAt: defaultBrandTemplate.updatedAt
+        }
+      ])
+      setActivePresetId('default-preset')
       setLoadError(error instanceof Error ? error.message : 'Unknown error')
     } finally {
       setIsLoading(false)
@@ -351,7 +382,7 @@ export function BrandTemplatePage() {
       setIsSaving(true)
       const saved = await window.electronAPI?.updateBrandTemplate?.(payload)
       if (saved) {
-        setTemplate(saved)
+        applyTemplateState(saved)
       }
     } catch (error) {
       console.error('Failed to save brand template:', error)
@@ -433,6 +464,32 @@ export function BrandTemplatePage() {
 
     setTemplate(nextTemplate)
     void persistTemplate(nextTemplate)
+  }
+
+  const handleCreatePreset = async () => {
+    try {
+      const response = await window.electronAPI?.createBrandTemplatePreset?.()
+      if (!response) return
+      setPresets(response.presets)
+      setActivePresetId(response.activePresetId)
+      applyTemplateState(response.brandTemplate)
+    } catch (error) {
+      console.error('Failed to create brand template preset:', error)
+    }
+  }
+
+  const handleSelectPreset = async (presetId: string) => {
+    if (!presetId || presetId === activePresetId) return
+
+    try {
+      const response = await window.electronAPI?.setActiveBrandTemplatePreset?.(presetId)
+      if (!response) return
+      setPresets(response.presets)
+      setActivePresetId(response.activePresetId)
+      applyTemplateState(response.brandTemplate)
+    } catch (error) {
+      console.error('Failed to switch brand template preset:', error)
+    }
   }
 
   const pickIntroOutroFile = async (kind: 'introPath' | 'outroPath') => {
@@ -619,6 +676,24 @@ export function BrandTemplatePage() {
 
                 <div className="flex items-center gap-3">
                   {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
+                  <select
+                    className="template-form-select min-w-[220px]"
+                    value={activePresetId}
+                    onChange={(event) => void handleSelectPreset(event.target.value)}
+                  >
+                    {presets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="app-action-secondary"
+                    onClick={() => void handleCreatePreset()}
+                  >
+                    New preset
+                  </button>
                   <button
                     type="button"
                     className="app-action-primary"

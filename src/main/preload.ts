@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { BrandTemplate, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types';
+import type { BrandTemplate, BrandTemplatePreset, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,
@@ -148,6 +148,24 @@ const electronAPI = {
   getBrandTemplate: () => ipcRenderer.invoke('get-brand-template'),
   updateBrandTemplate: (template: Partial<BrandTemplate>) =>
     ipcRenderer.invoke('update-brand-template', template),
+  getBrandTemplatePresets: () => ipcRenderer.invoke('get-brand-template-presets') as Promise<{
+    presets: BrandTemplatePreset[]
+    activePresetId: string
+  }>,
+  createBrandTemplatePreset: (name?: string) =>
+    ipcRenderer.invoke('create-brand-template-preset', name) as Promise<{
+      preset: BrandTemplatePreset
+      presets: BrandTemplatePreset[]
+      activePresetId: string
+      brandTemplate: BrandTemplate
+    }>,
+  setActiveBrandTemplatePreset: (presetId: string) =>
+    ipcRenderer.invoke('set-active-brand-template-preset', presetId) as Promise<{
+      preset: BrandTemplatePreset
+      presets: BrandTemplatePreset[]
+      activePresetId: string
+      brandTemplate: BrandTemplate
+    }>,
   validateConfig: () => ipcRenderer.invoke('validate-config'),
 
   // Export operations
@@ -292,6 +310,22 @@ declare global {
       updateUserPreferences: (preferences: any) => Promise<boolean>;
       getBrandTemplate: () => Promise<BrandTemplate>;
       updateBrandTemplate: (template: Partial<BrandTemplate>) => Promise<BrandTemplate>;
+      getBrandTemplatePresets: () => Promise<{
+        presets: BrandTemplatePreset[];
+        activePresetId: string;
+      }>;
+      createBrandTemplatePreset: (name?: string) => Promise<{
+        preset: BrandTemplatePreset;
+        presets: BrandTemplatePreset[];
+        activePresetId: string;
+        brandTemplate: BrandTemplate;
+      }>;
+      setActiveBrandTemplatePreset: (presetId: string) => Promise<{
+        preset: BrandTemplatePreset;
+        presets: BrandTemplatePreset[];
+        activePresetId: string;
+        brandTemplate: BrandTemplate;
+      }>;
       validateConfig: () => Promise<{ isValid: boolean; errors: string[] }>;
 
       // Export operations

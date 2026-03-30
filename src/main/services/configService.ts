@@ -1,5 +1,91 @@
 import Store from 'electron-store'
-import { APIConfig, BrandTemplate } from '@shared/types'
+import { APIConfig, BrandTemplate, BrandTemplatePreset } from '@shared/types'
+
+function createDefaultBrandTemplate(): BrandTemplate {
+  return {
+    caption: {
+      presetId: 'deep-diver',
+      text: 'One Line',
+      font: 'Inter',
+      fontSize: 30,
+      fontWeight: '700',
+      italic: false,
+      underline: false,
+      uppercase: false,
+      position: 'bottom',
+      customX: null,
+      customY: null,
+      animation: 'box',
+      lineMode: 'one-line',
+      backgroundEnabled: true,
+      highlightColor: '#111111',
+      backgroundColor: '#ffffff',
+      backgroundPaddingX: 24,
+      backgroundPaddingY: 12,
+      backgroundRadius: 16,
+      strokeColor: '#000000',
+      strokeWidth: 0,
+      shadowEnabled: false,
+      shadowColor: '#000000',
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0
+    },
+    logo: {
+      enabled: false,
+      assetPath: null,
+      positionX: 84,
+      positionY: 12,
+      scale: 0.18,
+      opacity: 0.9
+    },
+    music: {
+      enabled: false,
+      assetPath: null,
+      volume: 0.3,
+      duckEnabled: true
+    },
+    introOutro: {
+      introPath: null,
+      outroPath: null
+    },
+    frame: {
+      aspectRatio: '9:16',
+      cropMode: 'fit'
+    },
+    ai: {
+      removeFillerWords: false,
+      removePauses: false,
+      keywordHighlighter: false,
+      emojis: true,
+      stockBroll: false
+    },
+    updatedAt: new Date().toISOString()
+  }
+}
+
+function createPresetId() {
+  return `preset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function cloneBrandTemplate(template: BrandTemplate): BrandTemplate {
+  return JSON.parse(JSON.stringify(template)) as BrandTemplate
+}
+
+function createBrandTemplatePreset(
+  name: string,
+  template: BrandTemplate,
+  id = createPresetId()
+): BrandTemplatePreset {
+  const now = new Date().toISOString()
+  return {
+    id,
+    name,
+    template: cloneBrandTemplate(template),
+    createdAt: now,
+    updatedAt: now
+  }
+}
 
 interface ConfigSchema {
   apiConfig: APIConfig
@@ -23,6 +109,8 @@ interface ConfigSchema {
     }
   }
   brandTemplate: BrandTemplate
+  brandTemplatePresets: BrandTemplatePreset[]
+  activeBrandTemplatePresetId: string
 }
 
 class ConfigService {
@@ -52,69 +140,14 @@ class ConfigService {
             style: 'direct'
           }
         },
-        brandTemplate: {
-          caption: {
-            presetId: 'deep-diver',
-            text: 'One Line',
-            font: 'Inter',
-            fontSize: 30,
-            fontWeight: '700',
-            italic: false,
-            underline: false,
-            uppercase: false,
-            position: 'bottom',
-            customX: null,
-            customY: null,
-            animation: 'box',
-            lineMode: 'one-line',
-            backgroundEnabled: true,
-            highlightColor: '#111111',
-            backgroundColor: '#ffffff',
-            backgroundPaddingX: 24,
-            backgroundPaddingY: 12,
-            backgroundRadius: 16,
-            strokeColor: '#000000',
-            strokeWidth: 0,
-            shadowEnabled: false,
-            shadowColor: '#000000',
-            shadowOffsetX: 0,
-            shadowOffsetY: 0,
-            shadowBlur: 0
-          },
-          logo: {
-            enabled: false,
-            assetPath: null,
-            positionX: 84,
-            positionY: 12,
-            scale: 0.18,
-            opacity: 0.9
-          },
-          music: {
-            enabled: false,
-            assetPath: null,
-            volume: 0.3,
-            duckEnabled: true
-          },
-          introOutro: {
-            introPath: null,
-            outroPath: null
-          },
-          frame: {
-            aspectRatio: '9:16',
-            cropMode: 'fit'
-          },
-          ai: {
-            removeFillerWords: false,
-            removePauses: false,
-            keywordHighlighter: false,
-            emojis: true,
-            stockBroll: false
-          },
-          updatedAt: new Date().toISOString()
-        }
+        brandTemplate: createDefaultBrandTemplate(),
+        brandTemplatePresets: [],
+        activeBrandTemplatePresetId: ''
       },
       encryptionKey: 'ariadne-secure-config' // Basic encryption for API keys
     })
+
+    this.ensureBrandTemplatePresetState()
   }
   
   // API Configuration
@@ -274,7 +307,44 @@ class ConfigService {
     }
 
     this.store.set('brandTemplate', merged)
+    this.updateActiveBrandTemplatePresetTemplate(merged)
     return merged
+  }
+
+  getBrandTemplatePresets(): BrandTemplatePreset[] {
+    return this.store.get('brandTemplatePresets', [])
+  }
+
+  getActiveBrandTemplatePresetId(): string {
+    return this.store.get('activeBrandTemplatePresetId', '')
+  }
+
+  getActiveBrandTemplatePreset(): BrandTemplatePreset | null {
+    const activeId = this.getActiveBrandTemplatePresetId()
+    const preset = this.getBrandTemplatePresets().find((item) => item.id === activeId)
+    return preset ?? null
+  }
+
+  createBrandTemplatePreset(name: string, template?: BrandTemplate): BrandTemplatePreset {
+    const baseTemplate = cloneBrandTemplate(template ?? this.getBrandTemplate())
+    const preset = createBrandTemplatePreset(name, baseTemplate)
+    const presets = [...this.getBrandTemplatePresets(), preset]
+    this.store.set('brandTemplatePresets', presets)
+    this.store.set('activeBrandTemplatePresetId', preset.id)
+    this.store.set('brandTemplate', preset.template)
+    return preset
+  }
+
+  setActiveBrandTemplatePreset(presetId: string): BrandTemplatePreset {
+    const presets = this.getBrandTemplatePresets()
+    const preset = presets.find((item) => item.id === presetId)
+    if (!preset) {
+      throw new Error('Brand template preset not found')
+    }
+
+    this.store.set('activeBrandTemplatePresetId', preset.id)
+    this.store.set('brandTemplate', cloneBrandTemplate(preset.template))
+    return preset
   }
   
   // Validation
@@ -311,7 +381,9 @@ class ConfigService {
       userPreferences: this.getUserPreferences(),
       recentProjects: [], // Don't export recent projects
       brandVoice: this.getBrandVoice(),
-      brandTemplate: this.getBrandTemplate()
+      brandTemplate: this.getBrandTemplate(),
+      brandTemplatePresets: this.getBrandTemplatePresets(),
+      activeBrandTemplatePresetId: this.getActiveBrandTemplatePresetId()
     }
   }
   
@@ -327,6 +399,16 @@ class ConfigService {
     if (config.brandTemplate) {
       this.store.set('brandTemplate', config.brandTemplate)
     }
+
+    if (config.brandTemplatePresets) {
+      this.store.set('brandTemplatePresets', config.brandTemplatePresets)
+    }
+
+    if (config.activeBrandTemplatePresetId) {
+      this.store.set('activeBrandTemplatePresetId', config.activeBrandTemplatePresetId)
+    }
+
+    this.ensureBrandTemplatePresetState()
     
     // Don't import API config or recent projects for security
   }
@@ -372,6 +454,42 @@ class ConfigService {
   // Reset config (for testing/debugging)
   reset(): void {
     this.store.clear()
+  }
+
+  private updateActiveBrandTemplatePresetTemplate(template: BrandTemplate): void {
+    const activeId = this.getActiveBrandTemplatePresetId()
+    if (!activeId) return
+
+    const presets = this.getBrandTemplatePresets()
+    const updatedPresets = presets.map((preset) =>
+      preset.id === activeId
+        ? {
+            ...preset,
+            template: cloneBrandTemplate(template),
+            updatedAt: new Date().toISOString()
+          }
+        : preset
+    )
+
+    this.store.set('brandTemplatePresets', updatedPresets)
+  }
+
+  private ensureBrandTemplatePresetState(): void {
+    const currentTemplate = this.store.get('brandTemplate', createDefaultBrandTemplate())
+    const currentPresets = this.store.get('brandTemplatePresets', [])
+    const activePresetId = this.store.get('activeBrandTemplatePresetId', '')
+
+    if (currentPresets.length === 0) {
+      const defaultPreset = createBrandTemplatePreset('Preset template 1', currentTemplate, 'default-preset')
+      this.store.set('brandTemplatePresets', [defaultPreset])
+      this.store.set('activeBrandTemplatePresetId', defaultPreset.id)
+      this.store.set('brandTemplate', cloneBrandTemplate(defaultPreset.template))
+      return
+    }
+
+    const resolvedActivePreset = currentPresets.find((preset) => preset.id === activePresetId) ?? currentPresets[0]
+    this.store.set('activeBrandTemplatePresetId', resolvedActivePreset.id)
+    this.store.set('brandTemplate', cloneBrandTemplate(resolvedActivePreset.template))
   }
 }
 

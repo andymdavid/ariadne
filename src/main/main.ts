@@ -755,6 +755,34 @@ ipcMain.handle('update-brand-template', (event, template: Partial<BrandTemplate>
   return configService.updateBrandTemplate(template)
 })
 
+ipcMain.handle('get-brand-template-presets', () => {
+  return {
+    presets: configService.getBrandTemplatePresets(),
+    activePresetId: configService.getActiveBrandTemplatePresetId()
+  }
+})
+
+ipcMain.handle('create-brand-template-preset', (event, name?: string) => {
+  const presetName = typeof name === 'string' && name.trim() ? name.trim() : `Preset template ${configService.getBrandTemplatePresets().length + 1}`
+  const preset = configService.createBrandTemplatePreset(presetName)
+  return {
+    preset,
+    presets: configService.getBrandTemplatePresets(),
+    activePresetId: configService.getActiveBrandTemplatePresetId(),
+    brandTemplate: configService.getBrandTemplate()
+  }
+})
+
+ipcMain.handle('set-active-brand-template-preset', (event, presetId: string) => {
+  const preset = configService.setActiveBrandTemplatePreset(presetId)
+  return {
+    preset,
+    presets: configService.getBrandTemplatePresets(),
+    activePresetId: configService.getActiveBrandTemplatePresetId(),
+    brandTemplate: configService.getBrandTemplate()
+  }
+})
+
 // Clip playback - extract and play actual clip
 ipcMain.handle('play-clip', async (event, episodeId: string, startTime: number, endTime: number, clipId: string) => {
   try {
