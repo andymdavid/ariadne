@@ -392,12 +392,12 @@ export function HomePage() {
                     type="button"
                     onClick={(event) => handleDeleteProject(event, project)}
                     disabled={deletingProjectId === project.episode.projectId}
-                    className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/55 text-text-secondary opacity-0 transition hover:border-white/20 hover:text-text-primary group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-100"
+                    className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/10 bg-black/55 text-text-secondary opacity-0 transition hover:border-white/20 hover:text-text-primary group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-100"
                     aria-label={`Delete ${project.name}`}
                   >
                     <IoClose size={14} />
                   </button>
-                  <div className="aspect-video w-full shrink-0 overflow-hidden rounded-xl bg-[#171b22]">
+                  <div className="aspect-video w-full shrink-0 overflow-hidden rounded-[5px] bg-[#171b22]">
                     <ProjectCardPreview project={project} />
                   </div>
                   <div className="mt-4 line-clamp-2 min-h-[4.5rem] text-xl font-medium leading-tight text-text-primary">
