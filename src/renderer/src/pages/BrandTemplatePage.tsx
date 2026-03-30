@@ -553,7 +553,7 @@ export function BrandTemplatePage() {
               </section>
 
               {activeMenu === 'layout' ? (
-                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
+                <section className="workspace-panel brand-settings-panel max-h-[calc(100vh-140px)] w-[320px] shrink-0">
                   <div className="workspace-panel-scroll">
                     <div className="workspace-panel-header">
                       <div>
@@ -610,7 +610,7 @@ export function BrandTemplatePage() {
               ) : null}
 
               {activeMenu === 'caption' ? (
-                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
+                <section className="workspace-panel brand-settings-panel max-h-[calc(100vh-140px)] w-[320px] shrink-0">
                   <div className="workspace-panel-scroll">
                     <div className="workspace-panel-header">
                       <div>
