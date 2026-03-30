@@ -279,6 +279,8 @@ export function BrandTemplatePage() {
                   </div>
                 </div>
 
+                <div className="template-settings-divider" />
+
                 <div className="template-settings-menu">
                   <div>
                     <div className="template-settings-group-label">Style</div>
@@ -288,7 +290,7 @@ export function BrandTemplatePage() {
                           <div className="template-settings-row-icon">
                             <IoResizeOutline size={15} />
                           </div>
-                          <div className="template-settings-row-title">Clip layout settings</div>
+                          <div className="template-settings-row-title">Clip layout</div>
                         </div>
                         <div className="template-settings-row-meta">
                           <span className="template-settings-row-value truncate">
@@ -320,7 +322,7 @@ export function BrandTemplatePage() {
                           <div className="template-settings-row-icon">
                             <IoImagesOutline size={15} />
                           </div>
-                          <div className="template-settings-row-title">Overlay (logo, CTA)</div>
+                          <div className="template-settings-row-title">Overlay</div>
                         </div>
                         <div className="template-settings-row-meta">
                           <span className="template-settings-row-value truncate">
