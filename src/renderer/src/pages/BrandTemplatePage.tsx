@@ -189,6 +189,8 @@ export function BrandTemplatePage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isDraggingCaption, setIsDraggingCaption] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
+  const [isResizingLogo, setIsResizingLogo] = useState(false)
+  const [isLogoSelected, setIsLogoSelected] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -235,17 +237,40 @@ export function BrandTemplatePage() {
             : current
         )
       }
+
+      if (isResizingLogo && template?.logo.enabled && template.logo.assetPath) {
+        const centerX = rect.left + (rect.width * template.logo.positionX) / 100
+        const centerY = rect.top + (rect.height * template.logo.positionY) / 100
+        const halfSizePx = Math.max(
+          Math.abs(event.clientX - centerX),
+          Math.abs(event.clientY - centerY)
+        )
+        const nextScale = clamp((halfSizePx * 2) / rect.width, 0.08, 0.62)
+
+        setTemplate((current) =>
+          current
+            ? {
+                ...current,
+                logo: {
+                  ...current.logo,
+                  scale: nextScale
+                }
+              }
+            : current
+        )
+      }
     }
 
     const handleMouseUp = () => {
-      if (isDraggingCaption || isDraggingLogo) {
+      if (isDraggingCaption || isDraggingLogo || isResizingLogo) {
         setIsDraggingCaption(false)
         setIsDraggingLogo(false)
+        setIsResizingLogo(false)
         void persistTemplate()
       }
     }
 
-    if (isDraggingCaption || isDraggingLogo) {
+    if (isDraggingCaption || isDraggingLogo || isResizingLogo) {
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
       return () => {
@@ -253,7 +278,7 @@ export function BrandTemplatePage() {
         document.removeEventListener('mouseup', handleMouseUp)
       }
     }
-  }, [isDraggingCaption, isDraggingLogo, template])
+  }, [isDraggingCaption, isDraggingLogo, isResizingLogo, template])
 
   const selectedCaptionPreset =
     captionPresets.find((preset) => preset.id === template?.caption.presetId) ?? captionPresets[3]
@@ -972,11 +997,11 @@ export function BrandTemplatePage() {
                         type="button"
                         className={`template-asset-row ${!template.logo.assetPath ? 'is-active' : ''}`}
                         onClick={() =>
-                          updateLogo({
-                            enabled: false,
-                            assetPath: null
-                          })
-                        }
+                            updateLogo({
+                              enabled: false,
+                              assetPath: null
+                            })
+                          }
                       >
                         <div className="template-asset-row-main">
                           <div className="template-settings-row-icon">
@@ -1025,6 +1050,7 @@ export function BrandTemplatePage() {
                   aspectRatio: previewAspectRatio,
                   maxWidth: previewMaxWidth
                 }}
+                onMouseDown={() => setIsLogoSelected(false)}
               >
                     {template.frame.cropMode === 'blur' ? (
                       <>
@@ -1058,10 +1084,16 @@ export function BrandTemplatePage() {
                         onMouseDown={(event) => {
                           if (event.button !== 0) return
                           event.preventDefault()
+                          event.stopPropagation()
+                          setIsLogoSelected(true)
                           setIsDraggingLogo(true)
                         }}
                       >
-                        <div className={`rounded-md ${isDraggingLogo ? 'ring-2 ring-white/80' : ''}`}>
+                        <div
+                          className={`relative rounded-md ${
+                            isDraggingLogo || isLogoSelected ? 'ring-2 ring-white/80' : ''
+                          }`}
+                        >
                           <img
                             src={`app-file://${template.logo.assetPath}`}
                             alt="Brand logo"
@@ -1069,6 +1101,32 @@ export function BrandTemplatePage() {
                             style={{ opacity: template.logo.opacity }}
                             draggable={false}
                           />
+                          {isLogoSelected ? (
+                            <>
+                              <div className="absolute inset-0 border border-white/80" />
+                              {[
+                                'left-0 top-0 -translate-x-1/2 -translate-y-1/2',
+                                'right-0 top-0 translate-x-1/2 -translate-y-1/2',
+                                'left-0 bottom-0 -translate-x-1/2 translate-y-1/2',
+                                'right-0 bottom-0 translate-x-1/2 translate-y-1/2'
+                              ].map((handleClass) => (
+                                <button
+                                  key={handleClass}
+                                  type="button"
+                                  className={`absolute h-5 w-5 rounded-full border-2 border-white bg-[#09090b] ${handleClass}`}
+                                  onMouseDown={(event) => {
+                                    if (event.button !== 0) return
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    setIsLogoSelected(true)
+                                    setIsDraggingLogo(false)
+                                    setIsResizingLogo(true)
+                                  }}
+                                  aria-label="Resize overlay"
+                                />
+                              ))}
+                            </>
+                          ) : null}
                         </div>
                       </div>
                     )}
