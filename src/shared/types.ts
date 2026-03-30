@@ -145,6 +145,7 @@ export interface BrandTemplateCaptionDefaults {
   customY?: number | null;
   animation: 'box';
   lineMode: 'one-line' | 'three-lines';
+  backgroundEnabled: boolean;
   highlightColor: string;
   backgroundColor: string;
   strokeColor: string;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import {
   IoChevronForward,
@@ -20,7 +20,7 @@ const captionPresets = [
     font: 'Inter',
     fontWeight: '700' as const,
     highlightColor: '#111111',
-    backgroundColor: 'rgba(255, 255, 255, 0.88)'
+    backgroundColor: '#ffffff'
   },
   {
     id: 'karaoke',
@@ -29,7 +29,7 @@ const captionPresets = [
     font: 'Inter',
     fontWeight: '800' as const,
     highlightColor: '#ffffff',
-    backgroundColor: 'rgba(17, 17, 17, 0.42)'
+    backgroundColor: '#111111'
   },
   {
     id: 'beasty',
@@ -38,7 +38,7 @@ const captionPresets = [
     font: 'Inter',
     fontWeight: '800' as const,
     highlightColor: '#111111',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)'
+    backgroundColor: '#ffffff'
   },
   {
     id: 'deep-diver',
@@ -47,7 +47,7 @@ const captionPresets = [
     font: 'Inter',
     fontWeight: '700' as const,
     highlightColor: '#111111',
-    backgroundColor: 'rgba(255, 255, 255, 0.88)'
+    backgroundColor: '#ffffff'
   },
   {
     id: 'youshaei',
@@ -56,7 +56,7 @@ const captionPresets = [
     font: 'Inter',
     fontWeight: '700' as const,
     highlightColor: '#59f0c2',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)'
+    backgroundColor: '#111111'
   },
   {
     id: 'pod-p',
@@ -65,11 +65,20 @@ const captionPresets = [
     font: 'Inter',
     fontWeight: '800' as const,
     highlightColor: '#ff4fe1',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)'
+    backgroundColor: '#111111'
   }
 ] as const
 
-const captionFontOptions = ['Inter', 'Poppins', 'Montserrat', 'Oswald'] as const
+const captionFontOptions = [
+  'Inter',
+  'Poppins',
+  'Montserrat',
+  'Oswald',
+  'Anton',
+  'Bebas Neue',
+  'Archivo Black',
+  'Barlow Condensed'
+] as const
 const captionTabOptions = ['presets', 'font', 'effects'] as const
 const captionPositionOptions = [
   { value: 'top', label: 'Top' },
@@ -127,8 +136,9 @@ const defaultBrandTemplate: BrandTemplate = {
     customY: null,
     animation: 'box',
     lineMode: 'one-line',
+    backgroundEnabled: true,
     highlightColor: '#111111',
-    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    backgroundColor: '#ffffff',
     strokeColor: '#000000',
     strokeWidth: 0,
     shadowEnabled: false,
@@ -344,6 +354,7 @@ export function BrandTemplatePage() {
       text: preset.text,
       font: preset.font,
       fontWeight: preset.fontWeight,
+      backgroundEnabled: preset.id !== 'none',
       highlightColor: preset.highlightColor,
       backgroundColor: preset.backgroundColor
     })
@@ -719,11 +730,10 @@ export function BrandTemplatePage() {
                             </div>
 
                             <div className="template-form-row">
-                              <input
-                                className="template-form-color"
-                                type="color"
-                                value={toHexColor(template.caption.strokeColor)}
-                                onChange={(event) => updateCaption({ strokeColor: event.target.value })}
+                              <ColorField
+                                label="Stroke"
+                                value={template.caption.strokeColor}
+                                onChange={(value) => updateCaption({ strokeColor: value })}
                               />
                               <input
                                 className="template-form-input"
@@ -750,11 +760,10 @@ export function BrandTemplatePage() {
                             {template.caption.shadowEnabled ? (
                               <>
                                 <div className="template-form-row">
-                                  <input
-                                    className="template-form-color"
-                                    type="color"
-                                    value={toHexColor(template.caption.shadowColor)}
-                                    onChange={(event) => updateCaption({ shadowColor: event.target.value })}
+                                  <ColorField
+                                    label="Shadow"
+                                    value={template.caption.shadowColor}
+                                    onChange={(value) => updateCaption({ shadowColor: value })}
                                   />
                                   <input
                                     className="template-form-input"
@@ -842,21 +851,32 @@ export function BrandTemplatePage() {
 
                         <div className="template-form-row template-form-row-spread">
                           <span className="template-settings-group-label !mb-0">Highlighted word color</span>
-                          <input
-                            className="template-form-color"
-                            type="color"
-                            value={toHexColor(template.caption.highlightColor)}
-                            onChange={(event) => updateCaption({ highlightColor: event.target.value })}
+                          <ColorField
+                            label="Highlight"
+                            value={template.caption.highlightColor}
+                            onChange={(value) => updateCaption({ highlightColor: value })}
                           />
                         </div>
 
                         <div className="template-form-row template-form-row-spread">
-                          <span className="template-settings-group-label !mb-0">Word background color</span>
-                          <input
-                            className="template-form-color"
-                            type="color"
-                            value={toHexColor(template.caption.backgroundColor)}
-                            onChange={(event) => updateCaption({ backgroundColor: event.target.value })}
+                          <span className="template-settings-group-label !mb-0">Text background</span>
+                          <button
+                            type="button"
+                            className={`template-settings-toggle ${template.caption.backgroundEnabled ? 'is-on' : ''}`}
+                            onClick={() => updateCaption({ backgroundEnabled: !template.caption.backgroundEnabled })}
+                            aria-label="Toggle text background"
+                          >
+                            <span className="template-settings-toggle-thumb" />
+                          </button>
+                        </div>
+
+                        <div className="template-form-row template-form-row-spread">
+                          <span className="template-settings-group-label !mb-0">Background color</span>
+                          <ColorField
+                            label="Background"
+                            value={template.caption.backgroundColor}
+                            onChange={(value) => updateCaption({ backgroundColor: value })}
+                            disabled={!template.caption.backgroundEnabled}
                           />
                         </div>
                       </div>
@@ -1052,7 +1072,7 @@ function formatPreviewCaptionText(caption: BrandTemplate['caption']) {
 
 function getPreviewCaptionCardStyle(caption: BrandTemplate['caption']): CSSProperties {
   return {
-    background: caption.backgroundColor
+    background: caption.backgroundEnabled ? withOpacity(caption.backgroundColor, 0.88) : 'transparent'
   }
 }
 
@@ -1076,14 +1096,61 @@ function getPreviewCaptionTextStyle(caption: BrandTemplate['caption']): CSSPrope
   }
 }
 
-function toHexColor(color: string) {
-  if (color.startsWith('#')) return color
-  const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
-  if (!rgbaMatch) return '#ffffff'
-  const [, r, g, b] = rgbaMatch
-  return `#${Number(r).toString(16).padStart(2, '0')}${Number(g)
-    .toString(16)
-    .padStart(2, '0')}${Number(b).toString(16).padStart(2, '0')}`
+function normalizeHexColor(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return '#ffffff'
+  const normalized = trimmed.startsWith('#') ? trimmed : `#${trimmed}`
+  return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toUpperCase() : null
+}
+
+function withOpacity(hex: string, alpha: number) {
+  const normalized = normalizeHexColor(hex) ?? '#FFFFFF'
+  const r = parseInt(normalized.slice(1, 3), 16)
+  const g = parseInt(normalized.slice(3, 5), 16)
+  const b = parseInt(normalized.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function ColorField({
+  label,
+  value,
+  onChange,
+  disabled = false
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  const inputId = useId()
+  const normalizedValue = normalizeHexColor(value) ?? '#FFFFFF'
+
+  return (
+    <div className={`template-color-field ${disabled ? 'is-disabled' : ''}`}>
+      <label htmlFor={inputId} className="template-color-swatch" style={{ background: normalizedValue }}>
+        <input
+          id={inputId}
+          className="template-color-native"
+          type="color"
+          value={normalizedValue}
+          onChange={(event) => onChange(event.target.value.toUpperCase())}
+          disabled={disabled}
+          aria-label={label}
+        />
+      </label>
+      <input
+        className="template-form-input template-color-hex"
+        type="text"
+        value={normalizedValue}
+        onChange={(event) => {
+          const nextValue = normalizeHexColor(event.target.value)
+          if (nextValue) onChange(nextValue)
+        }}
+        disabled={disabled}
+        aria-label={`${label} hex value`}
+      />
+    </div>
+  )
 }
 
 function formatName(path: string) {
