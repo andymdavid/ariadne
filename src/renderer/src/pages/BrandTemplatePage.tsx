@@ -7,7 +7,8 @@ import {
   IoResizeOutline,
   IoScanOutline,
   IoSquareOutline,
-  IoTextOutline
+  IoTextOutline,
+  IoTrashOutline
 } from 'react-icons/io5'
 import type { BrandTemplate } from '@shared/types'
 import { MainContentPanel } from '../components/MainContentPanel'
@@ -180,7 +181,8 @@ const defaultBrandTemplate: BrandTemplate = {
 
 export function BrandTemplatePage() {
   const [template, setTemplate] = useState<BrandTemplate | null>(null)
-  const [activeMenu, setActiveMenu] = useState<'layout' | 'caption' | null>(null)
+  const [logos, setLogos] = useState<string[]>([])
+  const [activeMenu, setActiveMenu] = useState<'layout' | 'caption' | 'overlay' | null>(null)
   const [activeCaptionTab, setActiveCaptionTab] = useState<(typeof captionTabOptions)[number]>('presets')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -261,9 +263,10 @@ export function BrandTemplatePage() {
       setIsLoading(true)
       setLoadError(null)
 
-      const [loadedTemplate, loadedConfig] = await Promise.all([
+      const [loadedTemplate, loadedConfig, loadedLogos] = await Promise.all([
         window.electronAPI?.getBrandTemplate?.() ?? Promise.resolve(undefined),
-        window.electronAPI?.getConfig?.() ?? Promise.resolve(undefined)
+        window.electronAPI?.getConfig?.() ?? Promise.resolve(undefined),
+        window.electronAPI?.listLogos?.() ?? Promise.resolve([])
       ])
 
       const resolvedTemplate = loadedTemplate ?? loadedConfig?.brandTemplate ?? defaultBrandTemplate
@@ -292,6 +295,7 @@ export function BrandTemplatePage() {
           ...resolvedTemplate.ai
         }
       })
+      setLogos(loadedLogos ?? [])
     } catch (error) {
       console.error('Failed to load brand template:', error)
       setTemplate(defaultBrandTemplate)
@@ -340,6 +344,21 @@ export function BrandTemplatePage() {
       ...template,
       caption: {
         ...template.caption,
+        ...updates
+      }
+    }
+
+    setTemplate(nextTemplate)
+    void persistTemplate(nextTemplate)
+  }
+
+  const updateLogo = (updates: Partial<BrandTemplate['logo']>) => {
+    if (!template) return
+
+    const nextTemplate: BrandTemplate = {
+      ...template,
+      logo: {
+        ...template.logo,
         ...updates
       }
     }
@@ -490,7 +509,13 @@ export function BrandTemplatePage() {
                     <div>
                       <div className="template-settings-group-label">Brand</div>
                       <div className="space-y-1">
-                        <div className="template-settings-row">
+                        <button
+                          type="button"
+                          className={`template-settings-row template-settings-row-button ${
+                            activeMenu === 'overlay' ? 'is-active' : ''
+                          }`}
+                          onClick={() => setActiveMenu(activeMenu === 'overlay' ? null : 'overlay')}
+                        >
                           <div className="template-settings-row-main">
                             <div className="template-settings-row-icon">
                               <IoImagesOutline size={15} />
@@ -503,7 +528,7 @@ export function BrandTemplatePage() {
                             </span>
                             <IoChevronForward size={15} />
                           </div>
-                        </div>
+                        </button>
                         <div className="template-settings-row">
                           <div className="template-settings-row-main">
                             <div className="template-settings-row-title">Intro/outro</div>
@@ -927,6 +952,64 @@ export function BrandTemplatePage() {
                         </div>
                       </div>
                     ) : null}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeMenu === 'overlay' ? (
+                <section className="workspace-panel brand-settings-panel h-[calc(100vh-140px)] w-[320px] shrink-0 overflow-hidden">
+                  <div className="workspace-panel-scroll">
+                    <div className="workspace-panel-header">
+                      <div>
+                        <h2 className="workspace-panel-title !mt-0">Overlay</h2>
+                      </div>
+                    </div>
+
+                    <div className="template-settings-divider" />
+
+                    <div className="template-layout-menu pt-5">
+                      <button
+                        type="button"
+                        className={`template-asset-row ${!template.logo.assetPath ? 'is-active' : ''}`}
+                        onClick={() =>
+                          updateLogo({
+                            enabled: false,
+                            assetPath: null
+                          })
+                        }
+                      >
+                        <div className="template-asset-row-main">
+                          <div className="template-settings-row-icon">
+                            <IoImagesOutline size={16} />
+                          </div>
+                          <span className="truncate">No overlay</span>
+                        </div>
+                      </button>
+
+                      {logos.map((logoPath) => (
+                        <button
+                          key={logoPath}
+                          type="button"
+                          className={`template-asset-row ${
+                            template.logo.assetPath === logoPath ? 'is-active' : ''
+                          }`}
+                          onClick={() =>
+                            updateLogo({
+                              enabled: true,
+                              assetPath: logoPath
+                            })
+                          }
+                        >
+                          <div className="template-asset-row-main">
+                            <div className="template-settings-row-icon">
+                              <IoImagesOutline size={16} />
+                            </div>
+                            <span className="truncate">{formatName(logoPath)}</span>
+                          </div>
+                          {template.logo.assetPath === logoPath ? <IoTrashOutline size={18} /> : null}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </section>
               ) : null}
