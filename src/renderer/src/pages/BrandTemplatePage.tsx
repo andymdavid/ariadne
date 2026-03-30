@@ -314,7 +314,7 @@ export function BrandTemplatePage() {
                 : 'lg:grid-cols-[320px_minmax(0,1fr)]'
             }`}
           >
-            <section className="workspace-panel brand-settings-panel">
+            <section className="workspace-panel brand-settings-panel self-start">
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
                   <div>
@@ -429,7 +429,7 @@ export function BrandTemplatePage() {
             </section>
 
             {activeMenu === 'layout' ? (
-              <section className="workspace-panel brand-settings-panel">
+              <section className="workspace-panel brand-settings-panel self-start">
                 <div className="workspace-panel-scroll">
                   <div className="workspace-panel-header">
                     <div>
