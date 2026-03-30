@@ -439,6 +439,14 @@
     min-height: 42px;
   }
 
+  .clip-editor-page-header .app-page-header-content {
+    flex: 1;
+  }
+
+  .clip-editor-page-header .workspace-actions {
+    margin-left: auto;
+  }
+
   .clip-editor-preview-stage {
     display: flex;
     min-height: 0;

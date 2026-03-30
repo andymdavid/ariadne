@@ -581,7 +581,7 @@ export function ClipEditorPage() {
   return (
     <div className="app-page">
       <div className="workspace-shell mx-auto w-full max-w-[1480px]">
-        <div className="app-page-header">
+        <div className="app-page-header clip-editor-page-header">
           <div className="app-page-header-content">
             <h1 className="app-page-title">Clip Workspace</h1>
           </div>
@@ -663,11 +663,32 @@ export function ClipEditorPage() {
                 ref={previewFrameRef}
                 className={`relative min-h-0 overflow-hidden rounded-[5px] bg-black ${previewAspectClass}`}
               >
-                    {mediaUrl ? (
+                    {mediaUrl && framePreview?.cropMode === 'blur' ? (
+                      <>
+                        <video
+                          src={mediaUrl}
+                          className="absolute inset-0 h-full w-full scale-110 object-cover blur-xl opacity-75"
+                          playsInline
+                          muted
+                          preload="metadata"
+                        />
+                        <div className="absolute inset-0 bg-black/18" />
+                        <video
+                          ref={videoRef}
+                          src={mediaUrl}
+                          className="relative z-10 h-full w-full object-contain"
+                          playsInline
+                          muted
+                          preload="metadata"
+                        />
+                      </>
+                    ) : mediaUrl ? (
                       <video
                         ref={videoRef}
                         src={mediaUrl}
-                        className="h-full w-full object-cover"
+                        className={`h-full w-full ${
+                          framePreview?.cropMode === 'fit' ? 'object-contain' : 'object-cover object-center'
+                        }`}
                         playsInline
                         muted
                         preload="metadata"
