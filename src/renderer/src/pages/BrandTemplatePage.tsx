@@ -74,7 +74,6 @@ export function BrandTemplatePage() {
   const [musicTracks, setMusicTracks] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [saveMessage, setSaveMessage] = useState('Saved')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isDraggingCaption, setIsDraggingCaption] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
@@ -204,15 +203,12 @@ export function BrandTemplatePage() {
 
     try {
       setIsSaving(true)
-      setSaveMessage('Saving...')
       const saved = await window.electronAPI?.updateBrandTemplate?.(payload)
       if (saved) {
         setTemplate(saved)
       }
-      setSaveMessage('Saved')
     } catch (error) {
       console.error('Failed to save brand template:', error)
-      setSaveMessage('Save failed')
     } finally {
       setIsSaving(false)
     }
@@ -292,27 +288,28 @@ export function BrandTemplatePage() {
         <div className="workspace-shell mx-auto w-full max-w-[1380px]">
           <div className="app-page-header">
             <div className="mx-auto w-full max-w-[1380px]">
-              <div className="app-page-header-content">
-                <div className="app-page-title">Brand Template</div>
-                <div className="app-page-separator">|</div>
-                <div className="app-page-subtitle">
-                  Set the default layout, captions, branding, music, and AI treatment each clip should inherit before clip-level editing begins.
+              <div className="flex items-center justify-between gap-4">
+                <div className="app-page-header-content">
+                  <div className="app-page-title">Brand Template</div>
+                  <div className="app-page-separator">|</div>
+                  <div className="app-page-subtitle">
+                    Setup your Reel template.
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
+                  <button
+                    type="button"
+                    className="app-action-primary"
+                    disabled={isSaving}
+                    onClick={() => void persistTemplate()}
+                  >
+                    Save template
+                  </button>
                 </div>
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center justify-end gap-3">
-            {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
-            <div className="app-chip">{saveMessage}</div>
-            <button
-              type="button"
-              className="app-action-primary"
-              disabled={isSaving}
-              onClick={() => void persistTemplate()}
-            >
-              Save template
-            </button>
           </div>
 
           <div className="workspace-grid">
