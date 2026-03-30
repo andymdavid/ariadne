@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { IoImagesOutline, IoMusicalNotesOutline, IoTextOutline } from 'react-icons/io5'
+import {
+  IoChevronForward,
+  IoImagesOutline,
+  IoMusicalNotesOutline,
+  IoPlayOutline,
+  IoResizeOutline,
+  IoTextOutline
+} from 'react-icons/io5'
 import type { BrandTemplate } from '@shared/types'
 import { MainContentPanel } from '../components/MainContentPanel'
 
@@ -317,66 +324,106 @@ export function BrandTemplatePage() {
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
                   <div>
-                    <div className="workspace-panel-kicker">Settings</div>
-                    <h2 className="workspace-panel-title">Current defaults</h2>
-                    <p className="workspace-panel-copy">
-                      This left rail is the source of truth for what the template currently applies.
-                    </p>
+                    <h2 className="workspace-panel-title !mt-0">Setting</h2>
                   </div>
                 </div>
 
-                <div className="space-y-6">
+                <div className="template-settings-menu">
                   <div>
-                    <div className="mb-3 text-sm font-medium text-text-muted">Style</div>
-                    <div className="workspace-summary-list">
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Clip layout</div>
-                          <div className="workspace-summary-row-value">
-                            {template.frame.aspectRatio} · {template.frame.cropMode}
+                    <div className="template-settings-group-label">Style</div>
+                    <div className="space-y-1">
+                      <div className="template-settings-row">
+                        <div className="template-settings-row-main">
+                          <div className="template-settings-row-icon">
+                            <IoResizeOutline size={15} />
                           </div>
+                          <div className="template-settings-row-title">Clip layout settings</div>
                         </div>
-                      </div>
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Caption preset</div>
-                          <div className="workspace-summary-row-value">{selectedCaptionPreset.label}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-3 text-sm font-medium text-text-muted">Brand</div>
-                    <div className="workspace-summary-list">
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Logo asset</div>
-                          <div className="workspace-summary-row-value">
-                            {template.logo.assetPath ? formatName(template.logo.assetPath) : 'No default logo selected'}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="workspace-summary-row">
-                        <div>
-                          <div className="workspace-summary-row-label">Music asset</div>
-                          <div className="workspace-summary-row-value">
-                            {template.music.assetPath ? formatName(template.music.assetPath) : 'No default track selected'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-3 text-sm font-medium text-text-muted">AI Defaults</div>
-                    <div className="space-y-2">
-                      {aiToggleOrder.map((key) => (
-                        <div key={key} className="app-list-row">
-                          <span className="text-sm text-text-primary">{aiLabels[key]}</span>
-                          <span className={`app-chip ${template.ai[key] ? '' : 'opacity-60'}`}>
-                            {template.ai[key] ? 'On' : 'Off'}
+                        <div className="template-settings-row-meta">
+                          <span className="template-settings-row-value truncate">
+                            {template.frame.aspectRatio} {template.frame.cropMode} fit template
                           </span>
+                          <IoChevronForward size={15} />
+                        </div>
+                      </div>
+                      <div className="template-settings-row">
+                        <div className="template-settings-row-main">
+                          <div className="template-settings-row-icon">
+                            <IoTextOutline size={15} />
+                          </div>
+                          <div className="template-settings-row-title">Caption</div>
+                        </div>
+                        <div className="template-settings-row-meta">
+                          <span className="template-settings-row-value truncate">{selectedCaptionPreset.label}</span>
+                          <IoChevronForward size={15} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="template-settings-group-label">Brand</div>
+                    <div className="space-y-1">
+                      <div className="template-settings-row">
+                        <div className="template-settings-row-main">
+                          <div className="template-settings-row-icon">
+                            <IoImagesOutline size={15} />
+                          </div>
+                          <div className="template-settings-row-title">Overlay (logo, CTA)</div>
+                        </div>
+                        <div className="template-settings-row-meta">
+                          <span className="template-settings-row-value truncate">
+                            {template.logo.assetPath ? formatName(template.logo.assetPath) : 'overlay/original'}
+                          </span>
+                          <IoChevronForward size={15} />
+                        </div>
+                      </div>
+                      <div className="template-settings-row">
+                        <div className="template-settings-row-main">
+                          <div className="template-settings-row-icon">
+                            <IoPlayOutline size={15} />
+                          </div>
+                          <div className="template-settings-row-title">Intro/outro</div>
+                        </div>
+                        <div className="template-settings-row-meta">
+                          <IoChevronForward size={15} />
+                        </div>
+                      </div>
+                      <div className="template-settings-row">
+                        <div className="template-settings-row-main">
+                          <div className="template-settings-row-icon">
+                            <IoMusicalNotesOutline size={15} />
+                          </div>
+                          <div className="template-settings-row-title">Music</div>
+                        </div>
+                        <div className="template-settings-row-meta">
+                          <IoChevronForward size={15} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="template-settings-group-label">AI</div>
+                    <div className="space-y-1">
+                      {aiToggleOrder.map((key) => (
+                        <div key={key} className="template-settings-row template-settings-row-toggle">
+                          <div className="template-settings-row-main">
+                            <div className="template-settings-row-icon template-settings-row-icon-subtle">
+                              {key === 'removeFillerWords' && <span>✳</span>}
+                              {key === 'removePauses' && <span>◌</span>}
+                              {key === 'keywordHighlighter' && <span>⌁</span>}
+                              {key === 'emojis' && <span>☺</span>}
+                              {key === 'stockBroll' && <span>▣</span>}
+                            </div>
+                            <div className="template-settings-row-title">{aiLabels[key]}</div>
+                          </div>
+                          <div
+                            className={`template-settings-toggle ${template.ai[key] ? 'is-on' : ''}`}
+                            aria-hidden="true"
+                          >
+                            <span className="template-settings-toggle-thumb" />
+                          </div>
                         </div>
                       ))}
                     </div>
