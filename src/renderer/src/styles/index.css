@@ -515,6 +515,24 @@
     padding: 1px 0;
   }
 
+  .template-settings-row-button {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .template-settings-row-button.is-active .template-settings-row-title,
+  .template-settings-row-button:hover .template-settings-row-title {
+    color: #ffffff;
+  }
+
+  .template-settings-row-button.is-active .template-settings-row-meta,
+  .template-settings-row-button:hover .template-settings-row-meta {
+    color: rgba(240, 246, 252, 0.72);
+  }
+
   .template-settings-row-main {
     display: flex;
     min-width: 0;
@@ -593,6 +611,48 @@
   .template-settings-toggle.is-on .template-settings-toggle-thumb {
     transform: translateX(14px);
     background: #050608;
+  }
+
+  .template-layout-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  .template-option-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .template-option-grid-wide {
+    gap: 12px;
+  }
+
+  .template-option-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.02);
+    color: rgba(243, 245, 247, 0.9);
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  }
+
+  .template-option-chip:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
+  .template-option-chip.is-active {
+    background: #f5f5f5;
+    border-color: #f5f5f5;
+    color: #171717;
   }
 
   /* Status indicators */

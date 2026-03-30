@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import {
   IoChevronForward,
+  IoGridOutline,
   IoImagesOutline,
   IoResizeOutline,
+  IoScanOutline,
+  IoSquareOutline,
   IoTextOutline
 } from 'react-icons/io5'
 import type { BrandTemplate } from '@shared/types'
@@ -33,6 +36,18 @@ const aiLabels: Record<keyof BrandTemplate['ai'], string> = {
   emojis: 'AI emojis',
   stockBroll: 'Auto-generate stock B-roll'
 }
+
+const aspectRatioOptions: Array<BrandTemplate['frame']['aspectRatio']> = ['9:16', '1:1', '16:9']
+
+const cropModeOptions: Array<{
+  value: BrandTemplate['frame']['cropMode']
+  label: string
+  icon: typeof IoResizeOutline
+}> = [
+  { value: 'fit', label: 'Fill', icon: IoResizeOutline },
+  { value: 'center', label: 'Center', icon: IoScanOutline },
+  { value: 'blur', label: 'Blur', icon: IoGridOutline }
+]
 
 const defaultBrandTemplate: BrandTemplate = {
   caption: {
@@ -73,6 +88,7 @@ const defaultBrandTemplate: BrandTemplate = {
 
 export function BrandTemplatePage() {
   const [template, setTemplate] = useState<BrandTemplate | null>(null)
+  const [activeMenu, setActiveMenu] = useState<'layout' | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -209,6 +225,21 @@ export function BrandTemplatePage() {
     }
   }
 
+  const updateFrame = (updates: Partial<BrandTemplate['frame']>) => {
+    if (!template) return
+
+    const nextTemplate: BrandTemplate = {
+      ...template,
+      frame: {
+        ...template.frame,
+        ...updates
+      }
+    }
+
+    setTemplate(nextTemplate)
+    void persistTemplate(nextTemplate)
+  }
+
   const captionStyle = getCaptionPositionStyle(template?.caption)
   const logoPreviewSize = `${Math.max((template?.logo.scale ?? 0.18) * 100, 12)}%`
 
@@ -270,7 +301,13 @@ export function BrandTemplatePage() {
             </div>
           </div>
 
-          <div className="grid flex-1 items-center gap-10 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <div
+            className={`grid flex-1 items-center gap-10 ${
+              activeMenu === 'layout'
+                ? 'lg:grid-cols-[320px_320px_minmax(0,1fr)]'
+                : 'lg:grid-cols-[320px_minmax(0,1fr)]'
+            }`}
+          >
             <section className="workspace-panel brand-settings-panel">
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
@@ -285,7 +322,13 @@ export function BrandTemplatePage() {
                   <div>
                     <div className="template-settings-group-label">Style</div>
                     <div className="space-y-1">
-                      <div className="template-settings-row">
+                      <button
+                        type="button"
+                        className={`template-settings-row template-settings-row-button ${
+                          activeMenu === 'layout' ? 'is-active' : ''
+                        }`}
+                        onClick={() => setActiveMenu(activeMenu === 'layout' ? null : 'layout')}
+                      >
                         <div className="template-settings-row-main">
                           <div className="template-settings-row-icon">
                             <IoResizeOutline size={15} />
@@ -298,7 +341,7 @@ export function BrandTemplatePage() {
                           </span>
                           <IoChevronForward size={15} />
                         </div>
-                      </div>
+                      </button>
                       <div className="template-settings-row">
                         <div className="template-settings-row-main">
                           <div className="template-settings-row-icon">
@@ -378,6 +421,63 @@ export function BrandTemplatePage() {
                 </div>
               </div>
             </section>
+
+            {activeMenu === 'layout' ? (
+              <section className="workspace-panel brand-settings-panel">
+                <div className="workspace-panel-scroll">
+                  <div className="workspace-panel-header">
+                    <div>
+                      <h2 className="workspace-panel-title !mt-0">Layout</h2>
+                    </div>
+                  </div>
+
+                  <div className="template-settings-divider" />
+
+                  <div className="template-layout-menu">
+                    <div>
+                      <div className="template-settings-group-label">Aspect ratio:</div>
+                      <div className="template-option-grid">
+                        {aspectRatioOptions.map((ratio) => (
+                          <button
+                            key={ratio}
+                            type="button"
+                            className={`template-option-chip ${
+                              template.frame.aspectRatio === ratio ? 'is-active' : ''
+                            }`}
+                            onClick={() => updateFrame({ aspectRatio: ratio })}
+                          >
+                            <IoSquareOutline size={14} />
+                            <span>{ratio}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="template-settings-group-label">Layout</div>
+                      <div className="template-option-grid template-option-grid-wide">
+                        {cropModeOptions.map((option) => {
+                          const Icon = option.icon
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              className={`template-option-chip ${
+                                template.frame.cropMode === option.value ? 'is-active' : ''
+                              }`}
+                              onClick={() => updateFrame({ cropMode: option.value })}
+                            >
+                              <Icon size={14} />
+                              <span>{option.label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : null}
 
             <div className="flex min-h-[720px] items-center justify-center">
               <div
