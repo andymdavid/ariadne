@@ -308,7 +308,7 @@ export function BrandTemplatePage() {
           </div>
 
           <div className="grid flex-1 items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="flex items-start justify-start pl-8 gap-10">
+            <div className="ml-[-16px] flex items-start justify-start gap-2">
               <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
                 <div className="workspace-panel-scroll">
                   <div className="workspace-panel-header">
