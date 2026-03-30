@@ -176,6 +176,11 @@ export interface BrandTemplateMusicDefaults {
   duckEnabled: boolean;
 }
 
+export interface BrandTemplateIntroOutroDefaults {
+  introPath: string | null;
+  outroPath: string | null;
+}
+
 export interface BrandTemplateFrameDefaults {
   aspectRatio: '9:16' | '1:1' | '16:9';
   cropMode: 'fit' | 'center' | 'blur';
@@ -193,6 +198,7 @@ export interface BrandTemplate {
   caption: BrandTemplateCaptionDefaults;
   logo: BrandTemplateLogoDefaults;
   music: BrandTemplateMusicDefaults;
+  introOutro: BrandTemplateIntroOutroDefaults;
   frame: BrandTemplateFrameDefaults;
   ai: BrandTemplateAiDefaults;
   updatedAt: string;

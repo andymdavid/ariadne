@@ -845,6 +845,33 @@
     font-weight: 500;
   }
 
+  .template-upload-row {
+    display: flex;
+    width: 100%;
+    min-height: 72px;
+    align-items: center;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.06);
+    color: #f3f5f7;
+    padding: 0 22px;
+    text-align: left;
+  }
+
+  .template-upload-row:hover {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .template-upload-row-main {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 16px;
+    font-size: 16px;
+    font-weight: 500;
+  }
+
   /* Status indicators */
   .status-pending {
     @apply text-accent-warning;

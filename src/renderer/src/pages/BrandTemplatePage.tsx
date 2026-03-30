@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import {
+  IoCloudUploadOutline,
   IoChevronForward,
   IoGridOutline,
   IoImagesOutline,
@@ -165,6 +166,10 @@ const defaultBrandTemplate: BrandTemplate = {
     volume: 0.3,
     duckEnabled: true
   },
+  introOutro: {
+    introPath: null,
+    outroPath: null
+  },
   frame: {
     aspectRatio: '9:16',
     cropMode: 'fit'
@@ -182,7 +187,7 @@ const defaultBrandTemplate: BrandTemplate = {
 export function BrandTemplatePage() {
   const [template, setTemplate] = useState<BrandTemplate | null>(null)
   const [logos, setLogos] = useState<string[]>([])
-  const [activeMenu, setActiveMenu] = useState<'layout' | 'caption' | 'overlay' | null>(null)
+  const [activeMenu, setActiveMenu] = useState<'layout' | 'caption' | 'overlay' | 'intro-outro' | null>(null)
   const [activeCaptionTab, setActiveCaptionTab] = useState<(typeof captionTabOptions)[number]>('presets')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -311,6 +316,10 @@ export function BrandTemplatePage() {
           ...defaultBrandTemplate.music,
           ...resolvedTemplate.music
         },
+        introOutro: {
+          ...defaultBrandTemplate.introOutro,
+          ...resolvedTemplate.introOutro
+        },
         frame: {
           ...defaultBrandTemplate.frame,
           ...resolvedTemplate.frame
@@ -390,6 +399,27 @@ export function BrandTemplatePage() {
 
     setTemplate(nextTemplate)
     void persistTemplate(nextTemplate)
+  }
+
+  const updateIntroOutro = (updates: Partial<BrandTemplate['introOutro']>) => {
+    if (!template) return
+
+    const nextTemplate: BrandTemplate = {
+      ...template,
+      introOutro: {
+        ...template.introOutro,
+        ...updates
+      }
+    }
+
+    setTemplate(nextTemplate)
+    void persistTemplate(nextTemplate)
+  }
+
+  const pickIntroOutroFile = async (kind: 'introPath' | 'outroPath') => {
+    const filePath = await window.electronAPI?.selectFile?.()
+    if (!filePath) return
+    updateIntroOutro({ [kind]: filePath } as Partial<BrandTemplate['introOutro']>)
   }
 
   const applyCaptionPreset = (presetId: (typeof captionPresets)[number]['id']) => {
@@ -554,14 +584,20 @@ export function BrandTemplatePage() {
                             <IoChevronForward size={15} />
                           </div>
                         </button>
-                        <div className="template-settings-row">
+                        <button
+                          type="button"
+                          className={`template-settings-row template-settings-row-button ${
+                            activeMenu === 'intro-outro' ? 'is-active' : ''
+                          }`}
+                          onClick={() => setActiveMenu(activeMenu === 'intro-outro' ? null : 'intro-outro')}
+                        >
                           <div className="template-settings-row-main">
                             <div className="template-settings-row-title">Intro/outro</div>
                           </div>
                           <div className="template-settings-row-meta">
                             <IoChevronForward size={15} />
                           </div>
-                        </div>
+                        </button>
                         <div className="template-settings-row">
                           <div className="template-settings-row-main">
                             <div className="template-settings-row-title">Music</div>
@@ -1034,6 +1070,44 @@ export function BrandTemplatePage() {
                           {template.logo.assetPath === logoPath ? <IoTrashOutline size={18} /> : null}
                         </button>
                       ))}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {activeMenu === 'intro-outro' ? (
+                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0 self-start">
+                  <div className="workspace-panel-scroll">
+                    <div className="workspace-panel-header">
+                      <div>
+                        <h2 className="workspace-panel-title !mt-0">Intro/outro</h2>
+                      </div>
+                    </div>
+
+                    <div className="template-settings-divider" />
+
+                    <div className="template-layout-menu pt-5">
+                      <button
+                        type="button"
+                        className="template-upload-row"
+                        onClick={() => void pickIntroOutroFile('introPath')}
+                      >
+                        <div className="template-upload-row-main">
+                          <IoCloudUploadOutline size={22} />
+                          <span>{template.introOutro.introPath ? formatName(template.introOutro.introPath) : 'Upload intro'}</span>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="template-upload-row"
+                        onClick={() => void pickIntroOutroFile('outroPath')}
+                      >
+                        <div className="template-upload-row-main">
+                          <IoCloudUploadOutline size={22} />
+                          <span>{template.introOutro.outroPath ? formatName(template.introOutro.outroPath) : 'Upload outro'}</span>
+                        </div>
+                      </button>
                     </div>
                   </div>
                 </section>

@@ -95,6 +95,10 @@ class ConfigService {
             volume: 0.3,
             duckEnabled: true
           },
+          introOutro: {
+            introPath: null,
+            outroPath: null
+          },
           frame: {
             aspectRatio: '9:16',
             cropMode: 'fit'
@@ -253,6 +257,10 @@ class ConfigService {
       music: {
         ...current.music,
         ...template.music
+      },
+      introOutro: {
+        ...current.introOutro,
+        ...template.introOutro
       },
       frame: {
         ...current.frame,
