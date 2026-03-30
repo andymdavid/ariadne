@@ -2,7 +2,7 @@
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@500;600;700;800&family=Oswald:wght@500;600;700&family=Poppins:wght@500;600;700;800&display=swap');
 
 @layer base {
   :root {
@@ -623,7 +623,7 @@
     display: flex;
     align-items: center;
     gap: 28px;
-    padding: 14px 0 16px;
+    padding: 16px 0;
   }
 
   .template-caption-tab {
