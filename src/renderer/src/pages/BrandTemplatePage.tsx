@@ -466,18 +466,6 @@ export function BrandTemplatePage() {
     void persistTemplate(nextTemplate)
   }
 
-  const handleCreatePreset = async () => {
-    try {
-      const response = await window.electronAPI?.createBrandTemplatePreset?.()
-      if (!response) return
-      setPresets(response.presets)
-      setActivePresetId(response.activePresetId)
-      applyTemplateState(response.brandTemplate)
-    } catch (error) {
-      console.error('Failed to create brand template preset:', error)
-    }
-  }
-
   const handleSelectPreset = async (presetId: string) => {
     if (!presetId || presetId === activePresetId) return
 
@@ -665,7 +653,7 @@ export function BrandTemplatePage() {
         <div className="mx-auto flex h-full w-full max-w-[1380px] flex-col">
           <div className="app-page-header">
             <div className="mx-auto w-full max-w-[1380px]">
-              <div className="flex items-center justify-between gap-4">
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
                 <div className="app-page-header-content">
                   <div className="app-page-title">Brand Template</div>
                   <div className="app-page-separator">|</div>
@@ -674,10 +662,9 @@ export function BrandTemplatePage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
+                <div className="justify-self-center">
                   <select
-                    className="template-form-select min-w-[220px]"
+                    className="template-form-select min-w-[360px] rounded-full px-8 py-4 text-center text-[18px]"
                     value={activePresetId}
                     onChange={(event) => void handleSelectPreset(event.target.value)}
                   >
@@ -687,13 +674,9 @@ export function BrandTemplatePage() {
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    className="app-action-secondary"
-                    onClick={() => void handleCreatePreset()}
-                  >
-                    New preset
-                  </button>
+                </div>
+
+                <div className="justify-self-end">
                   <button
                     type="button"
                     className="app-action-primary"
