@@ -270,7 +270,7 @@ export function BrandTemplatePage() {
             </div>
           </div>
 
-          <div className="grid gap-10 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
+          <div className="grid min-h-[calc(100vh-180px)] gap-10 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-center">
             <section className="workspace-panel">
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
@@ -377,7 +377,7 @@ export function BrandTemplatePage() {
               </div>
             </section>
 
-            <div className="flex min-h-[720px] items-start justify-center pt-8 lg:pt-4">
+            <div className="flex min-h-[720px] items-center justify-center">
               <div
                 ref={previewRef}
                 className="relative aspect-[9/16] w-full max-w-[310px] overflow-hidden bg-[#eedec3]"
