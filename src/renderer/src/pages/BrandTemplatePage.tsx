@@ -957,7 +957,7 @@ export function BrandTemplatePage() {
               ) : null}
 
               {activeMenu === 'overlay' ? (
-                <section className="workspace-panel brand-settings-panel h-[calc(100vh-140px)] w-[320px] shrink-0 overflow-hidden">
+                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0 self-start">
                   <div className="workspace-panel-scroll">
                     <div className="workspace-panel-header">
                       <div>
