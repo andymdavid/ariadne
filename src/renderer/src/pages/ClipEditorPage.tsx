@@ -252,12 +252,11 @@ export function ClipEditorPage() {
         setLoading(true)
         setError(null)
 
-        const [rawClip, mediaSource, segments, brandTemplate, clipEdits] = await Promise.all([
+        const [rawClip, mediaSource, segments, brandTemplate] = await Promise.all([
           window.electronAPI?.getClip?.(clipId),
           window.electronAPI?.getEpisodeMediaSource?.(episodeId),
           window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => []),
-          window.electronAPI?.getBrandTemplate?.().catch(() => null),
-          window.electronAPI?.getClipEdits?.(clipId).catch(() => null)
+          window.electronAPI?.getBrandTemplate?.().catch(() => null)
         ])
 
         if (!rawClip) {
@@ -315,35 +314,33 @@ export function ClipEditorPage() {
             mappedClip.keyQuote,
             template?.caption.presetId,
             mappedClip.startTime,
-            clipEdits?.caption_font || template?.caption.font || 'Inter'
+            template?.caption.font || 'Inter'
           ) || mappedClip.keyQuote
 
         setCaptionPreview({
           presetId: template?.caption.presetId ?? null,
           text: activeCaptionText,
-          font: clipEdits?.caption_font || template?.caption.font || 'Inter',
-          position: (clipEdits?.caption_position || template?.caption.position || 'bottom') as PreviewCaptionState['position'],
-          customX: clipEdits?.caption_custom_x ?? template?.caption.customX ?? null,
-          customY: clipEdits?.caption_custom_y ?? template?.caption.customY ?? null
+          font: template?.caption.font || 'Inter',
+          position: (template?.caption.position || 'bottom') as PreviewCaptionState['position'],
+          customX: template?.caption.customX ?? null,
+          customY: template?.caption.customY ?? null
         })
 
         setLogoPreview({
-          enabled: clipEdits
-            ? clipEdits.logo_enabled === 1 || Boolean(clipEdits.logo_path)
-            : (template?.logo.enabled ?? false) || Boolean(template?.logo.assetPath),
-          assetPath: clipEdits?.logo_path || template?.logo.assetPath || null,
-          positionX: clipEdits?.logo_position_x ?? template?.logo.positionX ?? 85,
-          positionY: clipEdits?.logo_position_y ?? template?.logo.positionY ?? 85,
-          scale: clipEdits?.logo_scale ?? template?.logo.scale ?? 0.15,
-          opacity: clipEdits?.logo_opacity ?? template?.logo.opacity ?? 0.8
+          enabled: (template?.logo.enabled ?? false) || Boolean(template?.logo.assetPath),
+          assetPath: template?.logo.assetPath || null,
+          positionX: template?.logo.positionX ?? 85,
+          positionY: template?.logo.positionY ?? 85,
+          scale: template?.logo.scale ?? 0.15,
+          opacity: template?.logo.opacity ?? 0.8
         })
 
         setFramePreview({
-          aspectRatio: (clipEdits?.aspect_ratio || template?.frame.aspectRatio || '9:16') as PreviewFrameState['aspectRatio'],
-          cropMode: (clipEdits?.crop_mode === 'canvas' ? 'fit' : (clipEdits?.crop_mode || template?.frame.cropMode || 'fit')) as PreviewFrameState['cropMode']
+          aspectRatio: (template?.frame.aspectRatio || '9:16') as PreviewFrameState['aspectRatio'],
+          cropMode: (template?.frame.cropMode || 'fit') as PreviewFrameState['cropMode']
         })
 
-        setMusicEnabled(clipEdits ? clipEdits.music_enabled === 1 : template?.music.enabled ?? false)
+        setMusicEnabled(template?.music.enabled ?? false)
       } catch (loadError) {
         console.error('Failed to load clip editor:', loadError)
         setError('Failed to load clip editor')
@@ -605,7 +602,7 @@ export function ClipEditorPage() {
         </div>
 
         <div className="workspace-grid clip-editor-grid">
-          <section className="workspace-panel">
+          <section className="workspace-panel clip-editor-transcript-panel">
             <div className="workspace-panel-scroll">
               <div className="mb-5 flex items-center justify-between gap-4">
                 <h2 className="workspace-panel-title !mt-0">Transcript</h2>

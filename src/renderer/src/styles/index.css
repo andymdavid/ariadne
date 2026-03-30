@@ -434,6 +434,11 @@
     align-items: start;
   }
 
+  .clip-editor-transcript-panel {
+    height: clamp(420px, calc(100vh - 280px), 720px);
+    max-height: clamp(420px, calc(100vh - 280px), 720px);
+  }
+
   .clip-editor-header-action {
     border-radius: 5px;
     min-height: 42px;
