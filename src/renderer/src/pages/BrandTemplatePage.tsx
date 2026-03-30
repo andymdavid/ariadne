@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import {
   IoChevronForward,
   IoImagesOutline,
-  IoMusicalNotesOutline,
-  IoPlayOutline,
   IoResizeOutline,
   IoTextOutline
 } from 'react-icons/io5'
@@ -35,8 +33,6 @@ const aiLabels: Record<keyof BrandTemplate['ai'], string> = {
   emojis: 'AI emojis',
   stockBroll: 'Auto-generate stock B-roll'
 }
-
-type EditableTemplateSection = 'caption' | 'logo' | 'music' | 'frame' | 'ai'
 
 const defaultBrandTemplate: BrandTemplate = {
   caption: {
@@ -77,8 +73,6 @@ const defaultBrandTemplate: BrandTemplate = {
 
 export function BrandTemplatePage() {
   const [template, setTemplate] = useState<BrandTemplate | null>(null)
-  const [logos, setLogos] = useState<string[]>([])
-  const [musicTracks, setMusicTracks] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -150,21 +144,17 @@ export function BrandTemplatePage() {
     }
   }, [isDraggingCaption, isDraggingLogo, template])
 
-  const selectedCaptionPreset = useMemo(
-    () => captionPresets.find((preset) => preset.id === template?.caption.presetId) ?? captionPresets[3],
-    [template]
-  )
+  const selectedCaptionPreset =
+    captionPresets.find((preset) => preset.id === template?.caption.presetId) ?? captionPresets[3]
 
   const loadPageState = async () => {
     try {
       setIsLoading(true)
       setLoadError(null)
 
-      const [loadedTemplate, loadedConfig, loadedLogos, loadedMusic] = await Promise.all([
+      const [loadedTemplate, loadedConfig] = await Promise.all([
         window.electronAPI?.getBrandTemplate?.() ?? Promise.resolve(undefined),
-        window.electronAPI?.getConfig?.() ?? Promise.resolve(undefined),
-        window.electronAPI?.listLogos?.(),
-        window.electronAPI?.listMusic?.()
+        window.electronAPI?.getConfig?.() ?? Promise.resolve(undefined)
       ])
 
       const resolvedTemplate = loadedTemplate ?? loadedConfig?.brandTemplate ?? defaultBrandTemplate
@@ -193,8 +183,6 @@ export function BrandTemplatePage() {
           ...resolvedTemplate.ai
         }
       })
-      setLogos(loadedLogos ?? [])
-      setMusicTracks(loadedMusic ?? [])
     } catch (error) {
       console.error('Failed to load brand template:', error)
       setTemplate(defaultBrandTemplate)
@@ -219,43 +207,6 @@ export function BrandTemplatePage() {
     } finally {
       setIsSaving(false)
     }
-  }
-
-  const patchTemplate = <K extends EditableTemplateSection>(section: K, updates: Partial<BrandTemplate[K]>) => {
-    if (!template) return
-
-    const nextTemplate = {
-      ...template,
-      [section]: {
-        ...template[section],
-        ...updates
-      }
-    } as BrandTemplate
-
-    setTemplate(nextTemplate)
-    void persistTemplate(nextTemplate)
-  }
-
-  const updateCaptionPreset = (presetId: string) => {
-    const preset = captionPresets.find((item) => item.id === presetId)
-    if (!preset || !template) return
-
-    const nextTemplate: BrandTemplate = {
-      ...template,
-      caption: {
-        ...template.caption,
-        presetId: preset.id,
-        text: preset.text
-      }
-    }
-
-    setTemplate(nextTemplate)
-    void persistTemplate(nextTemplate)
-  }
-
-  const toggleAiSetting = (key: keyof BrandTemplate['ai']) => {
-    if (!template) return
-    patchTemplate('ai', { [key]: !template.ai[key] } as Partial<BrandTemplate['ai']>)
   }
 
   const captionStyle = getCaptionPositionStyle(template?.caption)
@@ -292,7 +243,7 @@ export function BrandTemplatePage() {
   return (
     <MainContentPanel>
       <div className="app-page">
-        <div className="workspace-shell mx-auto w-full max-w-[1380px]">
+        <div className="mx-auto w-full max-w-[1380px]">
           <div className="app-page-header">
             <div className="mx-auto w-full max-w-[1380px]">
               <div className="flex items-center justify-between gap-4">
@@ -319,7 +270,7 @@ export function BrandTemplatePage() {
             </div>
           </div>
 
-          <div className="workspace-grid">
+          <div className="grid gap-10 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
             <section className="workspace-panel">
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
@@ -380,9 +331,6 @@ export function BrandTemplatePage() {
                       </div>
                       <div className="template-settings-row">
                         <div className="template-settings-row-main">
-                          <div className="template-settings-row-icon">
-                            <IoPlayOutline size={15} />
-                          </div>
                           <div className="template-settings-row-title">Intro/outro</div>
                         </div>
                         <div className="template-settings-row-meta">
@@ -391,9 +339,6 @@ export function BrandTemplatePage() {
                       </div>
                       <div className="template-settings-row">
                         <div className="template-settings-row-main">
-                          <div className="template-settings-row-icon">
-                            <IoMusicalNotesOutline size={15} />
-                          </div>
                           <div className="template-settings-row-title">Music</div>
                         </div>
                         <div className="template-settings-row-meta">
@@ -432,147 +377,17 @@ export function BrandTemplatePage() {
               </div>
             </section>
 
-            <section className="workspace-panel">
-              <div className="workspace-panel-scroll">
-                <div className="workspace-panel-header">
-                  <div>
-                    <div className="workspace-panel-kicker">Controls</div>
-                    <h2 className="workspace-panel-title">Edit template inputs</h2>
-                    <p className="workspace-panel-copy">
-                      Choose the defaults the preview uses now. Changes still save through the existing
-                      template logic.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  <div>
-                    <div className="mb-3 text-sm font-medium text-text-muted">Caption preset</div>
-                    <div className="grid grid-cols-2 gap-3">
-                      {captionPresets.map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() => updateCaptionPreset(preset.id)}
-                          className={`rounded-2xl border p-4 text-left transition-colors ${
-                            template.caption.presetId === preset.id
-                              ? 'border-white bg-white/10'
-                              : 'border-border-default bg-[#0d0f13] hover:bg-[#151921]'
-                          }`}
-                        >
-                          <div className="text-sm font-medium text-text-primary">{preset.label}</div>
-                          <div className="mt-2 text-xs text-text-secondary">{preset.text || 'Turns captions off in preview'}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
-                      <IoImagesOutline size={16} />
-                      Logos from Asset Library
-                    </div>
-                    <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => patchTemplate('logo', { enabled: false, assetPath: null })}
-                        className={`app-list-row ${!template.logo.assetPath ? 'border-white/20' : ''}`}
-                      >
-                        <span className="text-sm text-text-primary">No default logo</span>
-                      </button>
-                      {logos.map((logoPath) => (
-                        <button
-                          key={logoPath}
-                          type="button"
-                          onClick={() => patchTemplate('logo', { enabled: true, assetPath: logoPath })}
-                          className={`app-list-row ${template.logo.assetPath === logoPath ? 'border-white/20' : ''}`}
-                        >
-                          <span className="truncate text-sm text-text-primary">{formatName(logoPath)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
-                      <IoMusicalNotesOutline size={16} />
-                      Music from Asset Library
-                    </div>
-                    <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => patchTemplate('music', { enabled: false, assetPath: null })}
-                        className={`app-list-row ${!template.music.assetPath ? 'border-white/20' : ''}`}
-                      >
-                        <span className="text-sm text-text-primary">No default music</span>
-                      </button>
-                      {musicTracks.map((trackPath) => (
-                        <button
-                          key={trackPath}
-                          type="button"
-                          onClick={() => patchTemplate('music', { enabled: true, assetPath: trackPath })}
-                          className={`app-list-row ${template.music.assetPath === trackPath ? 'border-white/20' : ''}`}
-                        >
-                          <span className="truncate text-sm text-text-primary">{formatName(trackPath)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
-                      <IoTextOutline size={16} />
-                      AI defaults
-                    </div>
-                    <div className="space-y-2">
-                      {aiToggleOrder.map((key) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => toggleAiSetting(key)}
-                          className="app-list-row"
-                        >
-                          <span className="text-sm text-text-primary">{aiLabels[key]}</span>
-                          <span className={`app-chip ${template.ai[key] ? '' : 'opacity-60'}`}>
-                            {template.ai[key] ? 'On' : 'Off'}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="workspace-panel">
-              <div className="workspace-panel-scroll">
-                <div className="workspace-panel-header">
-                  <div>
-                    <div className="workspace-panel-kicker">Preview</div>
-                    <h2 className="workspace-panel-title">Template output</h2>
-                    <p className="workspace-panel-copy">
-                      Use the live preview to validate inherited defaults. Drag caption and logo positions to
-                      persist them with the current template.
-                    </p>
-                  </div>
-                  <div className="app-chip">Persisted demo canvas</div>
-                </div>
-
-                <div className="workspace-preview-shell">
-                  <div
-                    ref={previewRef}
-                    className="relative aspect-[9/16] h-full max-h-[680px] overflow-hidden rounded-[30px] border border-white/10 bg-[#eedec3]"
-                  >
+            <div className="flex min-h-[720px] items-start justify-center pt-8 lg:pt-4">
+              <div
+                ref={previewRef}
+                className="relative aspect-[9/16] w-full max-w-[310px] overflow-hidden bg-[#eedec3]"
+              >
                     <img
                       src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=80"
                       alt="Preview backdrop"
                       className="absolute inset-0 h-full w-full object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/20" />
-
-                    <div className="absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-[11px] font-medium text-white">
-                      Demo
-                    </div>
 
                     {template.logo.enabled && template.logo.assetPath && (
                       <div
@@ -630,10 +445,8 @@ export function BrandTemplatePage() {
                         <div className="h-full w-20 rounded-full bg-white/60" />
                       </div>
                     </div>
-                  </div>
-                </div>
               </div>
-            </section>
+            </div>
           </div>
         </div>
       </div>
