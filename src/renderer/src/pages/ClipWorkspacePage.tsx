@@ -238,7 +238,7 @@ export function ClipWorkspacePage() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#0a0b0f]">
+      <div className="ml-[220px] flex h-full items-center justify-center bg-[#0a0b0f]">
         <div className="flex h-full w-full items-center justify-center">
           <div className="text-center">
             <div className="text-lg text-text-primary">Loading clips…</div>
@@ -251,7 +251,7 @@ export function ClipWorkspacePage() {
 
   if (error || !episodeId) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#0a0b0f]">
+      <div className="ml-[220px] flex h-full items-center justify-center bg-[#0a0b0f]">
         <div className="flex h-full w-full items-center justify-center">
           <div className="max-w-md text-center">
             <div className="text-lg text-text-primary">Workspace unavailable</div>
@@ -271,25 +271,18 @@ export function ClipWorkspacePage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-[#0a0b0f] px-10 py-8">
+    <div className="ml-[220px] h-full overflow-y-auto bg-[#0a0b0f] px-10 py-8">
       <div className="w-full pb-16">
-        <div className="app-page-header">
-          <div className="app-page-header-content">
-            <h1 className="app-page-title">Clip Workspace</h1>
-          </div>
-          <div className="app-page-actions">
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="inline-flex items-center gap-2 rounded-[5px] border border-white/8 bg-[#12151b]/88 px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#171b22] hover:text-text-primary"
-            >
-              <IoArrowBack size={15} />
-              <span>Back home</span>
-            </button>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="inline-flex items-center gap-2 rounded-[5px] border border-white/8 bg-[#12151b]/88 px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#171b22] hover:text-text-primary"
+        >
+          <IoArrowBack size={15} />
+          <span>Back home</span>
+        </button>
 
-        <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+        <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
           {clips.map((clip) => {
             const isFocused = clip.id === selectedClipId
 
