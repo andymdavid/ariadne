@@ -484,7 +484,11 @@ export function BrandTemplatePage() {
               ) : null}
             </div>
 
-            <div className="flex min-h-[720px] items-center justify-center">
+            <div
+              className={`flex min-h-[720px] items-center transition-all duration-200 ${
+                activeMenu === 'layout' ? 'justify-end pr-6' : 'justify-center'
+              }`}
+            >
               <div
                 ref={previewRef}
                 className="relative w-full overflow-hidden bg-[#eedec3]"
