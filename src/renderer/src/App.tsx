@@ -81,6 +81,8 @@ function App() {
     return match ? match[2] : undefined
   }
 
+  const hideNavigationDock = /^\/content\/[^/]+\/[^/]+$/.test(location.pathname)
+
   // Initialize managers when navigation changes
   useEffect(() => {
     const currentScreen = getCurrentScreen()
@@ -623,19 +625,21 @@ function App() {
       </Layout>
       
       {/* Navigation Dock and Command Interface */}
-      <NavigationErrorBoundary>
-        <NavigationDock
-          onSearchTrigger={handleSearchTrigger}
-          onCommandModeExit={handleCommandModeExit}
-          onCommand={handleCommand}
-          isCommandMode={isCommandMode}
-          episodeId={getEpisodeId()}
-          isProcessing={isProcessing}
-          sessionMessages={sessionMessages}
-          onAddMessage={addSessionMessage}
-          showStatusMode={sessionMessages.length >= 3} // Show status mode when there are initial messages
-        />
-      </NavigationErrorBoundary>
+      {!hideNavigationDock && (
+        <NavigationErrorBoundary>
+          <NavigationDock
+            onSearchTrigger={handleSearchTrigger}
+            onCommandModeExit={handleCommandModeExit}
+            onCommand={handleCommand}
+            isCommandMode={isCommandMode}
+            episodeId={getEpisodeId()}
+            isProcessing={isProcessing}
+            sessionMessages={sessionMessages}
+            onAddMessage={addSessionMessage}
+            showStatusMode={sessionMessages.length >= 3} // Show status mode when there are initial messages
+          />
+        </NavigationErrorBoundary>
+      )}
 
       {/* Command Result Feedback */}
       {commandResult && (

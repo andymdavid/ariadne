@@ -11,7 +11,6 @@ import {
   IoTextOutline
 } from 'react-icons/io5'
 import type { BrandTemplate } from '@shared/types'
-import { MainContentPanel } from '../components/MainContentPanel'
 
 type ClipRecord = {
   id: string
@@ -157,7 +156,6 @@ export function ClipEditorPage() {
   const navigate = useNavigate()
   const { id: episodeId, clipId } = useParams<{ id: string; clipId: string }>()
   const [clip, setClip] = useState<ClipRecord | null>(null)
-  const [clipTitle, setClipTitle] = useState('Untitled clip')
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
   const [episodeDuration, setEpisodeDuration] = useState(0)
   const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([])
@@ -246,10 +244,9 @@ export function ClipEditorPage() {
         setLoading(true)
         setError(null)
 
-        const [rawClip, mediaSource, titles, segments, brandTemplate, clipEdits] = await Promise.all([
+        const [rawClip, mediaSource, segments, brandTemplate, clipEdits] = await Promise.all([
           window.electronAPI?.getClip?.(clipId),
           window.electronAPI?.getEpisodeMediaSource?.(episodeId),
-          window.electronAPI?.getClipTitles?.(clipId).catch(() => []),
           window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => []),
           window.electronAPI?.getBrandTemplate?.().catch(() => null),
           window.electronAPI?.getClipEdits?.(clipId).catch(() => null)
@@ -269,7 +266,6 @@ export function ClipEditorPage() {
         }
 
         setClip(mappedClip)
-        setClipTitle((titles || []).find((entry: any) => entry.is_selected)?.title || (titles || [])[0]?.title || mappedClip.keyQuote)
         setMediaUrl(mediaSource?.mediaUrl ?? null)
         setEpisodeDuration(mediaSource?.duration ?? 0)
         setTranscriptLines(
@@ -542,78 +538,66 @@ export function ClipEditorPage() {
 
   if (loading) {
     return (
-      <MainContentPanel>
-        <div className="app-page">
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <div className="text-lg text-text-primary">Loading clip editor…</div>
-              <div className="text-sm text-text-muted">Preparing transcript and preview</div>
-            </div>
+      <div className="app-page">
+        <div className="flex h-full items-center justify-center">
+          <div className="text-center">
+            <div className="text-lg text-text-primary">Loading clip editor…</div>
+            <div className="text-sm text-text-muted">Preparing transcript and preview</div>
           </div>
         </div>
-      </MainContentPanel>
+      </div>
     )
   }
 
   if (error || !clip || !episodeId) {
     return (
-      <MainContentPanel>
-        <div className="app-page">
-          <div className="flex h-full items-center justify-center">
-            <div className="max-w-md text-center">
-              <div className="text-lg text-text-primary">Editor unavailable</div>
-              <div className="mt-2 text-sm text-text-muted">{error || 'Clip data could not be loaded.'}</div>
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#12151b] px-4 py-2 text-sm text-text-primary transition-colors hover:bg-[#171b22]"
-              >
-                <IoArrowBack size={15} />
-                Back home
-              </button>
-            </div>
+      <div className="app-page">
+        <div className="flex h-full items-center justify-center">
+          <div className="max-w-md text-center">
+            <div className="text-lg text-text-primary">Editor unavailable</div>
+            <div className="mt-2 text-sm text-text-muted">{error || 'Clip data could not be loaded.'}</div>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#12151b] px-4 py-2 text-sm text-text-primary transition-colors hover:bg-[#171b22]"
+            >
+              <IoArrowBack size={15} />
+              Back home
+            </button>
           </div>
         </div>
-      </MainContentPanel>
+      </div>
     )
   }
 
   return (
-    <MainContentPanel>
-      <div className="app-page">
-        <div className="workspace-shell mx-auto w-full max-w-[1480px]">
-          <div className="workspace-header">
-            <div className="workspace-header-copy">
-              <div className="workspace-kicker">Clip Workspace</div>
-              <div className="workspace-title">{clipTitle}</div>
-              <div className="workspace-subtitle">
-                Review transcript timing, validate the current clip frame, and inspect the inherited brand
-                treatment before export.
-              </div>
-            </div>
-
-            <div className="workspace-actions">
-              <button
-                type="button"
-                onClick={() => navigate(`/review/${episodeId}`)}
-                className="app-action-secondary"
-              >
-                <IoArrowBack size={16} />
-                Back to review
-              </button>
-              <div className="app-chip">{framePreview?.aspectRatio || '9:16'}</div>
-              <button
-                type="button"
-                onClick={() => navigate(`/export/${episodeId}`)}
-                className="app-action-primary"
-              >
-                Export
-              </button>
-            </div>
+    <div className="app-page">
+      <div className="workspace-shell mx-auto w-full max-w-[1480px]">
+        <div className="app-page-header">
+          <div className="app-page-header-content">
+            <h1 className="app-page-title">Clip Workspace</h1>
           </div>
+          <div className="workspace-actions">
+            <button
+              type="button"
+              onClick={() => navigate(`/review/${episodeId}`)}
+              className="app-action-secondary"
+            >
+              <IoArrowBack size={16} />
+              Back to review
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(`/export/${episodeId}`)}
+              className="app-action-primary"
+            >
+              Export
+            </button>
+          </div>
+        </div>
 
-          <div className="workspace-grid workspace-grid-editor">
-            <section className="workspace-panel">
+        <div className="workspace-grid workspace-grid-editor">
+          <section className="workspace-panel">
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
                   <div>
@@ -650,9 +634,9 @@ export function ClipEditorPage() {
                   </div>
                 </div>
               </div>
-            </section>
+          </section>
 
-            <section className="workspace-panel">
+          <section className="workspace-panel">
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
                   <div>
@@ -780,9 +764,9 @@ export function ClipEditorPage() {
                   </div>
                 </div>
               </div>
-            </section>
+          </section>
 
-            <section className="workspace-panel">
+          <section className="workspace-panel">
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
                   <div>
@@ -862,86 +846,85 @@ export function ClipEditorPage() {
                   </div>
                 </div>
               </div>
-            </section>
-          </div>
+          </section>
+        </div>
 
-          <footer className="workspace-panel shrink-0">
-            <div className="workspace-panel-scroll !p-0">
-              <div className="flex items-center justify-between border-b border-white/8 px-6 py-3">
-                <div className="flex items-center gap-4 text-sm text-text-secondary">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-2 hover:text-text-primary"
-                  >
-                    <IoCheckmarkCircleOutline size={15} />
-                    Timeline
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={() => seekWithinClip(currentTime - 1)}
-                    className="text-text-secondary transition-colors hover:text-text-primary"
-                  >
-                    ‹‹
-                  </button>
-                  <button
-                    type="button"
-                    onClick={togglePlayback}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-black"
-                  >
-                    {isPlaying ? <IoPause size={16} /> : <IoPlay size={16} />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => seekWithinClip(currentTime + 1)}
-                    className="text-text-secondary transition-colors hover:text-text-primary"
-                  >
-                    ››
-                  </button>
-                  <div className="text-sm text-text-secondary">
-                    {formatClockTime(currentTime - clip.startTime)} / {formatClockTime(clip.duration)}
-                  </div>
-                </div>
+        <footer className="workspace-panel shrink-0">
+          <div className="workspace-panel-scroll !p-0">
+            <div className="flex items-center justify-between border-b border-white/8 px-6 py-3">
+              <div className="flex items-center gap-4 text-sm text-text-secondary">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 hover:text-text-primary"
+                >
+                  <IoCheckmarkCircleOutline size={15} />
+                  Timeline
+                </button>
               </div>
 
-              <div className="px-6 py-4">
-                <div className="relative mb-4 h-1 rounded-full bg-white/8">
-                  <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-white"
-                    style={{ width: `${Math.min(Math.max(timelineProgress, 0), 100)}%` }}
-                  />
-                </div>
-
-                <div className="flex items-end gap-2 overflow-x-auto pb-2">
-                  {transcriptLines.map((line) => {
-                    const width = episodeDuration > 0 ? Math.max(((line.end - line.start) / episodeDuration) * 1000, 54) : 72
-                    const isActive = activeLineId === line.id
-
-                    return (
-                      <button
-                        key={line.id}
-                        type="button"
-                        onClick={() => seekWithinClip(line.start)}
-                        className={`rounded-xl border px-3 py-2 text-left transition-colors ${
-                          isActive
-                            ? 'border-white/20 bg-white/10 text-white'
-                            : 'border-white/8 bg-[#11141a] text-text-secondary hover:border-white/14 hover:text-text-primary'
-                        }`}
-                        style={{ width }}
-                      >
-                        <div className="mb-1 text-[11px] uppercase tracking-[0.16em] text-text-muted">Segment</div>
-                        <div className="truncate text-xs">{line.text}</div>
-                      </button>
-                    )
-                  })}
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => seekWithinClip(currentTime - 1)}
+                  className="text-text-secondary transition-colors hover:text-text-primary"
+                >
+                  ‹‹
+                </button>
+                <button
+                  type="button"
+                  onClick={togglePlayback}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-black"
+                >
+                  {isPlaying ? <IoPause size={16} /> : <IoPlay size={16} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => seekWithinClip(currentTime + 1)}
+                  className="text-text-secondary transition-colors hover:text-text-primary"
+                >
+                  ››
+                </button>
+                <div className="text-sm text-text-secondary">
+                  {formatClockTime(currentTime - clip.startTime)} / {formatClockTime(clip.duration)}
                 </div>
               </div>
             </div>
-          </footer>
-        </div>
+
+            <div className="px-6 py-4">
+              <div className="relative mb-4 h-1 rounded-full bg-white/8">
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-white"
+                  style={{ width: `${Math.min(Math.max(timelineProgress, 0), 100)}%` }}
+                />
+              </div>
+
+              <div className="flex items-end gap-2 overflow-x-auto pb-2">
+                {transcriptLines.map((line) => {
+                  const width = episodeDuration > 0 ? Math.max(((line.end - line.start) / episodeDuration) * 1000, 54) : 72
+                  const isActive = activeLineId === line.id
+
+                  return (
+                    <button
+                      key={line.id}
+                      type="button"
+                      onClick={() => seekWithinClip(line.start)}
+                      className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                        isActive
+                          ? 'border-white/20 bg-white/10 text-white'
+                          : 'border-white/8 bg-[#11141a] text-text-secondary hover:border-white/14 hover:text-text-primary'
+                      }`}
+                      style={{ width }}
+                    >
+                      <div className="mb-1 text-[11px] uppercase tracking-[0.16em] text-text-muted">Segment</div>
+                      <div className="truncate text-xs">{line.text}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </footer>
       </div>
-    </MainContentPanel>
+    </div>
   )
 }
