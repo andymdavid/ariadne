@@ -91,22 +91,6 @@ const captionPositionOptions = [
   { value: 'custom', label: 'Custom' }
 ] as const
 
-const aiToggleOrder: Array<keyof BrandTemplate['ai']> = [
-  'removeFillerWords',
-  'removePauses',
-  'keywordHighlighter',
-  'emojis',
-  'stockBroll'
-]
-
-const aiLabels: Record<keyof BrandTemplate['ai'], string> = {
-  removeFillerWords: 'Remove filler words',
-  removePauses: 'Remove pauses',
-  keywordHighlighter: 'AI keywords highlighter',
-  emojis: 'AI emojis',
-  stockBroll: 'Auto-generate stock B-roll'
-}
-
 const aspectRatioOptions: Array<BrandTemplate['frame']['aspectRatio']> = ['9:16', '1:1', '16:9']
 
 const cropModeOptions: Array<{
@@ -762,31 +746,6 @@ export function BrandTemplatePage() {
                       </div>
                     </div>
 
-                    <div>
-                      <div className="template-settings-group-label">AI</div>
-                      <div className="space-y-1">
-                        {aiToggleOrder.map((key) => (
-                          <div key={key} className="template-settings-row template-settings-row-toggle">
-                            <div className="template-settings-row-main">
-                              <div className="template-settings-row-icon template-settings-row-icon-subtle">
-                                {key === 'removeFillerWords' && <span>✳</span>}
-                                {key === 'removePauses' && <span>◌</span>}
-                                {key === 'keywordHighlighter' && <span>⌁</span>}
-                                {key === 'emojis' && <span>☺</span>}
-                                {key === 'stockBroll' && <span>▣</span>}
-                              </div>
-                              <div className="template-settings-row-title">{aiLabels[key]}</div>
-                            </div>
-                            <div
-                              className={`template-settings-toggle ${template.ai[key] ? 'is-on' : ''}`}
-                              aria-hidden="true"
-                            >
-                              <span className="template-settings-toggle-thumb" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
                   </div>
                 </div>
               </section>
