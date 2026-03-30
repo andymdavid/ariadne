@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import {
+  IoAddOutline,
   IoCloudUploadOutline,
+  IoChevronDown,
   IoChevronForward,
   IoGridOutline,
   IoImagesOutline,
@@ -185,11 +187,13 @@ export function BrandTemplatePage() {
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
   const [isResizingLogo, setIsResizingLogo] = useState(false)
   const [isLogoSelected, setIsLogoSelected] = useState(false)
+  const [isPresetMenuOpen, setIsPresetMenuOpen] = useState(false)
   const [isDemoPlaying, setIsDemoPlaying] = useState(false)
   const [demoPhase, setDemoPhase] = useState<'intro' | 'demo' | 'outro'>('demo')
   const [captionWordIndex, setCaptionWordIndex] = useState(0)
   const [demoProgress, setDemoProgress] = useState(0)
   const previewRef = useRef<HTMLDivElement>(null)
+  const presetMenuRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const demoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -205,6 +209,20 @@ export function BrandTemplatePage() {
       stopMediaPlayback()
     }
   }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!presetMenuRef.current) return
+      if (!presetMenuRef.current.contains(event.target as Node)) {
+        setIsPresetMenuOpen(false)
+      }
+    }
+
+    if (isPresetMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isPresetMenuOpen])
 
   useEffect(() => {
     if (!template) return
@@ -291,6 +309,7 @@ export function BrandTemplatePage() {
 
   const selectedCaptionPreset =
     captionPresets.find((preset) => preset.id === template?.caption.presetId) ?? captionPresets[3]
+  const activePreset = presets.find((preset) => preset.id === activePresetId) ?? null
 
   const applyTemplateState = (resolvedTemplate: BrandTemplate) => {
     setTemplate({
@@ -466,6 +485,19 @@ export function BrandTemplatePage() {
     void persistTemplate(nextTemplate)
   }
 
+  const handleCreatePreset = async () => {
+    try {
+      const response = await window.electronAPI?.createBrandTemplatePreset?.()
+      if (!response) return
+      setPresets(response.presets)
+      setActivePresetId(response.activePresetId)
+      applyTemplateState(response.brandTemplate)
+      setIsPresetMenuOpen(false)
+    } catch (error) {
+      console.error('Failed to create brand template preset:', error)
+    }
+  }
+
   const handleSelectPreset = async (presetId: string) => {
     if (!presetId || presetId === activePresetId) return
 
@@ -475,6 +507,7 @@ export function BrandTemplatePage() {
       setPresets(response.presets)
       setActivePresetId(response.activePresetId)
       applyTemplateState(response.brandTemplate)
+      setIsPresetMenuOpen(false)
     } catch (error) {
       console.error('Failed to switch brand template preset:', error)
     }
@@ -662,18 +695,68 @@ export function BrandTemplatePage() {
                   </div>
                 </div>
 
-                <div className="justify-self-center">
-                  <select
-                    className="template-form-select min-w-[360px] rounded-full px-8 py-4 text-center text-[18px]"
-                    value={activePresetId}
-                    onChange={(event) => void handleSelectPreset(event.target.value)}
+                <div ref={presetMenuRef} className="relative flex items-center justify-self-center">
+                  <button
+                    type="button"
+                    className="brand-preset-trigger"
+                    onClick={() => setIsPresetMenuOpen((current) => !current)}
+                    aria-haspopup="dialog"
+                    aria-expanded={isPresetMenuOpen}
                   >
-                    {presets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.name}
-                      </option>
-                    ))}
-                  </select>
+                    <span className="brand-preset-trigger-label">
+                      * {activePreset?.name ?? 'Preset template 1'}
+                    </span>
+                    <IoChevronDown
+                      size={18}
+                      className={`transition-transform duration-200 ${isPresetMenuOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+
+                  {isPresetMenuOpen ? (
+                    <div className="brand-preset-dropdown">
+                      <button
+                        type="button"
+                        className="brand-preset-card brand-preset-create-card"
+                        onClick={() => void handleCreatePreset()}
+                      >
+                        <div className="brand-preset-create-icon">
+                          <IoAddOutline size={36} />
+                        </div>
+                        <div className="brand-preset-create-label">Create new template</div>
+                      </button>
+
+                      {presets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className={`brand-preset-card ${
+                            preset.id === activePresetId ? 'is-active' : ''
+                          }`}
+                          onClick={() => void handleSelectPreset(preset.id)}
+                        >
+                          <div className="brand-preset-card-preview">
+                            <div className="brand-preset-card-ratio">{preset.template.frame.aspectRatio}</div>
+                            <div className="brand-preset-card-caption">
+                              {formatPresetCardText(preset.template.caption)}
+                            </div>
+                            <div className="brand-preset-card-meta">Logo, Intro, and more...</div>
+                          </div>
+                          <div className="brand-preset-card-footer">
+                            <div className="brand-preset-card-name">{preset.name}</div>
+                            <div className="brand-preset-card-swatches">
+                              {getPresetSwatches(preset.template).map((color) => (
+                                <span
+                                  key={`${preset.id}-${color}`}
+                                  className="brand-preset-card-swatch"
+                                  style={{ backgroundColor: color }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="justify-self-end">
@@ -1633,6 +1716,21 @@ function getPreviewCaptionTextStyle(caption: BrandTemplate['caption']): CSSPrope
       caption.strokeWidth > 0 ? `${caption.strokeWidth}px ${caption.strokeColor}` : undefined,
     textShadow
   }
+}
+
+function formatPresetCardText(caption: BrandTemplate['caption']) {
+  const words = getCaptionWords(caption)
+  if (words.length === 0) return 'No captions'
+  return words.slice(0, 3).join(' ')
+}
+
+function getPresetSwatches(template: BrandTemplate) {
+  return [
+    template.caption.backgroundColor,
+    template.caption.highlightColor,
+    template.caption.strokeColor,
+    template.music.enabled ? '#39FF3A' : '#111111'
+  ]
 }
 
 function normalizeHexColor(value: string) {
