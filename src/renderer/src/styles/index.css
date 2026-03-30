@@ -795,6 +795,11 @@
     white-space: nowrap;
   }
 
+  .brand-header-save-button {
+    border-radius: 5px;
+    font-size: 16px;
+  }
+
   .brand-preset-dropdown {
     position: absolute;
     top: calc(100% + 28px);

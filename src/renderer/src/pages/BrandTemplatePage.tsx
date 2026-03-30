@@ -526,6 +526,11 @@ export function BrandTemplatePage() {
     }
   }
 
+  const handleSavePreset = async () => {
+    if (!template) return
+    await persistTemplate(template)
+  }
+
   const pickIntroOutroFile = async (kind: 'introPath' | 'outroPath') => {
     const filePath = await window.electronAPI?.selectFile?.()
     if (!filePath) return
@@ -790,9 +795,9 @@ export function BrandTemplatePage() {
                 <div className="justify-self-end">
                   <button
                     type="button"
-                    className="app-action-primary"
+                    className="app-action-primary brand-header-save-button"
                     disabled={isSaving}
-                    onClick={() => void persistTemplate()}
+                    onClick={() => void handleSavePreset()}
                   >
                     Save template
                   </button>
