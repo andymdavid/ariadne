@@ -183,7 +183,7 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    border-radius: 999px;
+    border-radius: 5px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: #15181e;
     color: rgba(240, 246, 252, 0.88);

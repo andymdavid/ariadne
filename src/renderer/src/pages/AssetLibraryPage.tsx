@@ -146,7 +146,6 @@ export function AssetLibraryPage() {
               <section className="app-section-shell asset-library-shell">
                 <div className="app-section-header">
                   <div>
-                    <div className="app-section-kicker">Media</div>
                     <h2 className="app-section-title">Logos and music</h2>
                   </div>
                   <div className="app-chip">{mediaCount} reusable assets</div>
@@ -190,7 +189,6 @@ export function AssetLibraryPage() {
               <section className="app-section-shell asset-library-shell min-h-0 flex flex-1 flex-col">
                 <div className="app-section-header">
                   <div>
-                    <div className="app-section-kicker">Live Data</div>
                     <h2 className="app-section-title">Available uploads</h2>
                   </div>
                 </div>
@@ -234,7 +232,6 @@ export function AssetLibraryPage() {
               <section className="app-section-shell asset-library-shell">
                 <div className="app-section-header">
                   <div>
-                    <div className="app-section-kicker">Typography</div>
                     <h2 className="app-section-title">Fonts</h2>
                   </div>
                   <div className="app-chip">{bundledFonts.length} bundled</div>
