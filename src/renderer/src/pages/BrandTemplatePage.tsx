@@ -49,6 +49,12 @@ const cropModeOptions: Array<{
   { value: 'blur', label: 'Blur', icon: IoGridOutline }
 ]
 
+const cropModeSummaryLabel: Record<BrandTemplate['frame']['cropMode'], string> = {
+  fit: 'fill',
+  center: 'center',
+  blur: 'blur'
+}
+
 const defaultBrandTemplate: BrandTemplate = {
   caption: {
     presetId: 'deep-diver',
@@ -337,7 +343,7 @@ export function BrandTemplatePage() {
                         </div>
                         <div className="template-settings-row-meta">
                           <span className="template-settings-row-value truncate">
-                            {template.frame.aspectRatio} {template.frame.cropMode} fit template
+                            {template.frame.aspectRatio} {cropModeSummaryLabel[template.frame.cropMode]} template
                           </span>
                           <IoChevronForward size={15} />
                         </div>
