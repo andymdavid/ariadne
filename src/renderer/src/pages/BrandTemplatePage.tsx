@@ -182,6 +182,7 @@ export function BrandTemplatePage() {
   const [activeCaptionTab, setActiveCaptionTab] = useState<(typeof captionTabOptions)[number]>('presets')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [showSavedState, setShowSavedState] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isDraggingCaption, setIsDraggingCaption] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
@@ -198,6 +199,7 @@ export function BrandTemplatePage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const demoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const savedStateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     void loadPageState()
@@ -207,6 +209,9 @@ export function BrandTemplatePage() {
     return () => {
       clearDemoTimers()
       stopMediaPlayback()
+      if (savedStateTimeoutRef.current) {
+        clearTimeout(savedStateTimeoutRef.current)
+      }
     }
   }, [])
 
@@ -402,6 +407,13 @@ export function BrandTemplatePage() {
       const saved = await window.electronAPI?.updateBrandTemplate?.(payload)
       if (saved) {
         applyTemplateState(saved)
+        setShowSavedState(true)
+        if (savedStateTimeoutRef.current) {
+          clearTimeout(savedStateTimeoutRef.current)
+        }
+        savedStateTimeoutRef.current = setTimeout(() => {
+          setShowSavedState(false)
+        }, 1600)
       }
     } catch (error) {
       console.error('Failed to save brand template:', error)
@@ -799,7 +811,7 @@ export function BrandTemplatePage() {
                     disabled={isSaving}
                     onClick={() => void handleSavePreset()}
                   >
-                    Save template
+                    {isSaving ? 'Saving...' : showSavedState ? 'Saved' : 'Save template'}
                   </button>
                 </div>
               </div>
