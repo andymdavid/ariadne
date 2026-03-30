@@ -484,14 +484,12 @@ export function BrandTemplatePage() {
               ) : null}
             </div>
 
-            <div
-              className={`flex min-h-[720px] items-center transition-all duration-200 ${
-                activeMenu === 'layout' ? 'justify-end pr-6' : 'justify-center'
-              }`}
-            >
+            <div className="flex min-h-[720px] items-center justify-center">
               <div
                 ref={previewRef}
-                className="relative w-full overflow-hidden bg-[#eedec3]"
+                className={`relative w-full overflow-hidden bg-[#eedec3] transition-transform duration-200 ${
+                  activeMenu === 'layout' ? 'translate-x-6' : '-translate-x-10'
+                }`}
                 style={{
                   aspectRatio: previewAspectRatio,
                   maxWidth: previewMaxWidth
