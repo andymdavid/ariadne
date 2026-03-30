@@ -289,263 +289,301 @@ export function BrandTemplatePage() {
   return (
     <MainContentPanel>
       <div className="app-page">
-        <div className="flex h-full flex-col gap-6">
-          <div className="app-page-header">
-            <div className="mx-auto w-full max-w-6xl">
-              <div className="app-page-header-content">
-                <div className="app-page-title">Brand Template</div>
-                <div className="app-page-separator">|</div>
-                <div className="app-page-subtitle">
-                  Set the default look and behavior each clip should start with.
-                </div>
+        <div className="workspace-shell mx-auto w-full max-w-[1380px]">
+          <div className="workspace-header">
+            <div className="workspace-header-copy">
+              <div className="workspace-kicker">Workspace Template</div>
+              <div className="workspace-title">Brand Template</div>
+              <div className="workspace-subtitle">
+                Set the default layout, captions, branding, music, and AI treatment each clip should
+                inherit before clip-level editing begins.
               </div>
+            </div>
+
+            <div className="workspace-actions">
+              {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
+              <div className="app-chip">{saveMessage}</div>
+              <button
+                type="button"
+                className="app-action-primary"
+                disabled={isSaving}
+                onClick={() => void persistTemplate()}
+              >
+                Save template
+              </button>
             </div>
           </div>
 
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-end gap-3">
-            {loadError ? <div className="app-chip">Using fallback defaults</div> : null}
-            <div className="app-chip">{saveMessage}</div>
-            <button
-              type="button"
-              className="app-action-primary"
-              disabled={isSaving}
-              onClick={() => void persistTemplate()}
-            >
-              Save template
-            </button>
-          </div>
-
-          <div className="mx-auto grid min-h-0 h-full w-full max-w-6xl flex-1 grid-cols-[320px_minmax(0,360px)_minmax(0,1fr)] gap-6">
-            <section className="app-section-shell min-h-0 overflow-y-auto">
-              <div className="app-section-header">
-                <div>
-                  <div className="app-section-kicker">Defaults</div>
-                  <h2 className="app-section-title">Shared settings</h2>
+          <div className="workspace-grid">
+            <section className="workspace-panel">
+              <div className="workspace-panel-scroll">
+                <div className="workspace-panel-header">
+                  <div>
+                    <div className="workspace-panel-kicker">Settings</div>
+                    <h2 className="workspace-panel-title">Current defaults</h2>
+                    <p className="workspace-panel-copy">
+                      This left rail is the source of truth for what the template currently applies.
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-6">
-                <div>
-                  <div className="mb-3 text-sm font-medium text-text-muted">Style</div>
-                  <div className="space-y-2">
-                    <button type="button" className="app-list-row !justify-start">
-                      <div>
-                        <div className="text-sm font-medium text-text-primary">Clip layout</div>
-                        <div className="text-xs text-text-secondary">{template.frame.aspectRatio} • {template.frame.cropMode}</div>
-                      </div>
-                    </button>
-                    <button type="button" className="app-list-row !justify-start">
-                      <div>
-                        <div className="text-sm font-medium text-text-primary">Caption preset</div>
-                        <div className="text-xs text-text-secondary">{selectedCaptionPreset.label}</div>
-                      </div>
-                    </button>
-                    <button type="button" className="app-list-row !justify-start">
-                      <div>
-                        <div className="text-sm font-medium text-text-primary">Logo asset</div>
-                        <div className="text-xs text-text-secondary">
-                          {template.logo.assetPath ? formatName(template.logo.assetPath) : 'No default logo selected'}
+                <div className="space-y-6">
+                  <div>
+                    <div className="mb-3 text-sm font-medium text-text-muted">Style</div>
+                    <div className="workspace-summary-list">
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Clip layout</div>
+                          <div className="workspace-summary-row-value">
+                            {template.frame.aspectRatio} · {template.frame.cropMode}
+                          </div>
                         </div>
                       </div>
-                    </button>
-                    <button type="button" className="app-list-row !justify-start">
-                      <div>
-                        <div className="text-sm font-medium text-text-primary">Music asset</div>
-                        <div className="text-xs text-text-secondary">
-                          {template.music.assetPath ? formatName(template.music.assetPath) : 'No default track selected'}
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Caption preset</div>
+                          <div className="workspace-summary-row-value">{selectedCaptionPreset.label}</div>
                         </div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mb-3 text-sm font-medium text-text-muted">AI defaults</div>
-                  <div className="space-y-2">
-                    {aiToggleOrder.map((key) => (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => toggleAiSetting(key)}
-                        className="app-list-row"
-                      >
-                        <span className="text-sm text-text-primary">{aiLabels[key]}</span>
-                        <span className={`app-chip ${template.ai[key] ? '' : 'opacity-60'}`}>
-                          {template.ai[key] ? 'On' : 'Off'}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="app-section-shell min-h-0 overflow-y-auto">
-              <div className="app-section-header">
-                <div>
-                  <div className="app-section-kicker">Assets</div>
-                  <h2 className="app-section-title">Template inputs</h2>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <div>
-                  <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
-                    <IoTextOutline size={16} />
-                    Caption preset
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {captionPresets.map((preset) => (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => updateCaptionPreset(preset.id)}
-                        className={`rounded-2xl border p-4 text-left transition-colors ${
-                          template.caption.presetId === preset.id
-                            ? 'border-white bg-white/10'
-                            : 'border-border-default bg-[#0d0f13] hover:bg-[#151921]'
-                        }`}
-                      >
-                        <div className="text-sm font-medium text-text-primary">{preset.label}</div>
-                        <div className="mt-2 text-xs text-text-secondary">{preset.text || 'Turns captions off in preview'}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
-                    <IoImagesOutline size={16} />
-                    Logos from Asset Library
-                  </div>
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => patchTemplate('logo', { enabled: false, assetPath: null })}
-                      className={`app-list-row ${!template.logo.assetPath ? 'border-white/20' : ''}`}
-                    >
-                      <span className="text-sm text-text-primary">No default logo</span>
-                    </button>
-                    {logos.map((logoPath) => (
-                      <button
-                        key={logoPath}
-                        type="button"
-                        onClick={() => patchTemplate('logo', { enabled: true, assetPath: logoPath })}
-                        className={`app-list-row ${template.logo.assetPath === logoPath ? 'border-white/20' : ''}`}
-                      >
-                        <span className="truncate text-sm text-text-primary">{formatName(logoPath)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
-                    <IoMusicalNotesOutline size={16} />
-                    Music from Asset Library
-                  </div>
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => patchTemplate('music', { enabled: false, assetPath: null })}
-                      className={`app-list-row ${!template.music.assetPath ? 'border-white/20' : ''}`}
-                    >
-                      <span className="text-sm text-text-primary">No default music</span>
-                    </button>
-                    {musicTracks.map((trackPath) => (
-                      <button
-                        key={trackPath}
-                        type="button"
-                        onClick={() => patchTemplate('music', { enabled: true, assetPath: trackPath })}
-                        className={`app-list-row ${template.music.assetPath === trackPath ? 'border-white/20' : ''}`}
-                      >
-                        <span className="truncate text-sm text-text-primary">{formatName(trackPath)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="app-section-shell min-h-0">
-              <div className="app-section-header">
-                <div>
-                  <div className="app-section-kicker">Preview</div>
-                  <h2 className="app-section-title">Persisted demo canvas</h2>
-                </div>
-                <div className="app-chip">Drag caption and logo to save their positions</div>
-              </div>
-
-              <div className="flex h-[calc(100%-72px)] items-center justify-center rounded-[28px] border border-border-default bg-[#0c0d11] p-6">
-                <div
-                  ref={previewRef}
-                  className="relative aspect-[9/16] h-full max-h-[680px] overflow-hidden rounded-[30px] border border-white/10 bg-[#eedec3]"
-                >
-                  <img
-                    src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=80"
-                    alt="Preview backdrop"
-                    className="absolute inset-0 h-full w-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/20" />
-
-                  <div className="absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-[11px] font-medium text-white">
-                    Demo
-                  </div>
-
-                  {template.logo.enabled && template.logo.assetPath && (
-                    <div
-                      className="absolute z-20 select-none"
-                      style={{
-                        left: `${template.logo.positionX}%`,
-                        top: `${template.logo.positionY}%`,
-                        transform: 'translate(-50%, -50%)',
-                        width: logoPreviewSize,
-                        cursor: isDraggingLogo ? 'grabbing' : 'grab'
-                      }}
-                      onMouseDown={(event) => {
-                        if (event.button !== 0) return
-                        event.preventDefault()
-                        setIsDraggingLogo(true)
-                      }}
-                    >
-                      <div className={`rounded-md ${isDraggingLogo ? 'ring-2 ring-white/80' : ''}`}>
-                        <img
-                          src={`app-file://${template.logo.assetPath}`}
-                          alt="Brand logo"
-                          className="block w-full pointer-events-none"
-                          style={{ opacity: template.logo.opacity }}
-                          draggable={false}
-                        />
                       </div>
                     </div>
-                  )}
+                  </div>
 
-                  {template.caption.presetId !== 'none' && (
-                    <div
-                      className="absolute z-20 max-w-[78%] cursor-grab select-none"
-                      style={captionStyle}
-                      onMouseDown={(event) => {
-                        if (event.button !== 0) return
-                        event.preventDefault()
-                        setIsDraggingCaption(true)
-                      }}
-                    >
-                      <div className={`rounded-2xl bg-white/88 px-6 py-3 text-center shadow-lg ${isDraggingCaption ? 'ring-2 ring-white/80' : ''}`}>
-                        <span
-                          className="text-[30px] font-semibold text-black"
-                          style={{ fontFamily: template.caption.font }}
+                  <div>
+                    <div className="mb-3 text-sm font-medium text-text-muted">Brand</div>
+                    <div className="workspace-summary-list">
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Logo asset</div>
+                          <div className="workspace-summary-row-value">
+                            {template.logo.assetPath ? formatName(template.logo.assetPath) : 'No default logo selected'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="workspace-summary-row">
+                        <div>
+                          <div className="workspace-summary-row-label">Music asset</div>
+                          <div className="workspace-summary-row-value">
+                            {template.music.assetPath ? formatName(template.music.assetPath) : 'No default track selected'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-3 text-sm font-medium text-text-muted">AI Defaults</div>
+                    <div className="space-y-2">
+                      {aiToggleOrder.map((key) => (
+                        <div key={key} className="app-list-row">
+                          <span className="text-sm text-text-primary">{aiLabels[key]}</span>
+                          <span className={`app-chip ${template.ai[key] ? '' : 'opacity-60'}`}>
+                            {template.ai[key] ? 'On' : 'Off'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="workspace-panel">
+              <div className="workspace-panel-scroll">
+                <div className="workspace-panel-header">
+                  <div>
+                    <div className="workspace-panel-kicker">Controls</div>
+                    <h2 className="workspace-panel-title">Edit template inputs</h2>
+                    <p className="workspace-panel-copy">
+                      Choose the defaults the preview uses now. Changes still save through the existing
+                      template logic.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div>
+                    <div className="mb-3 text-sm font-medium text-text-muted">Caption preset</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {captionPresets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => updateCaptionPreset(preset.id)}
+                          className={`rounded-2xl border p-4 text-left transition-colors ${
+                            template.caption.presetId === preset.id
+                              ? 'border-white bg-white/10'
+                              : 'border-border-default bg-[#0d0f13] hover:bg-[#151921]'
+                          }`}
                         >
-                          {template.caption.text.split(' ')[0]}{' '}
-                          <span className="text-black/18">{template.caption.text.split(' ').slice(1).join(' ')}</span>
-                        </span>
-                      </div>
+                          <div className="text-sm font-medium text-text-primary">{preset.label}</div>
+                          <div className="mt-2 text-xs text-text-secondary">{preset.text || 'Turns captions off in preview'}</div>
+                        </button>
+                      ))}
                     </div>
-                  )}
+                  </div>
 
-                  <div className="absolute bottom-5 left-5 right-5 flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white">▶</div>
-                    <div className="h-1.5 flex-1 rounded-full bg-white/20">
-                      <div className="h-full w-20 rounded-full bg-white/60" />
+                  <div>
+                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
+                      <IoImagesOutline size={16} />
+                      Logos from Asset Library
+                    </div>
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => patchTemplate('logo', { enabled: false, assetPath: null })}
+                        className={`app-list-row ${!template.logo.assetPath ? 'border-white/20' : ''}`}
+                      >
+                        <span className="text-sm text-text-primary">No default logo</span>
+                      </button>
+                      {logos.map((logoPath) => (
+                        <button
+                          key={logoPath}
+                          type="button"
+                          onClick={() => patchTemplate('logo', { enabled: true, assetPath: logoPath })}
+                          className={`app-list-row ${template.logo.assetPath === logoPath ? 'border-white/20' : ''}`}
+                        >
+                          <span className="truncate text-sm text-text-primary">{formatName(logoPath)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
+                      <IoMusicalNotesOutline size={16} />
+                      Music from Asset Library
+                    </div>
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => patchTemplate('music', { enabled: false, assetPath: null })}
+                        className={`app-list-row ${!template.music.assetPath ? 'border-white/20' : ''}`}
+                      >
+                        <span className="text-sm text-text-primary">No default music</span>
+                      </button>
+                      {musicTracks.map((trackPath) => (
+                        <button
+                          key={trackPath}
+                          type="button"
+                          onClick={() => patchTemplate('music', { enabled: true, assetPath: trackPath })}
+                          className={`app-list-row ${template.music.assetPath === trackPath ? 'border-white/20' : ''}`}
+                        >
+                          <span className="truncate text-sm text-text-primary">{formatName(trackPath)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-muted">
+                      <IoTextOutline size={16} />
+                      AI defaults
+                    </div>
+                    <div className="space-y-2">
+                      {aiToggleOrder.map((key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => toggleAiSetting(key)}
+                          className="app-list-row"
+                        >
+                          <span className="text-sm text-text-primary">{aiLabels[key]}</span>
+                          <span className={`app-chip ${template.ai[key] ? '' : 'opacity-60'}`}>
+                            {template.ai[key] ? 'On' : 'Off'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="workspace-panel">
+              <div className="workspace-panel-scroll">
+                <div className="workspace-panel-header">
+                  <div>
+                    <div className="workspace-panel-kicker">Preview</div>
+                    <h2 className="workspace-panel-title">Template output</h2>
+                    <p className="workspace-panel-copy">
+                      Use the live preview to validate inherited defaults. Drag caption and logo positions to
+                      persist them with the current template.
+                    </p>
+                  </div>
+                  <div className="app-chip">Persisted demo canvas</div>
+                </div>
+
+                <div className="workspace-preview-shell">
+                  <div
+                    ref={previewRef}
+                    className="relative aspect-[9/16] h-full max-h-[680px] overflow-hidden rounded-[30px] border border-white/10 bg-[#eedec3]"
+                  >
+                    <img
+                      src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=80"
+                      alt="Preview backdrop"
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/20" />
+
+                    <div className="absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-[11px] font-medium text-white">
+                      Demo
+                    </div>
+
+                    {template.logo.enabled && template.logo.assetPath && (
+                      <div
+                        className="absolute z-20 select-none"
+                        style={{
+                          left: `${template.logo.positionX}%`,
+                          top: `${template.logo.positionY}%`,
+                          transform: 'translate(-50%, -50%)',
+                          width: logoPreviewSize,
+                          cursor: isDraggingLogo ? 'grabbing' : 'grab'
+                        }}
+                        onMouseDown={(event) => {
+                          if (event.button !== 0) return
+                          event.preventDefault()
+                          setIsDraggingLogo(true)
+                        }}
+                      >
+                        <div className={`rounded-md ${isDraggingLogo ? 'ring-2 ring-white/80' : ''}`}>
+                          <img
+                            src={`app-file://${template.logo.assetPath}`}
+                            alt="Brand logo"
+                            className="block w-full pointer-events-none"
+                            style={{ opacity: template.logo.opacity }}
+                            draggable={false}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {template.caption.presetId !== 'none' && (
+                      <div
+                        className="absolute z-20 max-w-[78%] cursor-grab select-none"
+                        style={captionStyle}
+                        onMouseDown={(event) => {
+                          if (event.button !== 0) return
+                          event.preventDefault()
+                          setIsDraggingCaption(true)
+                        }}
+                      >
+                        <div className={`rounded-2xl bg-white/88 px-6 py-3 text-center shadow-lg ${isDraggingCaption ? 'ring-2 ring-white/80' : ''}`}>
+                          <span
+                            className="text-[30px] font-semibold text-black"
+                            style={{ fontFamily: template.caption.font }}
+                          >
+                            {template.caption.text.split(' ')[0]}{' '}
+                            <span className="text-black/18">{template.caption.text.split(' ').slice(1).join(' ')}</span>
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="absolute bottom-5 left-5 right-5 flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white">▶</div>
+                      <div className="h-1.5 flex-1 rounded-full bg-white/20">
+                        <div className="h-full w-20 rounded-full bg-white/60" />
+                      </div>
                     </div>
                   </div>
                 </div>
