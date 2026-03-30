@@ -248,6 +248,9 @@ export function BrandTemplatePage() {
 
   const captionStyle = getCaptionPositionStyle(template?.caption)
   const logoPreviewSize = `${Math.max((template?.logo.scale ?? 0.18) * 100, 12)}%`
+  const previewAspectRatio = toCssAspectRatio(template?.frame.aspectRatio ?? defaultBrandTemplate.frame.aspectRatio)
+  const previewMaxWidth = getPreviewMaxWidth(template?.frame.aspectRatio ?? defaultBrandTemplate.frame.aspectRatio)
+  const previewImageStyle = getPreviewImageStyle(template?.frame.cropMode ?? defaultBrandTemplate.frame.cropMode)
 
   if (isLoading) {
     return (
@@ -484,12 +487,28 @@ export function BrandTemplatePage() {
             <div className="flex min-h-[720px] items-center justify-center">
               <div
                 ref={previewRef}
-                className="relative aspect-[9/16] w-full max-w-[310px] overflow-hidden bg-[#eedec3]"
+                className="relative w-full overflow-hidden bg-[#eedec3]"
+                style={{
+                  aspectRatio: previewAspectRatio,
+                  maxWidth: previewMaxWidth
+                }}
               >
+                    {template.frame.cropMode === 'blur' ? (
+                      <>
+                        <img
+                          src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=80"
+                          alt=""
+                          aria-hidden="true"
+                          className="absolute inset-0 h-full w-full object-cover scale-110 blur-2xl"
+                        />
+                        <div className="absolute inset-0 bg-black/18" />
+                      </>
+                    ) : null}
                     <img
                       src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=80"
                       alt="Preview backdrop"
                       className="absolute inset-0 h-full w-full object-cover"
+                      style={previewImageStyle}
                     />
                     <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/20" />
 
@@ -582,6 +601,39 @@ function getCaptionPositionStyle(
   }
 
   return { left: '50%', bottom: '14%', transform: 'translateX(-50%)' }
+}
+
+function toCssAspectRatio(aspectRatio: BrandTemplate['frame']['aspectRatio']) {
+  return aspectRatio.replace(':', ' / ')
+}
+
+function getPreviewMaxWidth(aspectRatio: BrandTemplate['frame']['aspectRatio']) {
+  if (aspectRatio === '16:9') return 640
+  if (aspectRatio === '1:1') return 430
+  return 310
+}
+
+function getPreviewImageStyle(cropMode: BrandTemplate['frame']['cropMode']): CSSProperties {
+  if (cropMode === 'blur') {
+    return {
+      objectFit: 'contain',
+      padding: '4%',
+      zIndex: 1
+    }
+  }
+
+  if (cropMode === 'center') {
+    return {
+      objectFit: 'cover',
+      objectPosition: 'center center',
+      transform: 'scale(1.12)'
+    }
+  }
+
+  return {
+    objectFit: 'cover',
+    objectPosition: 'center center'
+  }
 }
 
 function formatName(path: string) {
