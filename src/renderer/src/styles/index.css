@@ -46,7 +46,8 @@
   }
 
   body {
-    @apply bg-bg-primary text-text-primary;
+    @apply text-text-primary;
+    background: #09090b;
     margin: 0;
     padding: 0;
     height: 100vh;
@@ -396,6 +397,10 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: #111318;
     overflow: hidden;
+  }
+
+  .brand-settings-panel {
+    background: #171717;
   }
 
   .workspace-panel-scroll {

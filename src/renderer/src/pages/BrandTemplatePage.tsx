@@ -271,7 +271,7 @@ export function BrandTemplatePage() {
           </div>
 
           <div className="grid min-h-[calc(100vh-180px)] gap-10 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-center">
-            <section className="workspace-panel">
+            <section className="workspace-panel brand-settings-panel">
               <div className="workspace-panel-scroll">
                 <div className="workspace-panel-header">
                   <div>
