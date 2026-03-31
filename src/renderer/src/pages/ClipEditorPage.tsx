@@ -577,7 +577,7 @@ export function ClipEditorPage() {
 
   return (
     <div className="app-page">
-      <div className="workspace-shell mx-auto w-full max-w-[1480px]">
+      <div className="workspace-shell clip-editor-shell mx-auto w-full max-w-[1480px]">
         <div className="app-page-header clip-editor-page-header">
           <div className="app-page-header-content">
             <h1 className="app-page-title">Clip Workspace</h1>

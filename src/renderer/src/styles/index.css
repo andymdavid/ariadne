@@ -434,6 +434,10 @@
     align-items: start;
   }
 
+  .clip-editor-shell {
+    gap: 12px;
+  }
+
   .clip-editor-transcript-panel {
     height: clamp(340px, calc(100vh - 390px), 620px);
     max-height: clamp(340px, calc(100vh - 390px), 620px);
