@@ -179,10 +179,10 @@ export function ClipEditorPage() {
 
   const previewAspectClass =
     framePreview?.aspectRatio === '1:1'
-      ? 'aspect-square w-full max-w-[560px]'
+      ? 'aspect-square w-full max-w-[460px]'
       : framePreview?.aspectRatio === '16:9'
-        ? 'aspect-video w-full max-w-[900px]'
-        : 'aspect-[9/16] h-full max-h-[620px] w-full max-w-[360px]'
+        ? 'aspect-video w-full max-w-[760px]'
+        : 'aspect-[9/16] h-full max-h-[500px] w-full max-w-[300px]'
 
   const getPreviewCaptionText = (
     line: TranscriptLine | undefined,
