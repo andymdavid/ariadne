@@ -37,7 +37,26 @@ type PreviewCaptionState = {
   presetId?: string | null
   text: string
   font: string
+  fontSize: number
+  fontWeight: '500' | '600' | '700' | '800'
+  italic: boolean
+  underline: boolean
+  uppercase: boolean
   position: 'top' | 'center' | 'bottom' | 'custom'
+  lineMode: 'one-line' | 'three-lines'
+  backgroundEnabled: boolean
+  highlightColor: string
+  backgroundColor: string
+  backgroundPaddingX: number
+  backgroundPaddingY: number
+  backgroundRadius: number
+  strokeColor: string
+  strokeWidth: number
+  shadowEnabled: boolean
+  shadowColor: string
+  shadowOffsetX: number
+  shadowOffsetY: number
+  shadowBlur: number
   customX?: number | null
   customY?: number | null
 }
@@ -184,19 +203,21 @@ export function ClipEditorPage() {
         ? 'aspect-video w-full max-w-[760px]'
         : 'aspect-[9/16] h-full max-h-[500px] w-full max-w-[300px]'
 
-  const getPreviewCaptionText = (
-    line: TranscriptLine | undefined,
-    fallbackText: string,
-    presetId?: string | null,
-    playheadTime?: number,
-    font = 'Inter'
-  ) => {
-    if (!line) return fallbackText
-    if (presetId === 'none') return ''
+const getPreviewCaptionText = (
+  line: TranscriptLine | undefined,
+  fallbackText: string,
+  presetId?: string | null,
+  playheadTime?: number,
+  font = 'Inter',
+  lineMode: 'one-line' | 'three-lines' = 'one-line'
+) => {
+  if (!line) return fallbackText
+  if (presetId === 'none') return ''
 
-    const layout = getCaptionLayoutConfig(presetId, previewFrameWidth)
-    const words = line.words?.filter((word) => word.word?.trim())
-    if (words && words.length > 0 && playheadTime !== undefined) {
+  const layout = getCaptionLayoutConfig(presetId, previewFrameWidth)
+  const maxLines = lineMode === 'three-lines' ? 3 : 1
+  const words = line.words?.filter((word) => word.word?.trim())
+  if (words && words.length > 0 && playheadTime !== undefined) {
       const fontSize = clamp(
         Math.round(previewFrameWidth * layout.fontScale),
         layout.minFontSize,
@@ -224,7 +245,7 @@ export function ClipEditorPage() {
         const candidateWidth = measureTextWidth(candidateText, fontSize, font)
         const nextLineCount = Math.max(1, Math.ceil(candidateWidth / maxTextWidth))
 
-        if (fittedWords.length > 0 && nextLineCount > layout.maxLines) {
+        if (fittedWords.length > 0 && nextLineCount > maxLines) {
           break
         }
 
@@ -237,7 +258,7 @@ export function ClipEditorPage() {
     }
 
     const fallbackWords = (line.text || fallbackText).split(/\s+/).filter(Boolean)
-    return fallbackWords.slice(0, layout.maxLines === 1 ? 1 : 6).join(' ').trim()
+    return fallbackWords.slice(0, maxLines === 1 ? 1 : 6).join(' ').trim()
   }
 
   useEffect(() => {
@@ -314,14 +335,34 @@ export function ClipEditorPage() {
             mappedClip.keyQuote,
             template?.caption.presetId,
             mappedClip.startTime,
-            template?.caption.font || 'Inter'
+            template?.caption.font || 'Inter',
+            template?.caption.lineMode || 'one-line'
           ) || mappedClip.keyQuote
 
         setCaptionPreview({
           presetId: template?.caption.presetId ?? null,
           text: activeCaptionText,
           font: template?.caption.font || 'Inter',
+          fontSize: template?.caption.fontSize ?? 30,
+          fontWeight: template?.caption.fontWeight || '700',
+          italic: template?.caption.italic ?? false,
+          underline: template?.caption.underline ?? false,
+          uppercase: template?.caption.uppercase ?? false,
           position: (template?.caption.position || 'bottom') as PreviewCaptionState['position'],
+          lineMode: template?.caption.lineMode || 'one-line',
+          backgroundEnabled: template?.caption.backgroundEnabled ?? true,
+          highlightColor: template?.caption.highlightColor || '#111111',
+          backgroundColor: template?.caption.backgroundColor || '#ffffff',
+          backgroundPaddingX: template?.caption.backgroundPaddingX ?? 24,
+          backgroundPaddingY: template?.caption.backgroundPaddingY ?? 12,
+          backgroundRadius: template?.caption.backgroundRadius ?? 16,
+          strokeColor: template?.caption.strokeColor || '#000000',
+          strokeWidth: template?.caption.strokeWidth ?? 0,
+          shadowEnabled: template?.caption.shadowEnabled ?? false,
+          shadowColor: template?.caption.shadowColor || '#000000',
+          shadowOffsetX: template?.caption.shadowOffsetX ?? 0,
+          shadowOffsetY: template?.caption.shadowOffsetY ?? 0,
+          shadowBlur: template?.caption.shadowBlur ?? 0,
           customX: template?.caption.customX ?? null,
           customY: template?.caption.customY ?? null
         })
@@ -713,25 +754,53 @@ export function ClipEditorPage() {
                     {captionPreview?.text ? (
                       (() => {
                         const layout = getCaptionLayoutConfig(captionPreview.presetId, previewFrameWidth)
+                        const maxLines =
+                          captionPreview.lineMode === 'one-line'
+                            ? 1
+                            : captionPreview.lineMode === 'three-lines'
+                              ? 3
+                              : layout.maxLines
                         const bubbleWidth = layout.maxWidth
                           ? Math.min(layout.maxWidth, Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio))
                           : Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
                         const fontSize = clamp(
-                          Math.round(previewFrameWidth * layout.fontScale),
-                          layout.minFontSize,
-                          layout.maxFontSize
+                          Math.round(captionPreview.fontSize * (previewFrameWidth / 300)),
+                          12,
+                          72
                         )
+                        const paddingX = Math.round(captionPreview.backgroundPaddingX * (previewFrameWidth / 300))
+                        const paddingY = Math.round(captionPreview.backgroundPaddingY * (previewFrameWidth / 300))
+                        const radius = Math.round(captionPreview.backgroundRadius * (previewFrameWidth / 300))
+                        const strokeWidth = Math.max(0, Math.round(captionPreview.strokeWidth * (previewFrameWidth / 300)))
+                        const shadowBlur = Math.max(0, Math.round(captionPreview.shadowBlur * (previewFrameWidth / 300)))
+                        const shadowOffsetX = Math.round(captionPreview.shadowOffsetX * (previewFrameWidth / 300))
+                        const shadowOffsetY = Math.round(captionPreview.shadowOffsetY * (previewFrameWidth / 300))
+                        const captionText = captionPreview.uppercase
+                          ? captionPreview.text.toUpperCase()
+                          : captionPreview.text
 
                         return (
                           <div
-                            className={`absolute left-1/2 -translate-x-1/2 rounded-xl bg-white/90 px-4 py-2 text-center font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${
-                              layout.maxLines === 1 ? 'whitespace-nowrap leading-[1.2]' : 'leading-[1.28]'
+                            className={`absolute left-1/2 -translate-x-1/2 text-center ${
+                              maxLines === 1 ? 'whitespace-nowrap leading-[1.2]' : 'leading-[1.28]'
                             }`}
                             style={{
                               fontFamily: captionPreview.font,
                               fontSize: `${fontSize}px`,
+                              fontWeight: captionPreview.fontWeight,
+                              fontStyle: captionPreview.italic ? 'italic' : 'normal',
+                              textDecoration: captionPreview.underline ? 'underline' : 'none',
+                              color: captionPreview.highlightColor,
+                              background: captionPreview.backgroundEnabled ? captionPreview.backgroundColor : 'transparent',
                               width: `${bubbleWidth}px`,
                               maxWidth: `${bubbleWidth}px`,
+                              padding: captionPreview.backgroundEnabled ? `${paddingY}px ${paddingX}px` : '0',
+                              borderRadius: captionPreview.backgroundEnabled ? `${radius}px` : '0',
+                              WebkitTextStroke:
+                                strokeWidth > 0 ? `${strokeWidth}px ${captionPreview.strokeColor}` : undefined,
+                              textShadow: captionPreview.shadowEnabled
+                                ? `${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${captionPreview.shadowColor}`
+                                : undefined,
                               top:
                                 captionPreview.position === 'top'
                                   ? '12%'
@@ -763,7 +832,7 @@ export function ClipEditorPage() {
                               setIsDraggingCaption(true)
                             }}
                           >
-                            {captionPreview.text}
+                            {captionText}
                           </div>
                         )
                       })()
