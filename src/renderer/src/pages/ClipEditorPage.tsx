@@ -778,11 +778,26 @@ const getPreviewCaptionText = (
                         const captionText = captionPreview.uppercase
                           ? captionPreview.text.toUpperCase()
                           : captionPreview.text
+                        const measuredTextWidth = measureTextWidth(
+                          captionText,
+                          fontSize,
+                          captionPreview.font,
+                          Number(captionPreview.fontWeight)
+                        )
+                        const maxBubbleWidth = Math.min(
+                          layout.maxWidth ?? Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio),
+                          previewFrameWidth - 24
+                        )
+                        const singleLineWidth = Math.min(
+                          maxBubbleWidth,
+                          Math.max(layout.minWidth, Math.ceil(measuredTextWidth + paddingX * 2))
+                        )
+                        const resolvedBubbleWidth = maxLines === 1 ? singleLineWidth : bubbleWidth
 
                         return (
                           <div
-                            className={`absolute left-1/2 -translate-x-1/2 text-center ${
-                              maxLines === 1 ? 'whitespace-nowrap leading-[1.2]' : 'leading-[1.28]'
+                            className={`absolute left-1/2 -translate-x-1/2 items-center justify-center text-center ${
+                              maxLines === 1 ? 'inline-flex whitespace-nowrap leading-none' : 'leading-[1.28]'
                             }`}
                             style={{
                               fontFamily: captionPreview.font,
@@ -792,8 +807,8 @@ const getPreviewCaptionText = (
                               textDecoration: captionPreview.underline ? 'underline' : 'none',
                               color: captionPreview.highlightColor,
                               background: captionPreview.backgroundEnabled ? captionPreview.backgroundColor : 'transparent',
-                              width: `${bubbleWidth}px`,
-                              maxWidth: `${bubbleWidth}px`,
+                              width: `${resolvedBubbleWidth}px`,
+                              maxWidth: `${resolvedBubbleWidth}px`,
                               padding: captionPreview.backgroundEnabled ? `${paddingY}px ${paddingX}px` : '0',
                               borderRadius: captionPreview.backgroundEnabled ? `${radius}px` : '0',
                               WebkitTextStroke:
