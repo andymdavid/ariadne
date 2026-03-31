@@ -186,6 +186,8 @@ export function ClipEditorPage() {
   const [logoPreview, setLogoPreview] = useState<PreviewLogoState | null>(null)
   const [framePreview, setFramePreview] = useState<PreviewFrameState | null>(null)
   const [musicEnabled, setMusicEnabled] = useState(false)
+  const [musicAssetPath, setMusicAssetPath] = useState<string | null>(null)
+  const [musicVolume, setMusicVolume] = useState(0.3)
   const [isDraggingCaption, setIsDraggingCaption] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
   const [previewFrameWidth, setPreviewFrameWidth] = useState(260)
@@ -193,6 +195,7 @@ export function ClipEditorPage() {
   const [error, setError] = useState<string | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
   const transcriptScrollerRef = useRef<HTMLDivElement>(null)
   const previewFrameRef = useRef<HTMLDivElement>(null)
 
@@ -382,6 +385,8 @@ const getPreviewCaptionText = (
         })
 
         setMusicEnabled(template?.music.enabled ?? false)
+        setMusicAssetPath(template?.music.assetPath || null)
+        setMusicVolume(template?.music.volume ?? 0.3)
       } catch (loadError) {
         console.error('Failed to load clip editor:', loadError)
         setError('Failed to load clip editor')
@@ -405,9 +410,20 @@ const getPreviewCaptionText = (
     const handleTimeUpdate = () => {
       const nextTime = video.currentTime
       setCurrentTime(nextTime)
+      const audio = audioRef.current
+      if (audio && musicEnabled && musicAssetPath) {
+        const expectedAudioTime = Math.max(nextTime - clip.startTime, 0)
+        if (Math.abs(audio.currentTime - expectedAudioTime) > 0.35) {
+          audio.currentTime = expectedAudioTime
+        }
+      }
 
       if (nextTime >= clip.endTime) {
         video.pause()
+        if (audio) {
+          audio.pause()
+          audio.currentTime = 0
+        }
         video.currentTime = clip.startTime
         setCurrentTime(clip.startTime)
         setIsPlaying(false)
@@ -428,7 +444,7 @@ const getPreviewCaptionText = (
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
     }
-  }, [clip, mediaUrl])
+  }, [clip, mediaUrl, musicAssetPath, musicEnabled])
 
   const activeLineId = useMemo(() => {
     return transcriptLines.find((line) => currentTime >= line.start && currentTime <= line.end)?.id || null
@@ -444,9 +460,11 @@ const getPreviewCaptionText = (
   const togglePlayback = () => {
     const video = videoRef.current
     if (!video || !clip) return
+    const audio = audioRef.current
 
     if (isPlaying) {
       video.pause()
+      audio?.pause()
       return
     }
 
@@ -455,16 +473,28 @@ const getPreviewCaptionText = (
       setCurrentTime(clip.startTime)
     }
 
+    if (audio && musicEnabled && musicAssetPath) {
+      audio.currentTime = Math.max(video.currentTime - clip.startTime, 0)
+      audio.volume = musicVolume
+      void audio.play().catch(() => {
+        // ignore audio playback failures; clip playback should still work
+      })
+    }
+
     void video.play()
   }
 
   const seekWithinClip = (nextTime: number) => {
     const video = videoRef.current
     if (!video || !clip) return
+    const audio = audioRef.current
 
     const clampedTime = Math.min(Math.max(nextTime, clip.startTime), clip.endTime)
     video.currentTime = clampedTime
     setCurrentTime(clampedTime)
+    if (audio && musicEnabled && musicAssetPath) {
+      audio.currentTime = Math.max(clampedTime - clip.startTime, 0)
+    }
   }
 
   const timelineProgress = useMemo(() => {
@@ -691,8 +721,8 @@ const getPreviewCaptionText = (
                 {captionPreview?.presetId || 'Default captions'}
               </span>
               <span className="clip-editor-preview-meta-item">
-                {musicEnabled ? <IoMusicalNotesOutline size={15} /> : <IoFlashOffOutline size={15} />}
-                {musicEnabled ? 'Music on' : 'Tracker: OFF'}
+                <IoFlashOffOutline size={15} />
+                Tracker: OFF
               </span>
             </div>
 
@@ -853,9 +883,8 @@ const getPreviewCaptionText = (
                       })()
                     ) : null}
                     {musicEnabled ? (
-                      <div className="absolute bottom-5 left-5 inline-flex items-center gap-2 rounded-full bg-black/55 px-3 py-2 text-xs text-white/85">
-                        <IoMusicalNotesOutline size={14} />
-                        Music on
+                      <div className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-[5px] bg-black/45 text-white/85">
+                        <IoMusicalNotesOutline size={17} />
                       </div>
                     ) : null}
                 </div>
@@ -938,6 +967,11 @@ const getPreviewCaptionText = (
             </div>
           </div>
         </footer>
+        <audio
+          ref={audioRef}
+          src={musicAssetPath ? `app-file://${musicAssetPath}` : undefined}
+          preload="auto"
+        />
       </div>
     </div>
   )
