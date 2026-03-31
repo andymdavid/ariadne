@@ -675,7 +675,6 @@ export function ClipEditorPage() {
                           src={mediaUrl}
                           className="relative z-10 h-full w-full object-contain"
                           playsInline
-                          muted
                           preload="metadata"
                         />
                       </>
@@ -687,7 +686,6 @@ export function ClipEditorPage() {
                           framePreview?.cropMode === 'fit' ? 'object-contain' : 'object-cover object-center'
                         }`}
                         playsInline
-                        muted
                         preload="metadata"
                       />
                     ) : null}
