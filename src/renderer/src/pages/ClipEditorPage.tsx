@@ -268,11 +268,14 @@ export function ClipEditorPage() {
   const [previewFrameWidth, setPreviewFrameWidth] = useState(260)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isSavingClip, setIsSavingClip] = useState(false)
+  const [saveClipFeedback, setSaveClipFeedback] = useState<'idle' | 'saved'>('idle')
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const transcriptScrollerRef = useRef<HTMLDivElement>(null)
   const previewFrameRef = useRef<HTMLDivElement>(null)
+  const saveFeedbackTimeoutRef = useRef<number | null>(null)
 
   const previewAspectClass =
     framePreview?.aspectRatio === '1:1'
@@ -622,6 +625,65 @@ const getPreviewCaptionText = (
     })
   }
 
+  const handleSaveClipEdits = async () => {
+    if (!clipId || !captionPreview || !framePreview) return
+
+    setIsSavingClip(true)
+    setSaveClipFeedback('idle')
+
+    try {
+      await window.electronAPI?.saveClipEdits?.(clipId, {
+        aspect_ratio: framePreview.aspectRatio,
+        crop_mode: framePreview.cropMode,
+        caption_font: captionPreview.font,
+        caption_size: captionPreview.fontSize,
+        caption_weight: captionPreview.fontWeight,
+        caption_italic: captionPreview.italic ? 1 : 0,
+        caption_underline: captionPreview.underline ? 1 : 0,
+        caption_uppercase: captionPreview.uppercase ? 1 : 0,
+        caption_position: captionPreview.position,
+        caption_custom_x: captionPreview.customX,
+        caption_custom_y: captionPreview.customY,
+        caption_words_per_caption: captionPreview.lineMode === 'one-line' ? 1 : 3,
+        caption_preset_id: captionPreview.presetId,
+        caption_text_color: captionPreview.highlightColor,
+        caption_background: captionPreview.backgroundEnabled ? 1 : 0,
+        caption_background_color: captionPreview.backgroundColor,
+        caption_background_padding_x: captionPreview.backgroundPaddingX,
+        caption_background_padding_y: captionPreview.backgroundPaddingY,
+        caption_background_radius: captionPreview.backgroundRadius,
+        caption_outline_color: captionPreview.strokeColor,
+        caption_outline_width: captionPreview.strokeWidth,
+        caption_shadow: captionPreview.shadowEnabled ? 1 : 0,
+        caption_shadow_color: captionPreview.shadowColor,
+        caption_shadow_offset_x: captionPreview.shadowOffsetX,
+        caption_shadow_offset_y: captionPreview.shadowOffsetY,
+        caption_shadow_blur: captionPreview.shadowBlur,
+        logo_enabled: logoPreview?.enabled ? 1 : 0,
+        logo_path: logoPreview?.assetPath ?? null,
+        logo_position_x: logoPreview?.positionX ?? null,
+        logo_position_y: logoPreview?.positionY ?? null,
+        logo_scale: logoPreview?.scale ?? null,
+        logo_opacity: logoPreview?.opacity ?? null,
+        music_enabled: musicEnabled ? 1 : 0,
+        music_path: musicAssetPath,
+        music_volume: musicVolume
+      })
+
+      if (saveFeedbackTimeoutRef.current) {
+        window.clearTimeout(saveFeedbackTimeoutRef.current)
+      }
+      setSaveClipFeedback('saved')
+      saveFeedbackTimeoutRef.current = window.setTimeout(() => {
+        setSaveClipFeedback('idle')
+      }, 1600)
+    } catch (saveError) {
+      console.error('Failed to save clip edits:', saveError)
+    } finally {
+      setIsSavingClip(false)
+    }
+  }
+
   useEffect(() => {
     if (!transcriptLines.length) return
 
@@ -732,6 +794,14 @@ const getPreviewCaptionText = (
     }
   }, [captionPreview, clipId, isDraggingCaption, isDraggingLogo, logoPreview])
 
+  useEffect(() => {
+    return () => {
+      if (saveFeedbackTimeoutRef.current) {
+        window.clearTimeout(saveFeedbackTimeoutRef.current)
+      }
+    }
+  }, [])
+
   if (loading) {
     return (
       <div className="app-page">
@@ -781,6 +851,15 @@ const getPreviewCaptionText = (
             >
               <IoArrowBack size={16} />
               Back to review
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSaveClipEdits()}
+              disabled={isSavingClip}
+              className="app-action-secondary clip-editor-header-action"
+            >
+              <IoCheckmarkCircleOutline size={16} />
+              {isSavingClip ? 'Saving...' : saveClipFeedback === 'saved' ? 'Saved' : 'Save clip'}
             </button>
             <button
               type="button"
