@@ -483,6 +483,18 @@
     color: rgba(240, 246, 252, 0.9);
   }
 
+  .clip-editor-preview-control {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+    transition: color 0.18s ease, opacity 0.18s ease;
+  }
+
+  .clip-editor-preview-control:hover {
+    color: #ffffff;
+  }
+
   .clip-editor-preview-canvas {
     display: flex;
     min-height: 0;

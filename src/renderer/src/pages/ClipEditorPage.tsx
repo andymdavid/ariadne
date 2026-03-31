@@ -5,13 +5,87 @@ import {
   IoCheckmarkCircleOutline,
   IoExpandOutline,
   IoFlashOffOutline,
+  IoGridOutline,
   IoMusicalNotesOutline,
   IoPlay,
   IoPause,
   IoResizeOutline,
+  IoScanOutline,
   IoTextOutline
 } from 'react-icons/io5'
 import type { BrandTemplate } from '@shared/types'
+
+const clipCaptionPresets = [
+  {
+    id: 'none',
+    label: 'none',
+    text: '',
+    font: 'Inter',
+    fontWeight: '700' as const,
+    highlightColor: '#111111',
+    backgroundColor: '#ffffff',
+    backgroundEnabled: false,
+    lineMode: 'one-line' as const
+  },
+  {
+    id: 'karaoke',
+    label: 'karaoke',
+    text: 'TO GET STARTED',
+    font: 'Inter',
+    fontWeight: '800' as const,
+    highlightColor: '#ffffff',
+    backgroundColor: '#111111',
+    backgroundEnabled: true,
+    lineMode: 'three-lines' as const
+  },
+  {
+    id: 'beasty',
+    label: 'beasty',
+    text: 'Build clips that hook fast',
+    font: 'Inter',
+    fontWeight: '800' as const,
+    highlightColor: '#111111',
+    backgroundColor: '#ffffff',
+    backgroundEnabled: true,
+    lineMode: 'three-lines' as const
+  },
+  {
+    id: 'deep-diver',
+    label: 'deep-diver',
+    text: 'One Line',
+    font: 'Inter',
+    fontWeight: '700' as const,
+    highlightColor: '#111111',
+    backgroundColor: '#ffffff',
+    backgroundEnabled: true,
+    lineMode: 'one-line' as const
+  },
+  {
+    id: 'youshaei',
+    label: 'youshaei',
+    text: 'TO GET STARTED',
+    font: 'Inter',
+    fontWeight: '700' as const,
+    highlightColor: '#59f0c2',
+    backgroundColor: '#111111',
+    backgroundEnabled: true,
+    lineMode: 'three-lines' as const
+  },
+  {
+    id: 'pod-p',
+    label: 'pod-p',
+    text: 'TO GET',
+    font: 'Inter',
+    fontWeight: '800' as const,
+    highlightColor: '#ff4fe1',
+    backgroundColor: '#111111',
+    backgroundEnabled: true,
+    lineMode: 'one-line' as const
+  }
+] as const
+
+const aspectRatioCycle: Array<'9:16' | '1:1' | '16:9'> = ['9:16', '1:1', '16:9']
+const cropModeCycle: Array<'fit' | 'center' | 'blur'> = ['fit', 'center', 'blur']
 
 type ClipRecord = {
   id: string
@@ -188,6 +262,7 @@ export function ClipEditorPage() {
   const [musicEnabled, setMusicEnabled] = useState(false)
   const [musicAssetPath, setMusicAssetPath] = useState<string | null>(null)
   const [musicVolume, setMusicVolume] = useState(0.3)
+  const [trackerEnabled, setTrackerEnabled] = useState(false)
   const [isDraggingCaption, setIsDraggingCaption] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
   const [previewFrameWidth, setPreviewFrameWidth] = useState(260)
@@ -502,6 +577,51 @@ const getPreviewCaptionText = (
     return ((currentTime - clip.startTime) / clip.duration) * 100
   }, [clip, currentTime])
 
+  const persistFrameEdits = async (nextFrame: PreviewFrameState) => {
+    if (!clipId) return
+    await window.electronAPI?.saveClipEdits?.(clipId, {
+      aspect_ratio: nextFrame.aspectRatio,
+      crop_mode: nextFrame.cropMode
+    })
+  }
+
+  const cycleAspectRatio = async () => {
+    if (!framePreview) return
+    const currentIndex = aspectRatioCycle.indexOf(framePreview.aspectRatio)
+    const nextAspectRatio = aspectRatioCycle[(currentIndex + 1) % aspectRatioCycle.length]
+    const nextFrame = { ...framePreview, aspectRatio: nextAspectRatio }
+    setFramePreview(nextFrame)
+    await persistFrameEdits(nextFrame)
+  }
+
+  const cycleCropMode = async () => {
+    if (!framePreview) return
+    const currentIndex = cropModeCycle.indexOf(framePreview.cropMode)
+    const nextCropMode = cropModeCycle[(currentIndex + 1) % cropModeCycle.length]
+    const nextFrame = { ...framePreview, cropMode: nextCropMode }
+    setFramePreview(nextFrame)
+    await persistFrameEdits(nextFrame)
+  }
+
+  const cycleCaptionPreset = () => {
+    setCaptionPreview((current) => {
+      if (!current) return current
+      const currentIndex = clipCaptionPresets.findIndex((preset) => preset.id === current.presetId)
+      const nextPreset = clipCaptionPresets[(currentIndex + 1 + clipCaptionPresets.length) % clipCaptionPresets.length]
+      return {
+        ...current,
+        presetId: nextPreset.id,
+        font: nextPreset.font,
+        fontWeight: nextPreset.fontWeight,
+        highlightColor: nextPreset.highlightColor,
+        backgroundColor: nextPreset.backgroundColor,
+        backgroundEnabled: nextPreset.backgroundEnabled,
+        lineMode: nextPreset.lineMode,
+        text: nextPreset.id === 'none' ? '' : current.text || nextPreset.text
+      }
+    })
+  }
+
   useEffect(() => {
     if (!transcriptLines.length) return
 
@@ -708,22 +828,38 @@ const getPreviewCaptionText = (
 
           <section className="clip-editor-preview-stage">
             <div className="clip-editor-preview-meta">
-              <span className="clip-editor-preview-meta-item">
+              <button
+                type="button"
+                className="clip-editor-preview-meta-item clip-editor-preview-control"
+                onClick={() => void cycleAspectRatio()}
+              >
                 <IoResizeOutline size={15} />
                 {framePreview?.aspectRatio || '9:16'}
-              </span>
-              <span className="clip-editor-preview-meta-item">
-                <IoExpandOutline size={15} />
+              </button>
+              <button
+                type="button"
+                className="clip-editor-preview-meta-item clip-editor-preview-control"
+                onClick={() => void cycleCropMode()}
+              >
+                {framePreview?.cropMode === 'blur' ? <IoGridOutline size={15} /> : framePreview?.cropMode === 'center' ? <IoScanOutline size={15} /> : <IoExpandOutline size={15} />}
                 Layout: {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center' : 'Fit'}
-              </span>
-              <span className="clip-editor-preview-meta-item">
+              </button>
+              <button
+                type="button"
+                className="clip-editor-preview-meta-item clip-editor-preview-control"
+                onClick={cycleCaptionPreset}
+              >
                 <IoTextOutline size={15} />
                 {captionPreview?.presetId || 'Default captions'}
-              </span>
-              <span className="clip-editor-preview-meta-item">
+              </button>
+              <button
+                type="button"
+                className="clip-editor-preview-meta-item clip-editor-preview-control"
+                onClick={() => setTrackerEnabled((current) => !current)}
+              >
                 <IoFlashOffOutline size={15} />
-                Tracker: OFF
-              </span>
+                Tracker: {trackerEnabled ? 'ON' : 'OFF'}
+              </button>
             </div>
 
             <div className="clip-editor-preview-canvas">
@@ -775,6 +911,7 @@ const getPreviewCaptionText = (
                           cursor: isDraggingLogo ? 'grabbing' : 'grab'
                         }}
                         onMouseDown={(event) => {
+                          if (!trackerEnabled) return
                           event.preventDefault()
                           event.stopPropagation()
                           setIsDraggingLogo(true)
@@ -872,6 +1009,7 @@ const getPreviewCaptionText = (
                               cursor: isDraggingCaption ? 'grabbing' : 'grab'
                             }}
                             onMouseDown={(event) => {
+                              if (!trackerEnabled) return
                               event.preventDefault()
                               event.stopPropagation()
                               setIsDraggingCaption(true)
