@@ -435,8 +435,8 @@
   }
 
   .clip-editor-transcript-panel {
-    height: clamp(420px, calc(100vh - 280px), 720px);
-    max-height: clamp(420px, calc(100vh - 280px), 720px);
+    height: clamp(340px, calc(100vh - 390px), 620px);
+    max-height: clamp(340px, calc(100vh - 390px), 620px);
   }
 
   .clip-editor-header-action {
