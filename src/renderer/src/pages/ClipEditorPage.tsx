@@ -274,6 +274,8 @@ export function ClipEditorPage() {
   const [isSavingClip, setIsSavingClip] = useState(false)
   const [saveClipFeedback, setSaveClipFeedback] = useState<'idle' | 'saved'>('idle')
   const [timelineZoom, setTimelineZoom] = useState(1.15)
+  const [timelineWaveform, setTimelineWaveform] = useState<number[]>([])
+  const [timelineThumbnails, setTimelineThumbnails] = useState<Record<string, string>>({})
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -527,6 +529,162 @@ const getPreviewCaptionText = (
     }
   }, [clip, mediaUrl, musicAssetPath, musicEnabled])
 
+  useEffect(() => {
+    if (!mediaUrl || !clip) {
+      setTimelineWaveform([])
+      return
+    }
+
+    let cancelled = false
+    const targetSamples = 180
+
+    const buildWaveform = async () => {
+      try {
+        const response = await fetch(mediaUrl)
+        const buffer = await response.arrayBuffer()
+        const audioContext = new AudioContext()
+
+        try {
+          const decoded = await audioContext.decodeAudioData(buffer.slice(0))
+          const channelData = decoded.getChannelData(0)
+          const clipStartIndex = Math.floor((clip.startTime / decoded.duration) * channelData.length)
+          const clipEndIndex = Math.max(
+            clipStartIndex + 1,
+            Math.floor((clip.endTime / decoded.duration) * channelData.length)
+          )
+          const visibleData = channelData.slice(clipStartIndex, clipEndIndex)
+          const blockSize = Math.max(1, Math.floor(visibleData.length / targetSamples))
+          const peaks: number[] = []
+
+          for (let index = 0; index < targetSamples; index += 1) {
+            const start = index * blockSize
+            const end = Math.min(start + blockSize, visibleData.length)
+            let peak = 0
+
+            for (let sampleIndex = start; sampleIndex < end; sampleIndex += 1) {
+              peak = Math.max(peak, Math.abs(visibleData[sampleIndex] ?? 0))
+            }
+
+            peaks.push(peak)
+          }
+
+          const maxPeak = Math.max(...peaks, 0.001)
+          if (!cancelled) {
+            setTimelineWaveform(peaks.map((peak) => peak / maxPeak))
+          }
+        } finally {
+          void audioContext.close()
+        }
+      } catch (waveformError) {
+        console.error('Failed to generate timeline waveform:', waveformError)
+        if (!cancelled) {
+          setTimelineWaveform([])
+        }
+      }
+    }
+
+    void buildWaveform()
+
+    return () => {
+      cancelled = true
+    }
+  }, [clip, mediaUrl])
+
+  useEffect(() => {
+    if (!mediaUrl || !clip || transcriptLines.length === 0) {
+      setTimelineThumbnails({})
+      return
+    }
+
+    let cancelled = false
+
+    const captureFrame = async (video: HTMLVideoElement, time: number) => {
+      await new Promise<void>((resolve, reject) => {
+        const handleSeeked = () => {
+          cleanup()
+          resolve()
+        }
+        const handleError = () => {
+          cleanup()
+          reject(new Error('Timeline thumbnail seek failed'))
+        }
+        const cleanup = () => {
+          video.removeEventListener('seeked', handleSeeked)
+          video.removeEventListener('error', handleError)
+        }
+
+        video.addEventListener('seeked', handleSeeked, { once: true })
+        video.addEventListener('error', handleError, { once: true })
+        video.currentTime = time
+      })
+    }
+
+    const buildThumbnails = async () => {
+      const captureVideo = document.createElement('video')
+      captureVideo.src = mediaUrl
+      captureVideo.muted = true
+      captureVideo.playsInline = true
+      captureVideo.preload = 'auto'
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const handleLoaded = () => {
+            cleanup()
+            resolve()
+          }
+          const handleError = () => {
+            cleanup()
+            reject(new Error('Timeline thumbnail load failed'))
+          }
+          const cleanup = () => {
+            captureVideo.removeEventListener('loadedmetadata', handleLoaded)
+            captureVideo.removeEventListener('error', handleError)
+          }
+
+          captureVideo.addEventListener('loadedmetadata', handleLoaded, { once: true })
+          captureVideo.addEventListener('error', handleError, { once: true })
+        })
+
+        const canvas = document.createElement('canvas')
+        canvas.width = 220
+        canvas.height = 124
+        const context = canvas.getContext('2d')
+        if (!context) return
+
+        const entries = await Promise.all(
+          transcriptLines.map(async (line) => {
+            const sampleTime = clamp(line.start + 0.08, clip.startTime, Math.max(clip.startTime, line.end - 0.05))
+            try {
+              await captureFrame(captureVideo, sampleTime)
+              context.clearRect(0, 0, canvas.width, canvas.height)
+              context.drawImage(captureVideo, 0, 0, canvas.width, canvas.height)
+              return [line.id, canvas.toDataURL('image/jpeg', 0.72)] as const
+            } catch {
+              return [line.id, ''] as const
+            }
+          })
+        )
+
+        if (!cancelled) {
+          setTimelineThumbnails(
+            Object.fromEntries(entries.filter((entry) => entry[1]))
+          )
+        }
+      } catch (thumbnailError) {
+        console.error('Failed to generate timeline thumbnails:', thumbnailError)
+        if (!cancelled) {
+          setTimelineThumbnails({})
+        }
+      }
+    }
+
+    void buildThumbnails()
+
+    return () => {
+      cancelled = true
+    }
+  }, [clip, mediaUrl, transcriptLines])
+
   const activeLineId = useMemo(() => {
     return transcriptLines.find((line) => currentTime >= line.start && currentTime <= line.end)?.id || null
   }, [currentTime, transcriptLines])
@@ -616,26 +774,17 @@ const getPreviewCaptionText = (
   }, [clip, timelineWidth])
 
   const waveformBars = useMemo(() => {
-    if (!clip || clip.duration <= 0) return []
-    const barCount = Math.max(40, Math.min(140, Math.round(clip.duration * 2.4)))
+    if (!timelineWaveform.length) return []
 
-    return Array.from({ length: barCount }, (_, index) => {
-      const progress = index / Math.max(barCount - 1, 1)
-      const line = transcriptLines[
-        Math.min(transcriptLines.length - 1, Math.max(0, Math.floor(progress * transcriptLines.length)))
-      ]
-      const textWeight = Math.min((line?.text.length ?? 12) / 80, 1)
-      const wave = Math.abs(Math.sin(progress * Math.PI * 9))
-      const variance = Math.abs(Math.cos(progress * Math.PI * 15))
-      const height = 12 + wave * 22 + variance * 10 + textWeight * 10
-
+    return timelineWaveform.map((value, index) => {
+      const progress = index / Math.max(timelineWaveform.length - 1, 1)
       return {
         id: `wave-${index}`,
         left: progress * timelineWidth,
-        height
+        height: 10 + value * 34
       }
     })
-  }, [clip, timelineWidth, transcriptLines])
+  }, [timelineWaveform, timelineWidth])
 
   const persistFrameEdits = async (nextFrame: PreviewFrameState) => {
     if (!clipId) return
@@ -1300,11 +1449,24 @@ const getPreviewCaptionText = (
                           className={`clip-editor-video-segment ${isActive ? 'is-active' : ''}`}
                           style={{ left: `${left}px`, width: `${width}px` }}
                         >
-                          <div className="clip-editor-video-segment-frame">
+                          <div
+                            className="clip-editor-video-segment-frame"
+                            style={
+                              timelineThumbnails[line.id]
+                                ? {
+                                    backgroundImage: `linear-gradient(180deg, rgba(7, 10, 13, 0.08), rgba(7, 10, 13, 0.18)), url(${timelineThumbnails[line.id]})`,
+                                    backgroundSize: 'cover',
+                                    backgroundPosition: 'center'
+                                  }
+                                : undefined
+                            }
+                          >
                             <span className="clip-editor-video-segment-badge">
                               {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center' : 'Fit'}
                             </span>
-                            <div className="clip-editor-video-segment-copy">{index + 1}</div>
+                            <div className="clip-editor-video-segment-copy">
+                              {timelineThumbnails[line.id] ? '' : index + 1}
+                            </div>
                           </div>
                         </button>
                       )
