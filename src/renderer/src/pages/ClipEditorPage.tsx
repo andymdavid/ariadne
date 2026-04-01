@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
+  IoAddOutline,
   IoArrowBack,
   IoCheckmarkCircleOutline,
   IoExpandOutline,
+  IoFilmOutline,
   IoFlashOffOutline,
   IoGridOutline,
   IoMusicalNotesOutline,
   IoPlay,
   IoPause,
+  IoRemoveOutline,
   IoResizeOutline,
   IoScanOutline,
-  IoTextOutline
+  IoTextOutline,
+  IoVolumeHighOutline
 } from 'react-icons/io5'
 import type { BrandTemplate } from '@shared/types'
 
@@ -251,7 +255,6 @@ export function ClipEditorPage() {
   const { id: episodeId, clipId } = useParams<{ id: string; clipId: string }>()
   const [clip, setClip] = useState<ClipRecord | null>(null)
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
-  const [episodeDuration, setEpisodeDuration] = useState(0)
   const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([])
   const [isTranscriptOnly, setIsTranscriptOnly] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -270,6 +273,7 @@ export function ClipEditorPage() {
   const [error, setError] = useState<string | null>(null)
   const [isSavingClip, setIsSavingClip] = useState(false)
   const [saveClipFeedback, setSaveClipFeedback] = useState<'idle' | 'saved'>('idle')
+  const [timelineZoom, setTimelineZoom] = useState(1.15)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -376,7 +380,6 @@ const getPreviewCaptionText = (
 
         setClip(mappedClip)
         setMediaUrl(mediaSource?.mediaUrl ?? null)
-        setEpisodeDuration(mediaSource?.duration ?? 0)
         setTranscriptLines(
           (segments || []).map((segment: any) => ({
             id: segment.id,
@@ -575,10 +578,64 @@ const getPreviewCaptionText = (
     }
   }
 
+  const seekFromTimeline = (clientX: number, rect: DOMRect) => {
+    if (!clip || rect.width <= 0) return
+    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1)
+    seekWithinClip(clip.startTime + ratio * clip.duration)
+  }
+
   const timelineProgress = useMemo(() => {
     if (!clip || clip.duration <= 0) return 0
     return ((currentTime - clip.startTime) / clip.duration) * 100
   }, [clip, currentTime])
+
+  const clipRelativeTime = useMemo(() => {
+    if (!clip) return 0
+    return Math.min(Math.max(currentTime - clip.startTime, 0), clip.duration)
+  }, [clip, currentTime])
+
+  const timelineWidth = useMemo(() => {
+    if (!clip) return 960
+    return Math.round(clamp(clip.duration * 42 * timelineZoom, 900, 2800))
+  }, [clip, timelineZoom])
+
+  const timelineRulerMarks = useMemo(() => {
+    if (!clip || clip.duration <= 0) return []
+    const totalSeconds = Math.max(1, Math.ceil(clip.duration))
+    const marks: Array<{ second: number; left: number; major: boolean }> = []
+
+    for (let second = 0; second <= totalSeconds; second += 1) {
+      marks.push({
+        second,
+        left: (second / clip.duration) * timelineWidth,
+        major: second % 5 === 0
+      })
+    }
+
+    return marks
+  }, [clip, timelineWidth])
+
+  const waveformBars = useMemo(() => {
+    if (!clip || clip.duration <= 0) return []
+    const barCount = Math.max(40, Math.min(140, Math.round(clip.duration * 2.4)))
+
+    return Array.from({ length: barCount }, (_, index) => {
+      const progress = index / Math.max(barCount - 1, 1)
+      const line = transcriptLines[
+        Math.min(transcriptLines.length - 1, Math.max(0, Math.floor(progress * transcriptLines.length)))
+      ]
+      const textWeight = Math.min((line?.text.length ?? 12) / 80, 1)
+      const wave = Math.abs(Math.sin(progress * Math.PI * 9))
+      const variance = Math.abs(Math.cos(progress * Math.PI * 15))
+      const height = 12 + wave * 22 + variance * 10 + textWeight * 10
+
+      return {
+        id: `wave-${index}`,
+        left: progress * timelineWidth,
+        height
+      }
+    })
+  }, [clip, timelineWidth, transcriptLines])
 
   const persistFrameEdits = async (nextFrame: PreviewFrameState) => {
     if (!clipId) return
@@ -1109,77 +1166,184 @@ const getPreviewCaptionText = (
           </section>
         </div>
 
-        <footer className="workspace-panel shrink-0">
+        <footer className="workspace-panel shrink-0 clip-editor-timeline-panel">
           <div className="workspace-panel-scroll !p-0">
-            <div className="flex items-center justify-between border-b border-white/8 px-6 py-3">
-              <div className="flex items-center gap-4 text-sm text-text-secondary">
+            <div className="clip-editor-timeline-toolbar">
+              <div className="clip-editor-timeline-toolbar-left">
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 hover:text-text-primary"
+                  className="clip-editor-timeline-tab"
                 >
-                  <IoCheckmarkCircleOutline size={15} />
+                  <IoCheckmarkCircleOutline size={14} />
                   Timeline
                 </button>
               </div>
 
-              <div className="flex items-center gap-4">
+              <div className="clip-editor-timeline-toolbar-center">
                 <button
                   type="button"
                   onClick={() => seekWithinClip(currentTime - 1)}
-                  className="text-text-secondary transition-colors hover:text-text-primary"
+                  className="clip-editor-timeline-icon-button"
                 >
                   ‹‹
                 </button>
                 <button
                   type="button"
                   onClick={togglePlayback}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-black"
+                  className="clip-editor-timeline-play-button"
                 >
                   {isPlaying ? <IoPause size={16} /> : <IoPlay size={16} />}
                 </button>
                 <button
                   type="button"
                   onClick={() => seekWithinClip(currentTime + 1)}
-                  className="text-text-secondary transition-colors hover:text-text-primary"
+                  className="clip-editor-timeline-icon-button"
                 >
                   ››
                 </button>
-                <div className="text-sm text-text-secondary">
-                  {formatClockTime(currentTime - clip.startTime)} / {formatClockTime(clip.duration)}
+                <div className="clip-editor-timeline-timecode">
+                  {formatClockTime(clipRelativeTime)} / {formatClockTime(clip.duration)}
                 </div>
+              </div>
+
+              <div className="clip-editor-timeline-toolbar-right">
+                <button
+                  type="button"
+                  onClick={() => setTimelineZoom((current) => clamp(Number((current - 0.15).toFixed(2)), 0.7, 2))}
+                  className="clip-editor-timeline-zoom-button"
+                >
+                  <IoRemoveOutline size={14} />
+                </button>
+                <input
+                  type="range"
+                  min="0.7"
+                  max="2"
+                  step="0.05"
+                  value={timelineZoom}
+                  onChange={(event) => setTimelineZoom(Number(event.target.value))}
+                  className="clip-editor-timeline-zoom-slider"
+                />
+                <button
+                  type="button"
+                  onClick={() => setTimelineZoom((current) => clamp(Number((current + 0.15).toFixed(2)), 0.7, 2))}
+                  className="clip-editor-timeline-zoom-button"
+                >
+                  <IoAddOutline size={14} />
+                </button>
               </div>
             </div>
 
-            <div className="px-6 py-4">
-              <div className="relative mb-4 h-1 rounded-full bg-white/8">
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-white"
-                  style={{ width: `${Math.min(Math.max(timelineProgress, 0), 100)}%` }}
-                />
+            <div className="clip-editor-timeline-shell">
+              <div className="clip-editor-timeline-labels">
+                <div className="clip-editor-timeline-label clip-editor-timeline-label-spacer" />
+                <div className="clip-editor-timeline-label">
+                  <IoFilmOutline size={14} />
+                  Video
+                </div>
+                <div className="clip-editor-timeline-label">
+                  <IoVolumeHighOutline size={14} />
+                  Audio
+                </div>
+                <div className="clip-editor-timeline-label">
+                  <IoTextOutline size={14} />
+                  Captions
+                </div>
               </div>
 
-              <div className="flex items-end gap-2 overflow-x-auto pb-2">
-                {transcriptLines.map((line) => {
-                  const width = episodeDuration > 0 ? Math.max(((line.end - line.start) / episodeDuration) * 1000, 54) : 72
-                  const isActive = activeLineId === line.id
+              <div className="clip-editor-timeline-scroll">
+                <div
+                  className="clip-editor-timeline-content"
+                  style={{ width: `${timelineWidth}px` }}
+                >
+                  <button
+                    type="button"
+                    className="clip-editor-timeline-hitbox"
+                    onClick={(event) => seekFromTimeline(event.clientX, event.currentTarget.getBoundingClientRect())}
+                    aria-label="Seek timeline"
+                  />
 
-                  return (
-                    <button
-                      key={line.id}
-                      type="button"
-                      onClick={() => seekWithinClip(line.start)}
-                      className={`rounded-xl border px-3 py-2 text-left transition-colors ${
-                        isActive
-                          ? 'border-white/20 bg-white/10 text-white'
-                          : 'border-white/8 bg-[#11141a] text-text-secondary hover:border-white/14 hover:text-text-primary'
-                      }`}
-                      style={{ width }}
-                    >
-                      <div className="mb-1 text-[11px] uppercase tracking-[0.16em] text-text-muted">Segment</div>
-                      <div className="truncate text-xs">{line.text}</div>
-                    </button>
-                  )
-                })}
+                  <div
+                    className="clip-editor-timeline-playhead"
+                    style={{ left: `${Math.min(Math.max(timelineProgress, 0), 100)}%` }}
+                  >
+                    <div className="clip-editor-timeline-playhead-handle" />
+                  </div>
+
+                  <div className="clip-editor-timeline-ruler">
+                    {timelineRulerMarks.map((mark) => (
+                      <button
+                        key={`mark-${mark.second}`}
+                        type="button"
+                        className={`clip-editor-timeline-ruler-mark ${mark.major ? 'is-major' : ''}`}
+                        style={{ left: `${mark.left}px` }}
+                        onClick={() => seekWithinClip(clip.startTime + mark.second)}
+                      >
+                        <span className="clip-editor-timeline-ruler-tick" />
+                        {mark.major ? (
+                          <span className="clip-editor-timeline-ruler-label">{mark.second}</span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="clip-editor-track clip-editor-track-video">
+                    {transcriptLines.map((line, index) => {
+                      const left = ((line.start - clip.startTime) / clip.duration) * timelineWidth
+                      const width = Math.max(((line.end - line.start) / clip.duration) * timelineWidth, 72)
+                      const isActive = activeLineId === line.id
+
+                      return (
+                        <button
+                          key={`video-${line.id}`}
+                          type="button"
+                          onClick={() => seekWithinClip(line.start)}
+                          className={`clip-editor-video-segment ${isActive ? 'is-active' : ''}`}
+                          style={{ left: `${left}px`, width: `${width}px` }}
+                        >
+                          <div className="clip-editor-video-segment-frame">
+                            <span className="clip-editor-video-segment-badge">
+                              {framePreview?.cropMode === 'blur' ? 'Blur' : framePreview?.cropMode === 'center' ? 'Center' : 'Fit'}
+                            </span>
+                            <div className="clip-editor-video-segment-copy">{index + 1}</div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="clip-editor-track clip-editor-track-audio">
+                    {waveformBars.map((bar) => (
+                      <span
+                        key={bar.id}
+                        className="clip-editor-wave-bar"
+                        style={{
+                          left: `${bar.left}px`,
+                          height: `${bar.height}px`
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="clip-editor-track clip-editor-track-captions">
+                    {transcriptLines.map((line) => {
+                      const left = ((line.start - clip.startTime) / clip.duration) * timelineWidth
+                      const width = Math.max(((line.end - line.start) / clip.duration) * timelineWidth, 90)
+                      const isActive = activeLineId === line.id
+
+                      return (
+                        <button
+                          key={`caption-${line.id}`}
+                          type="button"
+                          onClick={() => seekWithinClip(line.start)}
+                          className={`clip-editor-caption-segment ${isActive ? 'is-active' : ''}`}
+                          style={{ left: `${left}px`, width: `${width}px` }}
+                        >
+                          {line.text}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
