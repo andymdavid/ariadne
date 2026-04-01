@@ -530,50 +530,22 @@ const getPreviewCaptionText = (
   }, [clip, mediaUrl, musicAssetPath, musicEnabled])
 
   useEffect(() => {
-    if (!mediaUrl || !clip) {
+    if (!episodeId || !clip) {
       setTimelineWaveform([])
       return
     }
 
     let cancelled = false
-    const targetSamples = 180
-
     const buildWaveform = async () => {
       try {
-        const response = await fetch(mediaUrl)
-        const buffer = await response.arrayBuffer()
-        const audioContext = new AudioContext()
-
-        try {
-          const decoded = await audioContext.decodeAudioData(buffer.slice(0))
-          const channelData = decoded.getChannelData(0)
-          const clipStartIndex = Math.floor((clip.startTime / decoded.duration) * channelData.length)
-          const clipEndIndex = Math.max(
-            clipStartIndex + 1,
-            Math.floor((clip.endTime / decoded.duration) * channelData.length)
-          )
-          const visibleData = channelData.slice(clipStartIndex, clipEndIndex)
-          const blockSize = Math.max(1, Math.floor(visibleData.length / targetSamples))
-          const peaks: number[] = []
-
-          for (let index = 0; index < targetSamples; index += 1) {
-            const start = index * blockSize
-            const end = Math.min(start + blockSize, visibleData.length)
-            let peak = 0
-
-            for (let sampleIndex = start; sampleIndex < end; sampleIndex += 1) {
-              peak = Math.max(peak, Math.abs(visibleData[sampleIndex] ?? 0))
-            }
-
-            peaks.push(peak)
-          }
-
-          const maxPeak = Math.max(...peaks, 0.001)
-          if (!cancelled) {
-            setTimelineWaveform(peaks.map((peak) => peak / maxPeak))
-          }
-        } finally {
-          void audioContext.close()
+        const response = await window.electronAPI?.getClipWaveform?.(
+          episodeId,
+          clip.startTime,
+          clip.duration,
+          180
+        )
+        if (!cancelled) {
+          setTimelineWaveform(response?.peaks ?? [])
         }
       } catch (waveformError) {
         console.error('Failed to generate timeline waveform:', waveformError)
@@ -588,7 +560,7 @@ const getPreviewCaptionText = (
     return () => {
       cancelled = true
     }
-  }, [clip, mediaUrl])
+  }, [clip, episodeId])
 
   useEffect(() => {
     if (!mediaUrl || !clip || transcriptLines.length === 0) {

@@ -3,6 +3,7 @@ import { ffmpegService } from '../services/ffmpegService'
 import type {
   ExtractAudioCommand,
   ExtractPreviewClipCommand,
+  GenerateWaveformCommand,
   MediaFailedEvent,
   MediaProgressEvent,
   MediaWorkerCommand,
@@ -88,6 +89,21 @@ async function handleExtractPreviewClip(command: ExtractPreviewClipCommand) {
   })
 }
 
+async function handleGenerateWaveform(command: GenerateWaveformCommand) {
+  const peaks = await ffmpegService.generateWaveformPeaks(
+    command.inputPath,
+    command.startTime,
+    command.duration,
+    command.samples
+  )
+
+  emit({
+    type: 'generate_waveform_completed',
+    requestId: command.requestId,
+    peaks
+  })
+}
+
 async function handleCommand(command: MediaWorkerCommand) {
   if (command.type === 'probe_media') {
     await handleProbeMedia(command)
@@ -96,6 +112,11 @@ async function handleCommand(command: MediaWorkerCommand) {
 
   if (command.type === 'extract_audio') {
     await handleExtractAudio(command)
+    return
+  }
+
+  if (command.type === 'generate_waveform') {
+    await handleGenerateWaveform(command)
     return
   }
 
@@ -116,6 +137,8 @@ process.on('message', async (message: MediaWorkerCommand) => {
           ? 'probe_failed'
           : message.type === 'extract_audio'
             ? 'audio_extract_failed'
+            : message.type === 'generate_waveform'
+              ? 'waveform_failed'
             : 'preview_extract_failed',
       message: error instanceof Error ? error.message : 'Unknown media worker error'
     }

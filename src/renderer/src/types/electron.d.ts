@@ -21,6 +21,7 @@ import type {
   GetExportJobResponseDTO,
   StartExportResponseDTO
 } from '@shared/types/exportIpc'
+import type { GetClipWaveformResponseDTO } from '@shared/types/mediaIpc'
 import type {
   GetFailureEventsResponseDTO,
   GetWorkflowEventsResponseDTO,
@@ -57,6 +58,7 @@ declare global {
       getEpisode: (episodeId: string) => Promise<any>;
       getEpisodeByProject: (projectId: string) => Promise<any>;
       getEpisodeMediaSource: (episodeId: string) => Promise<{ mediaUrl: string; filePath: string; duration: number; frameRate: number | null }>;
+      getClipWaveform: (episodeId: string, startTime: number, duration: number, samples?: number) => Promise<GetClipWaveformResponseDTO>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       getClip: (clipId: string) => Promise<any>;
       getClipTrimState: (clipId: string) => Promise<ClipTrimState | undefined>;

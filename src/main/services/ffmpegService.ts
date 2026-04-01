@@ -134,6 +134,79 @@ class FFmpegService {
         .run()
     })
   }
+
+  async generateWaveformPeaks(
+    inputPath: string,
+    startTime: number,
+    duration: number,
+    sampleCount = 180
+  ): Promise<number[]> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+      const command = ffmpeg(inputPath)
+        .noVideo()
+        .seekInput(startTime)
+        .duration(duration)
+        .audioChannels(1)
+        .audioFrequency(8000)
+        .format('f32le')
+
+      const stream = command.pipe()
+
+      stream.on('data', (chunk: Buffer) => {
+        chunks.push(chunk)
+      })
+
+      stream.on('error', (error: Error) => {
+        reject(new Error(`Waveform generation failed: ${error.message}`))
+      })
+
+      command.on('error', (error) => {
+        reject(new Error(`Waveform generation failed: ${error.message}`))
+      })
+
+      command.on('end', () => {
+        try {
+          const buffer = Buffer.concat(chunks)
+          if (buffer.length < 4) {
+            resolve([])
+            return
+          }
+
+          const floatCount = Math.floor(buffer.length / 4)
+          const values = new Float32Array(floatCount)
+          for (let index = 0; index < floatCount; index += 1) {
+            values[index] = buffer.readFloatLE(index * 4)
+          }
+
+          const blockSize = Math.max(1, Math.floor(values.length / sampleCount))
+          const peaks: number[] = []
+
+          for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+            const start = sampleIndex * blockSize
+            const end = Math.min(values.length, start + blockSize)
+            let peak = 0
+
+            for (let valueIndex = start; valueIndex < end; valueIndex += 1) {
+              peak = Math.max(peak, Math.abs(values[valueIndex] ?? 0))
+            }
+
+            peaks.push(peak)
+          }
+
+          const maxPeak = Math.max(...peaks, 0)
+          if (maxPeak <= 0) {
+            resolve(peaks.map(() => 0))
+            return
+          }
+
+          resolve(peaks.map((peak) => peak / maxPeak))
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error('Waveform normalization failed'))
+        }
+      })
+    })
+  }
   
   /**
    * Create video clip from source

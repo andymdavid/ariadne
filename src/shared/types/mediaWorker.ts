@@ -31,10 +31,20 @@ export interface ExtractPreviewClipCommand {
   outputPath: string
 }
 
+export interface GenerateWaveformCommand {
+  type: 'generate_waveform'
+  requestId: string
+  inputPath: string
+  startTime: number
+  duration: number
+  samples: number
+}
+
 export type MediaWorkerCommand =
   | ProbeMediaCommand
   | ExtractAudioCommand
   | ExtractPreviewClipCommand
+  | GenerateWaveformCommand
 
 export interface MediaProgressEvent {
   type: 'media_progress'
@@ -62,11 +72,17 @@ export interface ExtractPreviewClipCompletedEvent {
   outputPath: string
 }
 
+export interface GenerateWaveformCompletedEvent {
+  type: 'generate_waveform_completed'
+  requestId: string
+  peaks: number[]
+}
+
 export interface MediaFailedEvent {
   type: 'media_failed'
   requestId: string
-  operation: 'probe_media' | 'extract_audio' | 'extract_preview_clip'
-  errorCode: 'probe_failed' | 'audio_extract_failed' | 'preview_extract_failed' | 'media_failed'
+  operation: 'probe_media' | 'extract_audio' | 'extract_preview_clip' | 'generate_waveform'
+  errorCode: 'probe_failed' | 'audio_extract_failed' | 'preview_extract_failed' | 'waveform_failed' | 'media_failed'
   message: string
 }
 
@@ -75,4 +91,5 @@ export type MediaWorkerEvent =
   | ProbeMediaCompletedEvent
   | ExtractAudioCompletedEvent
   | ExtractPreviewClipCompletedEvent
+  | GenerateWaveformCompletedEvent
   | MediaFailedEvent

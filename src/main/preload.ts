@@ -36,6 +36,10 @@ import type {
   StartExportResponseDTO
 } from '@shared/types/exportIpc';
 import type {
+  GetClipWaveformRequestDTO,
+  GetClipWaveformResponseDTO
+} from '@shared/types/mediaIpc';
+import type {
   GetFailureEventsRequestDTO,
   GetFailureEventsResponseDTO,
   GetWorkflowEventsRequestDTO,
@@ -123,6 +127,11 @@ const electronAPI = {
   getEpisode: (episodeId: string) => ipcRenderer.invoke('get-episode', episodeId),
   getEpisodeByProject: (projectId: string) => ipcRenderer.invoke('get-episode-by-project', projectId),
   getEpisodeMediaSource: (episodeId: string) => ipcRenderer.invoke('get-episode-media-source', episodeId),
+  getClipWaveform: (episodeId: string, startTime: number, duration: number, samples?: number) =>
+    ipcRenderer.invoke(
+      'get-clip-waveform',
+      { episodeId, startTime, duration, samples } satisfies GetClipWaveformRequestDTO
+    ) as Promise<GetClipWaveformResponseDTO>,
   getEpisodeClips: (episodeId: string) => ipcRenderer.invoke('get-episode-clips', episodeId),
   getClip: (clipId: string) => ipcRenderer.invoke('get-clip', clipId),
   getClipTrimState: (clipId: string) => ipcRenderer.invoke('get-clip-trim-state', clipId),
@@ -292,6 +301,7 @@ declare global {
       getEpisode: (episodeId: string) => Promise<any>;
       getEpisodeByProject: (projectId: string) => Promise<any>;
       getEpisodeMediaSource: (episodeId: string) => Promise<{ mediaUrl: string; filePath: string; duration: number; frameRate: number | null }>;
+      getClipWaveform: (episodeId: string, startTime: number, duration: number, samples?: number) => Promise<GetClipWaveformResponseDTO>;
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       getClip: (clipId: string) => Promise<any>;
       getClipTrimState: (clipId: string) => Promise<ClipTrimState | undefined>;

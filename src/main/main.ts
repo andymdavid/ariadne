@@ -49,6 +49,10 @@ import type {
   StartExportRequestDTO,
   StartExportResponseDTO
 } from '@shared/types/exportIpc';
+import type {
+  GetClipWaveformRequestDTO,
+  GetClipWaveformResponseDTO
+} from '@shared/types/mediaIpc';
 
 // TODO: Add electron-reload for development
 
@@ -713,6 +717,27 @@ ipcMain.handle('get-episode-media-source', (event, episodeId: string) => {
     duration: episode.duration || 0,
     frameRate: episode.frame_rate ?? null,
   };
+});
+
+ipcMain.handle('get-clip-waveform', async (_event, request: GetClipWaveformRequestDTO): Promise<GetClipWaveformResponseDTO> => {
+  let episode = database.getEpisode(request.episodeId) as any;
+
+  if (!episode) {
+    episode = database.getEpisodeByProjectId(request.episodeId) as any;
+  }
+
+  if (!episode?.file_path) {
+    throw new Error('Episode media source not found');
+  }
+
+  const peaks = await mediaWorkerSupervisor.generateWaveform(
+    episode.file_path,
+    request.startTime,
+    request.duration,
+    request.samples ?? 180
+  )
+
+  return { peaks };
 });
 
 ipcMain.handle('get-transcript-segments', (event, episodeId: string) => {

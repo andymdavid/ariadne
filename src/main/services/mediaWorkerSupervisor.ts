@@ -82,6 +82,29 @@ class MediaWorkerSupervisor {
     return result.outputPath
   }
 
+  async generateWaveform(
+    inputPath: string,
+    startTime: number,
+    duration: number,
+    samples = 180,
+    diagnostics?: MediaDiagnosticsContext
+  ): Promise<number[]> {
+    const result = await this.runCommand({
+      type: 'generate_waveform',
+      requestId: randomUUID(),
+      inputPath,
+      startTime,
+      duration,
+      samples
+    }, undefined, diagnostics)
+
+    if (result.type !== 'generate_waveform_completed') {
+      throw new Error('Unexpected media worker response')
+    }
+
+    return result.peaks
+  }
+
   private async runCommand(
     command: MediaWorkerCommand,
     onProgress?: (progress: number) => void,
