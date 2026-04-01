@@ -142,6 +142,18 @@ class FFmpegService {
     sampleCount = 180
   ): Promise<number[]> {
     return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(inputPath, (probeError, metadata) => {
+        if (probeError) {
+          reject(new Error(`Waveform generation failed: ${probeError.message}`))
+          return
+        }
+
+        const hasAudio = metadata.streams.some((stream) => stream.codec_type === 'audio')
+        if (!hasAudio) {
+          resolve([])
+          return
+        }
+
       const chunks: Buffer[] = []
       const command = ffmpeg(inputPath)
         .noVideo()
@@ -149,6 +161,8 @@ class FFmpegService {
         .duration(duration)
         .audioChannels(1)
         .audioFrequency(8000)
+        .audioCodec('pcm_f32le')
+        .outputOptions(['-map a:0'])
         .format('f32le')
 
       const stream = command.pipe()
@@ -204,6 +218,7 @@ class FFmpegService {
         } catch (error) {
           reject(error instanceof Error ? error : new Error('Waveform normalization failed'))
         }
+      })
       })
     })
   }
