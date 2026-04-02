@@ -160,7 +160,7 @@ export function SettingsPage() {
       <div className="app-page">
         <div className="flex min-h-full flex-col gap-8">
           <div className="app-page-header">
-            <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+            <div className="app-page-header-shell">
               <div className="app-page-header-content">
                 <div className="app-page-title">Settings</div>
                 <div className="app-page-separator">|</div>
@@ -169,13 +169,15 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div className="app-chip">
-                <span
-                  className={`inline-block h-2.5 w-2.5 rounded-full ${
-                    config.isValid ? 'bg-accent-success' : 'bg-accent-warning'
-                  }`}
-                />
-                <span>{config.isValid ? 'Valid' : 'Setup required'}</span>
+              <div className="app-page-header-actions">
+                <div className="app-chip">
+                  <span
+                    className={`inline-block h-2.5 w-2.5 rounded-full ${
+                      config.isValid ? 'bg-accent-success' : 'bg-accent-warning'
+                    }`}
+                  />
+                  <span>{config.isValid ? 'Valid' : 'Setup required'}</span>
+                </div>
               </div>
             </div>
           </div>

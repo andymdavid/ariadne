@@ -145,10 +145,30 @@
     border-bottom: 1px solid #1d1d1d;
   }
 
+  .app-page-header-shell {
+    width: 100%;
+    max-width: 72rem;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
   .app-page-header-content {
     display: flex;
     align-items: center;
     gap: 12px;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .app-page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+    flex-shrink: 0;
   }
 
   .app-page-title {

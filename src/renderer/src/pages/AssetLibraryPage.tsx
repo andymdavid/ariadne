@@ -130,7 +130,7 @@ export function AssetLibraryPage() {
       <div className="app-page">
         <div className="flex min-h-full flex-col gap-6">
           <div className="app-page-header">
-            <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+            <div className="app-page-header-shell">
               <div className="app-page-header-content">
                 <div className="app-page-title">Asset Library</div>
                 <div className="app-page-separator">|</div>
@@ -139,7 +139,9 @@ export function AssetLibraryPage() {
                 </div>
               </div>
 
-              <div className="app-chip">{mediaCount} reusable assets</div>
+              <div className="app-page-header-actions">
+                <div className="app-chip">{mediaCount} reusable assets</div>
+              </div>
             </div>
           </div>
 

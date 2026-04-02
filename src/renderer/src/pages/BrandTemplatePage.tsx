@@ -734,8 +734,7 @@ export function BrandTemplatePage() {
       <div className="app-page flex h-full flex-col overflow-hidden pb-0">
         <div className="mx-auto flex h-full w-full max-w-[1380px] flex-col">
           <div className="app-page-header">
-            <div className="mx-auto w-full max-w-[1380px]">
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+            <div className="app-page-header-shell max-w-[1380px] grid grid-cols-[1fr_auto_1fr] gap-4">
                 <div className="app-page-header-content">
                   <div className="app-page-title">Brand Template</div>
                   <div className="app-page-separator">|</div>
@@ -823,7 +822,7 @@ export function BrandTemplatePage() {
                   ) : null}
                 </div>
 
-                <div className="justify-self-end">
+                <div className="app-page-header-actions justify-self-end">
                   <button
                     type="button"
                     className="app-action-primary brand-header-save-button"
@@ -833,7 +832,6 @@ export function BrandTemplatePage() {
                     {isSaving ? 'Saving...' : showSavedState ? 'Saved' : 'Save template'}
                   </button>
                 </div>
-              </div>
             </div>
           </div>
 
