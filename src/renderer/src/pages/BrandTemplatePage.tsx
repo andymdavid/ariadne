@@ -835,8 +835,8 @@ export function BrandTemplatePage() {
             </div>
           </div>
 
-          <div className="grid flex-1 items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="ml-[-16px] flex items-start justify-start gap-2">
+          <div className="brand-template-body">
+            <div className="brand-template-menus">
               <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
                 <div className="workspace-panel-scroll">
                   <div className="workspace-panel-header">
@@ -954,7 +954,7 @@ export function BrandTemplatePage() {
               </section>
 
               {activeMenu === 'layout' ? (
-                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0 self-start">
+                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
                   <div className="workspace-panel-scroll">
                     <div className="workspace-panel-header">
                       <div>
@@ -1011,7 +1011,7 @@ export function BrandTemplatePage() {
               ) : null}
 
               {activeMenu === 'caption' ? (
-                <section className="workspace-panel brand-settings-panel h-[calc(100vh-140px)] w-[320px] shrink-0 overflow-hidden">
+                <section className="workspace-panel brand-settings-panel brand-settings-flyout-scroll w-[320px] shrink-0 overflow-hidden">
                   <div className="workspace-panel-scroll">
                     <div className="workspace-panel-header">
                       <div>
@@ -1333,7 +1333,7 @@ export function BrandTemplatePage() {
               ) : null}
 
               {activeMenu === 'overlay' ? (
-                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0 self-start">
+                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
                   <div className="workspace-panel-scroll">
                     <div className="workspace-panel-header">
                       <div>
@@ -1391,7 +1391,7 @@ export function BrandTemplatePage() {
               ) : null}
 
               {activeMenu === 'intro-outro' ? (
-                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0 self-start">
+                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
                   <div className="workspace-panel-scroll">
                     <div className="workspace-panel-header">
                       <div>
@@ -1429,7 +1429,7 @@ export function BrandTemplatePage() {
               ) : null}
 
               {activeMenu === 'music' ? (
-                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0 self-start">
+                <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
                   <div className="workspace-panel-scroll">
                     <div className="workspace-panel-header">
                       <div>
@@ -1511,11 +1511,11 @@ export function BrandTemplatePage() {
               ) : null}
             </div>
 
-            <div className="flex min-h-[720px] items-center justify-center">
+            <div className="brand-template-preview-stage">
               <div
                 ref={previewRef}
-                className={`relative w-full overflow-hidden bg-[#eedec3] transition-transform duration-200 ${
-                  activeMenu === 'layout' ? 'translate-x-6' : '-translate-x-10'
+                className={`brand-template-preview-frame relative overflow-hidden bg-[#eedec3] transition-transform duration-200 ${
+                  activeMenu ? 'translate-x-4' : '-translate-x-2'
                 }`}
                 style={{
                   aspectRatio: previewAspectRatio,
