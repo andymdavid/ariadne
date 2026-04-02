@@ -442,12 +442,6 @@ export function ExportPage() {
                     <div className="status-badge approved">✓</div>
                   )}
 
-                  {/* Export Progress Indicator */}
-                  {exportJob && index === exportJob.currentClipIndex && (
-                    <div className="absolute top-12 right-12 animate-spin text-lg">
-                      ⏳
-                    </div>
-                  )}
                   {exportJob && index < exportJob.currentClipIndex && (
                     <div className="absolute top-12 right-12">
                       <IoCheckmarkCircle className="text-xl text-accent-success" />
