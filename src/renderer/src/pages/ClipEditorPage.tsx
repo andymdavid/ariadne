@@ -163,7 +163,73 @@ type CaptionLayoutConfig = {
   maxFontSize: number
 }
 
+type CaptionCue = {
+  id: string
+  lineId: string
+  start: number
+  end: number
+  text: string
+}
+
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
+const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
+
+const buildCaptionCues = (lines: TranscriptLine[], maxWordsPerCue = 3): CaptionCue[] => {
+  const cues: CaptionCue[] = []
+
+  lines.forEach((line) => {
+    const timedWords = (line.words || []).filter(
+      (word) =>
+        word.word?.trim() &&
+        Number.isFinite(word.start) &&
+        Number.isFinite(word.end) &&
+        word.end > word.start
+    )
+
+    if (timedWords.length > 0) {
+      for (let index = 0; index < timedWords.length; index += maxWordsPerCue) {
+        const chunk = timedWords.slice(index, index + maxWordsPerCue)
+        if (!chunk.length) continue
+        cues.push({
+          id: `${line.id}-cue-${index / maxWordsPerCue}`,
+          lineId: line.id,
+          start: chunk[0].start,
+          end: chunk[chunk.length - 1].end,
+          text: normalizeCaptionText(chunk.map((word) => word.word.trim()).join(' '))
+        })
+      }
+      return
+    }
+
+    const fallbackWords = line.text.split(/\s+/).filter(Boolean)
+    if (!fallbackWords.length) return
+
+    const totalDuration = Math.max(line.end - line.start, 0.01)
+    const chunkCount = Math.ceil(fallbackWords.length / maxWordsPerCue)
+    const chunkDuration = totalDuration / chunkCount
+
+    for (let index = 0; index < fallbackWords.length; index += maxWordsPerCue) {
+      const chunk = fallbackWords.slice(index, index + maxWordsPerCue)
+      const chunkIndex = Math.floor(index / maxWordsPerCue)
+      const start = line.start + chunkIndex * chunkDuration
+      const end =
+        chunkIndex === chunkCount - 1
+          ? line.end
+          : Math.min(line.end, start + chunkDuration)
+
+      cues.push({
+        id: `${line.id}-cue-${chunkIndex}`,
+        lineId: line.id,
+        start,
+        end,
+        text: normalizeCaptionText(chunk.join(' '))
+      })
+    }
+  })
+
+  return cues
+}
 
 const measureTextWidth = (
   text: string,
@@ -293,63 +359,16 @@ export function ClipEditorPage() {
         ? 'aspect-video w-full max-w-[760px]'
         : 'aspect-[9/16] h-full max-h-[500px] w-full max-w-[300px]'
 
-const getPreviewCaptionText = (
-  line: TranscriptLine | undefined,
-  fallbackText: string,
-  presetId?: string | null,
-  playheadTime?: number,
-  font = 'Inter',
-  lineMode: 'one-line' | 'three-lines' = 'one-line'
-) => {
-  if (!line) return fallbackText
-  if (presetId === 'none') return ''
+  const captionCues = useMemo(() => buildCaptionCues(transcriptLines, 3), [transcriptLines])
 
-  const layout = getCaptionLayoutConfig(presetId, previewFrameWidth)
-  const maxLines = lineMode === 'three-lines' ? 3 : 1
-  const words = line.words?.filter((word) => word.word?.trim())
-  if (words && words.length > 0 && playheadTime !== undefined) {
-      const fontSize = clamp(
-        Math.round(previewFrameWidth * layout.fontScale),
-        layout.minFontSize,
-        layout.maxFontSize
-      )
-      const bubblePadding = 32
-      const rawBubbleWidth = Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
-      const maxBubbleWidth = layout.maxWidth
-        ? Math.min(layout.maxWidth, rawBubbleWidth)
-        : rawBubbleWidth
-      const maxTextWidth = Math.max(110, maxBubbleWidth - bubblePadding)
-      const relativeWordIndex = words.findIndex(
-        (word) => playheadTime >= word.start && playheadTime <= word.end
-      )
-      const anchorIndex = relativeWordIndex >= 0 ? relativeWordIndex : 0
-      const fittedWords: string[] = []
-
-      for (let index = anchorIndex; index < words.length; index += 1) {
-        const nextWord = words[index]?.word?.trim()
-        if (!nextWord) continue
-        const candidateText = [...fittedWords, nextWord]
-          .join(' ')
-          .replace(/\s+([,.!?;:])/g, '$1')
-          .trim()
-        const candidateWidth = measureTextWidth(candidateText, fontSize, font)
-        const nextLineCount = Math.max(1, Math.ceil(candidateWidth / maxTextWidth))
-
-        if (fittedWords.length > 0 && nextLineCount > maxLines) {
-          break
-        }
-
-        fittedWords.push(nextWord)
-      }
-
-      const phrase = fittedWords.join(' ').replace(/\s+([,.!?;:])/g, '$1').trim()
-
-      if (phrase) return phrase
-    }
-
-    const fallbackWords = (line.text || fallbackText).split(/\s+/).filter(Boolean)
-    return fallbackWords.slice(0, maxLines === 1 ? 1 : 6).join(' ').trim()
-  }
+  const activeCaptionCue = useMemo(() => {
+    return (
+      captionCues.find((cue) => currentTime >= cue.start && currentTime <= cue.end) ||
+      captionCues.find((cue) => cue.start >= currentTime) ||
+      captionCues[captionCues.length - 1] ||
+      null
+    )
+  }, [captionCues, currentTime])
 
   useEffect(() => {
     const loadEditor = async () => {
@@ -384,51 +403,32 @@ const getPreviewCaptionText = (
           duration: Number(rawClip.duration ?? 0)
         }
 
+        const mappedSegments: TranscriptLine[] = (segments || []).map((segment: any) => ({
+          id: segment.id,
+          start: Number(segment.start_time ?? segment.start ?? 0),
+          end: Number(segment.end_time ?? segment.end ?? 0),
+          text: segment.text || '',
+          words: Array.isArray(segment.words)
+            ? segment.words.map((word: any) => ({
+                word: word.word || '',
+                start: Number(word.start ?? 0),
+                end: Number(word.end ?? 0)
+              }))
+            : undefined
+        }))
+        const initialCaptionCues = buildCaptionCues(mappedSegments, 3)
+
         setClip(mappedClip)
         setMediaUrl(mediaSource?.mediaUrl ?? null)
-        setTranscriptLines(
-          (segments || []).map((segment: any) => ({
-            id: segment.id,
-            start: Number(segment.start_time ?? segment.start ?? 0),
-            end: Number(segment.end_time ?? segment.end ?? 0),
-            text: segment.text || '',
-            words: Array.isArray(segment.words)
-              ? segment.words.map((word: any) => ({
-                  word: word.word || '',
-                  start: Number(word.start ?? 0),
-                  end: Number(word.end ?? 0)
-                }))
-              : undefined
-          }))
-        )
+        setTranscriptLines(mappedSegments)
         setCurrentTime(mappedClip.startTime)
 
         const template = brandTemplate as BrandTemplate | null
         const savedEdits = clipEdits as Record<string, any> | null
-        const firstLine = (segments || [])[0]
         const activeCaptionText =
-          getPreviewCaptionText(
-            firstLine
-              ? {
-                  id: firstLine.id,
-                  start: Number(firstLine.start_time ?? firstLine.start ?? 0),
-                  end: Number(firstLine.end_time ?? firstLine.end ?? 0),
-                  text: firstLine.text || '',
-                  words: Array.isArray(firstLine.words)
-                    ? firstLine.words.map((word: any) => ({
-                        word: word.word || '',
-                        start: Number(word.start ?? 0),
-                        end: Number(word.end ?? 0)
-                      }))
-                    : undefined
-                }
-              : undefined,
-            mappedClip.keyQuote,
-            template?.caption.presetId,
-            mappedClip.startTime,
-            template?.caption.font || 'Inter',
-            template?.caption.lineMode || 'one-line'
-          ) || mappedClip.keyQuote
+          initialCaptionCues.find((cue) => mappedClip.startTime >= cue.start && mappedClip.startTime <= cue.end)?.text ||
+          initialCaptionCues[0]?.text ||
+          mappedClip.keyQuote
 
         setCaptionPreview({
           presetId: template?.caption.presetId ?? null,
@@ -732,8 +732,12 @@ const getPreviewCaptionText = (
   }, [clip, mediaUrl, transcriptLines])
 
   const activeLineId = useMemo(() => {
-    return transcriptLines.find((line) => currentTime >= line.start && currentTime <= line.end)?.id || null
-  }, [currentTime, transcriptLines])
+    return (
+      activeCaptionCue?.lineId ||
+      transcriptLines.find((line) => currentTime >= line.start && currentTime <= line.end)?.id ||
+      null
+    )
+  }, [activeCaptionCue, currentTime, transcriptLines])
 
   useEffect(() => {
     if (!activeLineId || !transcriptScrollerRef.current) return
@@ -908,23 +912,25 @@ const getPreviewCaptionText = (
   }
 
   useEffect(() => {
-    if (!transcriptLines.length) return
+    if (!captionCues.length) return
 
-    const activeLine = transcriptLines.find((line) => currentTime >= line.start && currentTime <= line.end) || transcriptLines[0]
     setCaptionPreview((currentCaption) => {
       if (!currentCaption) return currentCaption
+      const nextText =
+        currentCaption.presetId === 'none'
+          ? ''
+          : activeCaptionCue?.text || captionCues[0]?.text || currentCaption.text
+
+      if (nextText === currentCaption.text) {
+        return currentCaption
+      }
+
       return {
         ...currentCaption,
-        text: getPreviewCaptionText(
-          activeLine,
-          currentCaption.text,
-          currentCaption.presetId,
-          currentTime,
-          currentCaption.font
-        )
+        text: nextText
       }
     })
-  }, [currentTime, previewFrameWidth, transcriptLines])
+  }, [activeCaptionCue, captionCues])
 
   useEffect(() => {
     const previewFrame = previewFrameRef.current
@@ -1558,20 +1564,20 @@ const getPreviewCaptionText = (
                   </div>
 
                   <div className="clip-editor-track clip-editor-track-captions">
-                    {transcriptLines.map((line) => {
-                      const left = ((line.start - clip.startTime) / clip.duration) * timelineWidth
-                      const width = Math.max(((line.end - line.start) / clip.duration) * timelineWidth, 90)
-                      const isActive = activeLineId === line.id
+                    {captionCues.map((cue) => {
+                      const left = ((cue.start - clip.startTime) / clip.duration) * timelineWidth
+                      const width = Math.max(((cue.end - cue.start) / clip.duration) * timelineWidth, 72)
+                      const isActive = activeCaptionCue?.id === cue.id
 
                       return (
                         <button
-                          key={`caption-${line.id}`}
+                          key={`caption-${cue.id}`}
                           type="button"
-                          onClick={() => seekWithinClip(line.start)}
+                          onClick={() => seekWithinClip(cue.start)}
                           className={`clip-editor-caption-segment ${isActive ? 'is-active' : ''}`}
                           style={{ left: `${left}px`, width: `${width}px` }}
                         >
-                          {line.text}
+                          {cue.text}
                         </button>
                       )
                     })}
