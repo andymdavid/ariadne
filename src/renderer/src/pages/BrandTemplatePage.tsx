@@ -1463,6 +1463,31 @@ export function BrandTemplatePage() {
                           </div>
                         </button>
                       ))}
+
+                      <div className={`template-volume-card ${!template.music.assetPath ? 'is-disabled' : ''}`}>
+                        <div className="template-volume-header">
+                          <span className="template-volume-label">Volume</span>
+                          <span className="template-volume-value">
+                            {Math.round((template.music.volume ?? 0) * 100)}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={Math.round((template.music.volume ?? 0) * 100)}
+                          disabled={!template.music.assetPath}
+                          onChange={(event) =>
+                            updateMusic({
+                              enabled: Boolean(template.music.assetPath),
+                              volume: Number(event.target.value) / 100
+                            })
+                          }
+                          className="template-volume-slider"
+                          aria-label="Music volume"
+                        />
+                      </div>
                     </div>
                   </div>
                 </section>
