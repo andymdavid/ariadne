@@ -324,39 +324,38 @@
   }
 
   .asset-library-shell {
-    background: #171717;
-    border-radius: 5px;
     padding: 20px;
   }
 
   .asset-library-upload-panel {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0d0d0d;
+    border: 1px solid #1d1d1d;
     border-radius: 5px;
-    padding: 16px;
+    padding: 18px;
   }
 
   .asset-library-row {
     border-radius: 5px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0d0d0d;
+    border: 1px solid #1d1d1d;
     padding: 12px 14px;
   }
 
   .asset-library-chip {
     border-radius: 5px;
-    background: rgba(255, 255, 255, 0.06);
+    background: #131313;
+    border: 1px solid #1d1d1d;
     padding: 8px 12px;
   }
 
   .asset-library-upload-action {
     border-radius: 5px;
-    background: rgba(255, 255, 255, 0.06);
+    background: #131313;
     min-height: 44px;
   }
 
   .asset-library-upload-action:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: #171717;
   }
 
   .app-list-icon {

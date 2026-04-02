@@ -128,27 +128,28 @@ export function AssetLibraryPage() {
   return (
     <MainContentPanel>
       <div className="app-page">
-        <div className="flex h-full flex-col gap-8">
+        <div className="flex min-h-full flex-col gap-6">
           <div className="app-page-header">
-            <div className="mx-auto w-full max-w-6xl">
+            <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
               <div className="app-page-header-content">
                 <div className="app-page-title">Asset Library</div>
                 <div className="app-page-separator">|</div>
                 <div className="app-page-subtitle">
-                  Upload logos and music, then choose the default caption font that Brand Template will use.
+                  Upload logos and tracks, then choose the bundled caption font Brand Template will inherit.
                 </div>
               </div>
+
+              <div className="app-chip">{mediaCount} reusable assets</div>
             </div>
           </div>
 
-          <div className="mx-auto grid min-h-0 h-full w-full max-w-6xl flex-1 grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)] gap-6">
+          <div className="mx-auto grid min-h-0 h-full w-full max-w-6xl flex-1 grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)] gap-6">
             <div className="flex min-h-0 flex-col gap-6">
               <section className="app-section-shell asset-library-shell">
                 <div className="app-section-header">
                   <div>
                     <h2 className="app-section-title">Logos and music</h2>
                   </div>
-                  <div className="app-chip">{mediaCount} reusable assets</div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -191,6 +192,7 @@ export function AssetLibraryPage() {
                   <div>
                     <h2 className="app-section-title">Available uploads</h2>
                   </div>
+                  <div className="text-xs text-text-muted">{recentUploads.length} listed</div>
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1">
@@ -219,7 +221,7 @@ export function AssetLibraryPage() {
                               <div className="text-xs text-text-secondary">{asset.type}</div>
                             </div>
                           </div>
-                          <div className="truncate text-xs text-text-muted">{asset.path}</div>
+                          <div className="max-w-[42%] truncate text-xs text-text-muted">{asset.path}</div>
                         </div>
                       ))}
                     </div>
@@ -249,8 +251,8 @@ export function AssetLibraryPage() {
                       onClick={() => void handleFontSelect(font)}
                       className={`app-list-row asset-library-row w-full text-left transition-colors ${
                         brandTemplate?.caption.font === font
-                          ? 'border-white/20 bg-white/5'
-                          : 'hover:border-border-default hover:bg-white/[0.05]'
+                          ? 'border-white/12 bg-[#131313]'
+                          : 'hover:border-white/10 hover:bg-[#121212]'
                       }`}
                     >
                       <div className="flex items-center gap-3">
