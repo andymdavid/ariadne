@@ -284,6 +284,7 @@ export function ClipEditorPage() {
   const transcriptScrollerRef = useRef<HTMLDivElement>(null)
   const previewFrameRef = useRef<HTMLDivElement>(null)
   const saveFeedbackTimeoutRef = useRef<number | null>(null)
+  const playbackFrameRef = useRef<number | null>(null)
 
   const previewAspectClass =
     framePreview?.aspectRatio === '1:1'
@@ -497,53 +498,110 @@ const getPreviewCaptionText = (
     void loadEditor()
   }, [clipId, episodeId])
 
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video || !clip || !mediaUrl) return
+  const syncAudioToVideo = (videoTime: number, forceSeek = false) => {
+    const audio = audioRef.current
+    if (!audio || !musicEnabled || !musicAssetPath || !clip) return
 
-    const handleLoadedMetadata = () => {
+    const expectedAudioTime = Math.max(videoTime - clip.startTime, 0)
+    if (forceSeek || Math.abs(audio.currentTime - expectedAudioTime) > 0.2) {
+      audio.currentTime = expectedAudioTime
+    }
+  }
+
+  const stopPlayback = (resetToStart = false) => {
+    const video = videoRef.current
+    const audio = audioRef.current
+
+    if (playbackFrameRef.current != null) {
+      window.cancelAnimationFrame(playbackFrameRef.current)
+      playbackFrameRef.current = null
+    }
+
+    video?.pause()
+    audio?.pause()
+
+    if (resetToStart && clip && video) {
       video.currentTime = clip.startTime
+      syncAudioToVideo(clip.startTime, true)
+      if (audio) {
+        audio.currentTime = 0
+      }
       setCurrentTime(clip.startTime)
     }
 
-    const handleTimeUpdate = () => {
-      const nextTime = video.currentTime
-      setCurrentTime(nextTime)
-      const audio = audioRef.current
-      if (audio && musicEnabled && musicAssetPath) {
-        const expectedAudioTime = Math.max(nextTime - clip.startTime, 0)
-        if (Math.abs(audio.currentTime - expectedAudioTime) > 0.35) {
-          audio.currentTime = expectedAudioTime
-        }
-      }
+    setIsPlaying(false)
+  }
 
-      if (nextTime >= clip.endTime) {
-        video.pause()
-        if (audio) {
-          audio.pause()
-          audio.currentTime = 0
-        }
-        video.currentTime = clip.startTime
-        setCurrentTime(clip.startTime)
-        setIsPlaying(false)
-      }
+  const handleVideoLoadedMetadata = () => {
+    const video = videoRef.current
+    if (!video || !clip) return
+    video.currentTime = clip.startTime
+    syncAudioToVideo(clip.startTime, true)
+    setCurrentTime(clip.startTime)
+  }
+
+  const handleVideoTimeUpdate = () => {
+    const video = videoRef.current
+    if (!video || !clip) return
+
+    const nextTime = video.currentTime
+    if (nextTime >= clip.endTime) {
+      stopPlayback(true)
+      return
     }
 
-    const handlePlay = () => setIsPlaying(true)
-    const handlePause = () => setIsPlaying(false)
+    setCurrentTime(nextTime)
+    syncAudioToVideo(nextTime)
+  }
 
-    video.addEventListener('loadedmetadata', handleLoadedMetadata)
-    video.addEventListener('timeupdate', handleTimeUpdate)
-    video.addEventListener('play', handlePlay)
-    video.addEventListener('pause', handlePause)
+  const handleVideoPlay = () => {
+    if (playbackFrameRef.current != null) {
+      window.cancelAnimationFrame(playbackFrameRef.current)
+    }
 
+    setIsPlaying(true)
+    const tick = () => {
+      const video = videoRef.current
+      if (!video || !clip) {
+        playbackFrameRef.current = null
+        return
+      }
+
+      if (video.paused || video.ended) {
+        playbackFrameRef.current = null
+        return
+      }
+
+      if (video.currentTime >= clip.endTime) {
+        stopPlayback(true)
+        return
+      }
+
+      setCurrentTime(video.currentTime)
+      syncAudioToVideo(video.currentTime)
+      playbackFrameRef.current = window.requestAnimationFrame(tick)
+    }
+
+    playbackFrameRef.current = window.requestAnimationFrame(tick)
+  }
+
+  const handleVideoPause = () => {
+    if (playbackFrameRef.current != null) {
+      window.cancelAnimationFrame(playbackFrameRef.current)
+      playbackFrameRef.current = null
+    }
+    const audio = audioRef.current
+    audio?.pause()
+    setIsPlaying(false)
+  }
+
+  useEffect(() => {
     return () => {
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
-      video.removeEventListener('timeupdate', handleTimeUpdate)
-      video.removeEventListener('play', handlePlay)
-      video.removeEventListener('pause', handlePause)
+      if (playbackFrameRef.current != null) {
+        window.cancelAnimationFrame(playbackFrameRef.current)
+      }
     }
-  }, [clip, mediaUrl, musicAssetPath, musicEnabled])
+  }, [])
 
   useEffect(() => {
     if (!episodeId || !clip) {
@@ -689,9 +747,8 @@ const getPreviewCaptionText = (
     if (!video || !clip) return
     const audio = audioRef.current
 
-    if (isPlaying) {
-      video.pause()
-      audio?.pause()
+    if (!video.paused && !video.ended) {
+      stopPlayback(false)
       return
     }
 
@@ -701,7 +758,7 @@ const getPreviewCaptionText = (
     }
 
     if (audio && musicEnabled && musicAssetPath) {
-      audio.currentTime = Math.max(video.currentTime - clip.startTime, 0)
+      syncAudioToVideo(video.currentTime, true)
       audio.volume = musicVolume
       void audio.play().catch(() => {
         // ignore audio playback failures; clip playback should still work
@@ -720,7 +777,7 @@ const getPreviewCaptionText = (
     video.currentTime = clampedTime
     setCurrentTime(clampedTime)
     if (audio && musicEnabled && musicAssetPath) {
-      audio.currentTime = Math.max(clampedTime - clip.startTime, 0)
+      syncAudioToVideo(clampedTime, true)
     }
   }
 
@@ -1133,6 +1190,10 @@ const getPreviewCaptionText = (
                           className="relative z-10 h-full w-full object-contain"
                           playsInline
                           preload="metadata"
+                          onLoadedMetadata={handleVideoLoadedMetadata}
+                          onTimeUpdate={handleVideoTimeUpdate}
+                          onPlay={handleVideoPlay}
+                          onPause={handleVideoPause}
                         />
                       </>
                     ) : mediaUrl ? (
@@ -1144,6 +1205,10 @@ const getPreviewCaptionText = (
                         }`}
                         playsInline
                         preload="metadata"
+                        onLoadedMetadata={handleVideoLoadedMetadata}
+                        onTimeUpdate={handleVideoTimeUpdate}
+                        onPlay={handleVideoPlay}
+                        onPause={handleVideoPause}
                       />
                     ) : null}
                     {logoPreview?.enabled && logoPreview.assetPath ? (
