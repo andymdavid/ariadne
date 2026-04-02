@@ -48,7 +48,7 @@
   body {
     @apply text-text-primary;
     font-family: 'Hedvig Letters Sans', system-ui, sans-serif;
-    background: #09090b;
+    background: #0d0d0d;
     margin: 0;
     padding: 0;
     height: 100vh;
@@ -101,7 +101,7 @@
     justify-content: center;
     min-height: 42px;
     gap: 8px;
-    background: #111111;
+    background: #121212;
     border-color: #1d1d1d;
     border-radius: 5px;
   }
@@ -114,27 +114,27 @@
   /* Card component */
   .card {
     @apply border;
-    background: #111111;
+    background: #121212;
     border-color: #1d1d1d;
     border-radius: 5px;
   }
 
   .settings-card {
-    background: #111111;
+    background: #121212;
     border: 1px solid #1d1d1d;
     border-radius: 5px;
     box-shadow: none;
   }
 
   body.dark-mode .settings-card {
-    background: #111111;
+    background: #121212;
     border: 1px solid #1d1d1d;
   }
 
   /* Input styles */
   .input {
     @apply px-3 py-2 text-text-primary placeholder-text-muted focus:outline-none transition-colors border;
-    background: #111111;
+    background: #121212;
     border-color: #1d1d1d;
     border-radius: 5px;
   }
@@ -205,13 +205,13 @@
   }
 
   .app-surface {
-    background: #111111;
+    background: #121212;
     border: 1px solid #1d1d1d;
     border-radius: 5px;
   }
 
   .app-surface-muted {
-    background: #0d0d0d;
+    background: #111111;
     border: 1px solid #1d1d1d;
     border-radius: 5px;
   }
@@ -222,7 +222,7 @@
     gap: 8px;
     border-radius: 5px;
     border: 1px solid #1d1d1d;
-    background: #131313;
+    background: #121212;
     color: rgba(255, 255, 255, 0.74);
     font-size: 12px;
     font-weight: 500;
@@ -251,7 +251,7 @@
     gap: 8px;
     min-height: 42px;
     border-radius: 5px;
-    background: #111111;
+    background: #121212;
     color: #f5f5f5;
     font-size: 13px;
     font-weight: 500;
@@ -260,7 +260,7 @@
   }
 
   .app-stat-card {
-    background: #111111;
+    background: #121212;
     border: 1px solid #1d1d1d;
     border-radius: 5px;
     padding: 14px 16px;
@@ -283,7 +283,7 @@
   }
 
   .app-section-shell {
-    background: #111111;
+    background: #121212;
     border: 1px solid #1d1d1d;
     border-radius: 10px;
     padding: 22px;
@@ -315,7 +315,7 @@
   }
 
   .app-upload-panel {
-    background: #0d0d0d;
+    background: #111111;
     border: 1px solid #1d1d1d;
     border-radius: 5px;
     padding: 18px;
@@ -330,7 +330,7 @@
     gap: 12px;
     border: 1px dashed #262626;
     border-radius: 5px;
-    background: #0d0d0d;
+    background: #111111;
     text-align: center;
     padding: 24px;
   }
@@ -356,7 +356,7 @@
     gap: 16px;
     border: 1px solid #1d1d1d;
     border-radius: 5px;
-    background: #0d0d0d;
+    background: #111111;
     padding: 14px 16px;
   }
 
@@ -365,7 +365,7 @@
   }
 
   .asset-library-upload-panel {
-    background: #0d0d0d;
+    background: #111111;
     border: 1px solid #1d1d1d;
     border-radius: 5px;
     padding: 18px;
@@ -373,7 +373,7 @@
 
   .asset-library-row {
     border-radius: 5px;
-    background: #0d0d0d;
+    background: #111111;
     border: 1px solid #1d1d1d;
     padding: 12px 14px;
   }

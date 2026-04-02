@@ -443,7 +443,7 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
       )}
 
       <div
-        className={`fixed left-0 top-0 bottom-0 z-30 flex flex-col border-r border-border-default bg-[#0b0c10] px-3 py-4 transition-[width] duration-200 ${
+        className={`fixed left-0 top-0 bottom-0 z-30 flex flex-col border-r border-border-default bg-[#0d0d0d] px-3 py-4 transition-[width] duration-200 ${
           isExpanded ? 'w-[220px]' : 'w-[72px]'
         }`}
       >
@@ -451,7 +451,7 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="flex h-10 w-10 items-center justify-center rounded-[5px] border border-white/8 bg-[#13151b] text-text-primary transition-colors hover:bg-[#171a21]"
+            className="flex h-10 w-10 items-center justify-center rounded-[5px] border border-white/8 bg-[#121212] text-text-primary transition-colors hover:bg-[#171717]"
             title="Home"
           >
             <span className="text-sm font-semibold tracking-[0.18em]">A</span>
@@ -467,7 +467,7 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
           <button
             type="button"
             onClick={() => setIsExpanded((current) => !current)}
-            className="flex h-10 w-10 items-center justify-center rounded-[5px] border border-white/8 bg-[#13151b] text-text-secondary transition-colors hover:bg-[#171a21] hover:text-text-primary"
+            className="flex h-10 w-10 items-center justify-center rounded-[5px] border border-white/8 bg-[#121212] text-text-secondary transition-colors hover:bg-[#171717] hover:text-text-primary"
             title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
           >
             {isExpanded ? <IoChevronBack size={16} /> : <IoChevronForward size={16} />}
@@ -485,8 +485,8 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
                 onClick={() => handleNavClick(navIcon)}
                 className={`flex w-full items-center rounded-[5px] border text-left transition-colors ${
                   activeScreen === navIcon.id
-                    ? 'border-white/12 bg-[#171a20] text-text-primary'
-                    : 'border-transparent bg-transparent text-text-secondary hover:border-white/8 hover:bg-[#12151a] hover:text-text-primary'
+                    ? 'border-white/12 bg-[#171717] text-text-primary'
+                    : 'border-transparent bg-transparent text-text-secondary hover:border-white/8 hover:bg-[#121212] hover:text-text-primary'
                 } ${isExpanded ? 'gap-3 px-3 py-3' : 'justify-center px-0 py-3'}`}
                 title={navIcon.label}
               >
@@ -500,7 +500,7 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
 
       {isCommandMode && !isProcessing && displayMessages.length === 0 && (
         <div
-          className="fixed top-6 z-40 w-[560px] rounded-2xl border border-border-default bg-bg-primary/95 p-4 shadow-2xl backdrop-blur-xl"
+          className="fixed top-6 z-40 w-[560px] rounded-[10px] border border-border-default bg-[#121212]/96 p-4 shadow-[0_18px_42px_rgba(0,0,0,0.24)] backdrop-blur-xl"
           style={{ left: 'calc(var(--nav-dock-width, 72px) + 24px)' }}
         >
           <div className="command-input-container">
