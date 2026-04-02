@@ -454,13 +454,13 @@
 
   .clip-editor-grid {
     grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
-    gap: 28px;
+    gap: 24px;
     align-items: start;
     flex: 0 0 auto;
   }
 
   .clip-editor-shell {
-    gap: 6px;
+    gap: 10px;
     height: auto;
     min-height: calc(100vh - 28px);
   }
@@ -470,6 +470,7 @@
     height: 572px;
     min-height: 0;
     max-height: 572px;
+    background: #171717;
   }
 
   .clip-editor-header-action {
@@ -477,29 +478,33 @@
     min-height: 42px;
   }
 
+  .clip-editor-header-actions {
+    justify-self: end;
+  }
+
   .clip-editor-page-header .app-page-header-content {
     flex: 1;
   }
 
-  .clip-editor-page-header .workspace-actions {
-    margin-left: auto;
+  .clip-editor-page-header .app-page-header-shell {
+    max-width: 1480px;
   }
 
   .clip-editor-preview-stage {
     display: flex;
     min-height: 0;
     flex-direction: column;
-    gap: 24px;
-    padding-top: 6px;
+    gap: 20px;
+    padding-top: 2px;
   }
 
   .clip-editor-preview-meta {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 28px;
-    color: rgba(240, 246, 252, 0.9);
-    font-size: 15px;
+    gap: 24px;
+    color: rgba(240, 246, 252, 0.82);
+    font-size: 14px;
     line-height: 1.2;
   }
 
@@ -529,11 +534,12 @@
     align-items: center;
     justify-content: center;
     max-height: none;
-    padding: 4px 0 0;
+    padding: 0;
   }
 
   .clip-editor-timeline-panel {
     min-height: 290px;
+    background: #171717;
   }
 
   .clip-editor-timeline-toolbar {
@@ -542,7 +548,7 @@
     align-items: center;
     gap: 18px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 14px 18px;
+    padding: 12px 18px;
   }
 
   .clip-editor-timeline-toolbar-left,
@@ -618,7 +624,7 @@
     display: grid;
     grid-template-columns: 84px minmax(0, 1fr);
     gap: 14px;
-    padding: 14px 18px 18px;
+    padding: 12px 18px 16px;
   }
 
   .clip-editor-timeline-labels {
@@ -728,7 +734,7 @@
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 5px;
-    background: #0f1116;
+    background: #14161c;
   }
 
   .clip-editor-track-video {
@@ -804,7 +810,7 @@
     display: inline-flex;
     align-items: center;
     padding: 0 10px;
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.05);
     font-size: 12px;
     color: rgba(240, 246, 252, 0.88);
     white-space: nowrap;

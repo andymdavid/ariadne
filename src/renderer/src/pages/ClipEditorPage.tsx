@@ -1210,34 +1210,36 @@ export function ClipEditorPage() {
     <div className="app-page">
       <div className="workspace-shell clip-editor-shell mx-auto w-full max-w-[1480px]">
         <div className="app-page-header clip-editor-page-header">
-          <div className="app-page-header-content">
-            <h1 className="app-page-title">Clip Workspace</h1>
-          </div>
-          <div className="workspace-actions">
-            <button
-              type="button"
-              onClick={() => navigate(`/review/${episodeId}`)}
-              className="app-action-secondary clip-editor-header-action"
-            >
-              <IoArrowBack size={16} />
-              Back to review
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSaveClipEdits()}
-              disabled={isSavingClip}
-              className="app-action-secondary clip-editor-header-action"
-            >
-              <IoCheckmarkCircleOutline size={16} />
-              {isSavingClip ? 'Saving...' : saveClipFeedback === 'saved' ? 'Saved' : 'Save clip'}
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate(`/export/${episodeId}`)}
-              className="app-action-primary clip-editor-header-action"
-            >
-              Export
-            </button>
+          <div className="app-page-header-shell">
+            <div className="app-page-header-content">
+              <h1 className="app-page-title">Clip Workspace</h1>
+            </div>
+            <div className="app-page-header-actions clip-editor-header-actions">
+              <button
+                type="button"
+                onClick={() => navigate(`/review/${episodeId}`)}
+                className="app-action-secondary clip-editor-header-action"
+              >
+                <IoArrowBack size={16} />
+                Back to review
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveClipEdits()}
+                disabled={isSavingClip}
+                className="app-action-secondary clip-editor-header-action"
+              >
+                <IoCheckmarkCircleOutline size={16} />
+                {isSavingClip ? 'Saving...' : saveClipFeedback === 'saved' ? 'Saved' : 'Save clip'}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/export/${episodeId}`)}
+                className="app-action-primary clip-editor-header-action"
+              >
+                Export
+              </button>
+            </div>
           </div>
         </div>
 
