@@ -311,9 +311,15 @@ export function HomePage() {
             <TranscriptionProgress />
           </div>
         ) : (
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 pt-48 pb-10">
-            <div className="mx-auto w-full max-w-xl">
-              <div className="app-surface p-5">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 pt-32 pb-10">
+            <div className="mx-auto w-full max-w-3xl">
+              <div className="app-section-shell">
+                <div className="app-section-header !mb-5">
+                  <div>
+                    <h2 className="app-section-title !mt-0">Create a new project</h2>
+                  </div>
+                </div>
+
                 <div className="app-surface-muted flex items-center gap-3 px-4 py-3">
                   <IoLinkOutline className="text-text-muted" size={18} />
                   <input
@@ -330,7 +336,7 @@ export function HomePage() {
                   />
                 </div>
 
-                <div className="mt-4 flex items-center gap-6 px-2 text-sm text-text-secondary">
+                <div className="mt-4 flex items-center gap-6 px-1 text-sm text-text-secondary">
                   <button
                     type="button"
                     onClick={handleFileSelect}
@@ -341,11 +347,7 @@ export function HomePage() {
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  className="app-action-primary mt-5 w-full justify-center"
-                >
+                <button type="button" onClick={handleGenerate} className="app-action-primary mt-5 w-full justify-center">
                   Get clips in 1 click
                 </button>
 
@@ -359,7 +361,7 @@ export function HomePage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-4">
+            <div className="flex items-center justify-between pt-2">
               <div className="text-sm text-text-muted">All projects ({recentProjects.length})</div>
             </div>
 
@@ -372,7 +374,7 @@ export function HomePage() {
               <button
                 type="button"
                 onClick={handleFileSelect}
-                className="app-surface-muted flex min-h-[190px] flex-col items-center justify-center border-dashed text-center hover:border-accent-primary hover:bg-accent-primary/5 transition-colors"
+                className="app-surface-muted flex min-h-[190px] flex-col items-center justify-center border-dashed text-center transition-colors hover:border-white/14 hover:bg-[#111111]"
               >
                 <IoAddCircleOutline size={28} className="text-text-muted" />
                 <div className="mt-4 text-lg font-medium text-text-primary">Upload local file</div>
@@ -386,24 +388,24 @@ export function HomePage() {
                   key={project.id}
                   type="button"
                   onClick={() => handleOpenProject(project)}
-                  className="app-surface group relative flex h-full min-h-[320px] flex-col p-3 text-left hover:border-white/20 transition-colors"
+                  className="app-surface group relative flex h-full min-h-[292px] flex-col p-3 text-left transition-colors hover:border-white/14 hover:bg-[#121212]"
                 >
                   <button
                     type="button"
                     onClick={(event) => handleDeleteProject(event, project)}
                     disabled={deletingProjectId === project.episode.projectId}
-                    className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/10 bg-black/55 text-text-secondary opacity-0 transition hover:border-white/20 hover:text-text-primary group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-100"
+                    className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/10 bg-[#111111] text-text-secondary opacity-0 transition hover:border-white/16 hover:text-text-primary group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-100"
                     aria-label={`Delete ${project.name}`}
                   >
                     <IoClose size={14} />
                   </button>
-                  <div className="aspect-video w-full shrink-0 overflow-hidden rounded-[5px] bg-[#171b22]">
+                  <div className="aspect-video w-full shrink-0 overflow-hidden rounded-[5px] bg-[#0d0d0d]">
                     <ProjectCardPreview project={project} />
                   </div>
-                  <div className="mt-4 line-clamp-2 min-h-[4.5rem] text-xl font-medium leading-tight text-text-primary">
+                  <div className="mt-4 line-clamp-2 min-h-[3.5rem] text-lg font-medium leading-tight text-text-primary">
                     {project.name}
                   </div>
-                  <div className="mt-2 line-clamp-2 min-h-[2.75rem] text-sm leading-relaxed text-text-secondary">
+                  <div className="mt-2 line-clamp-2 min-h-[2.5rem] text-sm leading-relaxed text-text-secondary">
                     {project.filename}
                   </div>
                 </button>
