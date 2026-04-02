@@ -464,8 +464,8 @@ const getPreviewCaptionText = (
         setLogoPreview({
           enabled: (template?.logo.enabled ?? false) || Boolean(template?.logo.assetPath),
           assetPath: template?.logo.assetPath || null,
-          positionX: Number(savedEdits?.logo_position_x ?? template?.logo.positionX ?? 85),
-          positionY: Number(savedEdits?.logo_position_y ?? template?.logo.positionY ?? 85),
+          positionX: Number(template?.logo.positionX ?? 85),
+          positionY: Number(template?.logo.positionY ?? 85),
           scale: Number(template?.logo.scale ?? 0.15),
           opacity: Number(template?.logo.opacity ?? 0.8)
         })
