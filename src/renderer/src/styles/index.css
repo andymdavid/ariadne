@@ -431,9 +431,8 @@
   .clip-editor-grid {
     grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
     gap: 28px;
-    align-items: stretch;
+    align-items: start;
     flex: 0 0 auto;
-    min-height: 520px;
   }
 
   .clip-editor-shell {
@@ -464,7 +463,7 @@
 
   .clip-editor-preview-stage {
     display: flex;
-    min-height: 520px;
+    min-height: 0;
     flex-direction: column;
     gap: 24px;
     padding-top: 6px;
