@@ -179,8 +179,20 @@ export function ExportPage() {
     if (!exportJob) return
 
     try {
-      await window.electronAPI?.cancelExportJob(exportJob.id)
-      await loadActiveExportJob()
+      const cancelled = await window.electronAPI?.cancelExportJob(exportJob.id)
+      const refreshedJob = await window.electronAPI?.getExportJob?.(exportJob.id)
+
+      if (refreshedJob) {
+        setExportJob(refreshedJob)
+      } else if (cancelled) {
+        setExportJob({
+          ...exportJob,
+          status: 'failed',
+          error: 'Cancelled by user'
+        })
+      } else {
+        await loadActiveExportJob()
+      }
     } catch (err) {
       console.error('Failed to cancel export:', err)
     }

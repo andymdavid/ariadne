@@ -31,6 +31,7 @@ export interface ProcessingOptions {
 }
 
 class FFmpegService {
+  private activeExportCommand: ReturnType<typeof ffmpeg> | null = null
   private tempDir: string
   private fontsDir: string
 
@@ -533,6 +534,8 @@ class FFmpegService {
         .seekInput(startTime)
         .duration(duration)
 
+      this.activeExportCommand = command
+
       // Add music as input if enabled
       if (options.musicSettings?.enabled && options.musicSettings.musicPath) {
         command = command.input(options.musicSettings.musicPath)
@@ -723,6 +726,7 @@ class FFmpegService {
           }
         })
         .on('end', () => {
+          this.activeExportCommand = null
           // Clean up temporary ASS file
           if (assFilePath) {
             try {
@@ -736,6 +740,7 @@ class FFmpegService {
           resolve(outputPath)
         })
         .on('error', (error) => {
+          this.activeExportCommand = null
           // Clean up temporary ASS file on error
           if (assFilePath) {
             try {
@@ -749,6 +754,21 @@ class FFmpegService {
         })
         .run()
     })
+  }
+
+  cancelActiveExport() {
+    if (!this.activeExportCommand) {
+      return false
+    }
+
+    try {
+      this.activeExportCommand.kill('SIGKILL')
+      this.activeExportCommand = null
+      return true
+    } catch (error) {
+      console.error('[FFmpegService] Failed to cancel active export:', error)
+      return false
+    }
   }
 
   /**

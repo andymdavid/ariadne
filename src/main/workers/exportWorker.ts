@@ -94,6 +94,7 @@ async function runExport(command: StartExportWorkerCommand) {
 process.on('message', async (message: ExportWorkerCommand) => {
   if (message.type === 'cancel_export') {
     cancelRequested = true
+    ffmpegService.cancelActiveExport()
     return
   }
 
