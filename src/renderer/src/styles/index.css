@@ -2,7 +2,7 @@
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 
-@import url('https://fonts.googleapis.com/css2?family=Anton&family=Archivo+Black&family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@500;600;700;800&family=Oswald:wght@500;600;700&family=Poppins:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Archivo+Black&family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=Hedvig+Letters+Sans&family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@500;600;700;800&family=Oswald:wght@500;600;700&family=Poppins:wght@500;600;700;800&display=swap');
 
 @layer base {
   :root {
@@ -22,7 +22,7 @@
     --secondary-foreground: 0 0% 98%;
 
     --muted: 0 0% 11%;
-    --muted-foreground: 0 0% 46%;
+    --muted-foreground: 0 0% 38%;
 
     --destructive: 359 100% 61%;
     --destructive-foreground: 0 0% 98%;
@@ -40,13 +40,14 @@
   }
 
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Hedvig Letters Sans', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   body {
     @apply text-text-primary;
+    font-family: 'Hedvig Letters Sans', system-ui, sans-serif;
     background: #09090b;
     margin: 0;
     padding: 0;
@@ -183,17 +184,17 @@
   }
 
   .app-page-title {
-    font-size: 1.375rem;
-    line-height: 1.2;
+    font-size: 1.25rem;
+    line-height: 1.15;
     font-weight: 600;
     color: #f3f5f7;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
   }
 
   .app-page-subtitle {
-    font-size: 14px;
-    line-height: 1.5;
-    color: rgba(255, 255, 255, 0.42);
+    font-size: 13px;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.38);
     max-width: 720px;
   }
 
@@ -222,10 +223,10 @@
     border-radius: 5px;
     border: 1px solid #1d1d1d;
     background: #131313;
-    color: rgba(255, 255, 255, 0.78);
-    font-size: 13px;
+    color: rgba(255, 255, 255, 0.74);
+    font-size: 12px;
     font-weight: 500;
-    padding: 8px 14px;
+    padding: 7px 12px;
   }
 
   .app-action-primary {
@@ -237,7 +238,7 @@
     border-radius: 5px;
     background: #f5f5f5;
     color: #0d0d0d;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     padding: 12px 18px;
     border: none;
@@ -252,7 +253,7 @@
     border-radius: 5px;
     background: #111111;
     color: #f5f5f5;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
     padding: 12px 18px;
     border: 1px solid #1d1d1d;
@@ -270,12 +271,12 @@
     line-height: 1.2;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(240, 246, 252, 0.42);
+    color: rgba(240, 246, 252, 0.36);
   }
 
   .app-stat-value {
     margin-top: 10px;
-    font-size: 18px;
+    font-size: 17px;
     line-height: 1.1;
     font-weight: 600;
     color: #f3f5f7;
@@ -306,7 +307,7 @@
 
   .app-section-title {
     margin: 8px 0 0;
-    font-size: 24px;
+    font-size: 22px;
     line-height: 1.15;
     font-weight: 600;
     letter-spacing: -0.03em;
@@ -335,7 +336,7 @@
   }
 
   .app-empty-title {
-    font-size: 18px;
+    font-size: 17px;
     line-height: 1.2;
     font-weight: 600;
     color: #f3f5f7;
@@ -343,9 +344,9 @@
 
   .app-empty-copy {
     max-width: 420px;
-    font-size: 14px;
-    line-height: 1.5;
-    color: rgba(240, 246, 252, 0.58);
+    font-size: 13px;
+    line-height: 1.45;
+    color: rgba(240, 246, 252, 0.5);
   }
 
   .app-list-row {
@@ -873,13 +874,13 @@
     line-height: 1.2;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: rgba(240, 246, 252, 0.42);
+    color: rgba(240, 246, 252, 0.36);
   }
 
   .workspace-panel-title {
     margin: 8px 0 0;
-    font-size: 22px;
-    line-height: 1.12;
+    font-size: 20px;
+    line-height: 1.1;
     font-weight: 600;
     letter-spacing: -0.03em;
     color: #f3f5f7;
@@ -888,9 +889,9 @@
   .workspace-panel-copy {
     margin-top: 8px;
     max-width: 420px;
-    font-size: 13px;
-    line-height: 1.55;
-    color: rgba(240, 246, 252, 0.56);
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(240, 246, 252, 0.46);
   }
 
   .workspace-summary-list {
@@ -915,12 +916,12 @@
     line-height: 1.2;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: rgba(240, 246, 252, 0.42);
+    color: rgba(240, 246, 252, 0.36);
   }
 
   .workspace-summary-row-value {
     margin-top: 6px;
-    font-size: 14px;
+    font-size: 13px;
     line-height: 1.35;
     color: #f3f5f7;
   }
@@ -952,9 +953,9 @@
 
   .template-settings-group-label {
     margin-bottom: 14px;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.3;
-    color: rgba(240, 246, 252, 0.42);
+    color: rgba(240, 246, 252, 0.38);
   }
 
   .template-settings-row {
@@ -1008,7 +1009,7 @@
 
   .template-settings-row-title {
     min-width: 0;
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1.35;
     color: #f3f5f7;
   }
@@ -1024,9 +1025,9 @@
 
   .template-settings-row-value {
     max-width: 112px;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.3;
-    color: rgba(240, 246, 252, 0.46);
+    color: rgba(240, 246, 252, 0.4);
     text-align: right;
   }
 
@@ -1239,7 +1240,7 @@
     background: rgba(255, 255, 255, 0.04);
     color: #f3f5f7;
     padding: 0 18px;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 500;
   }
 
@@ -1249,7 +1250,7 @@
 
   .brand-header-save-button {
     border-radius: 5px;
-    font-size: 16px;
+    font-size: 15px;
   }
 
   .brand-preset-dropdown {
@@ -1310,7 +1311,7 @@
   }
 
   .brand-preset-create-label {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
   }
 
@@ -1324,7 +1325,7 @@
   }
 
   .brand-preset-card-ratio {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: #f7f7f8;
   }
@@ -1348,7 +1349,7 @@
 
   .brand-preset-card-meta {
     align-self: center;
-    color: rgba(243, 245, 247, 0.72);
+    color: rgba(243, 245, 247, 0.64);
     font-size: 10px;
     font-weight: 500;
   }
@@ -1363,7 +1364,7 @@
 
   .brand-preset-card-name {
     min-width: 0;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -1488,8 +1489,8 @@
   }
 
   .export-inline-label {
-    font-size: 13px;
-    color: rgba(240, 246, 252, 0.52);
+    font-size: 12px;
+    color: rgba(240, 246, 252, 0.42);
   }
 
   .export-ratio-group {
@@ -1519,8 +1520,8 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    color: rgba(240, 246, 252, 0.72);
-    font-size: 13px;
+    color: rgba(240, 246, 252, 0.68);
+    font-size: 12px;
     cursor: pointer;
   }
 
@@ -1554,7 +1555,7 @@
   }
 
   .export-progress-percent {
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 700;
     color: #f3f5f7;
   }
@@ -1591,7 +1592,7 @@
   }
 
   .export-section-title {
-    font-size: 18px;
+    font-size: 17px;
     line-height: 1.2;
     font-weight: 600;
     color: #f3f5f7;
@@ -1599,8 +1600,8 @@
 
   .export-section-copy {
     margin-top: 4px;
-    font-size: 13px;
-    color: rgba(240, 246, 252, 0.52);
+    font-size: 12px;
+    color: rgba(240, 246, 252, 0.44);
   }
 
   .export-status-pill {
