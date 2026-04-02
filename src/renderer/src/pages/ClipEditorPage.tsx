@@ -171,11 +171,73 @@ type CaptionCue = {
   text: string
 }
 
+type CaptionCueBuildOptions = {
+  maxWordsPerCue?: number
+  maxTextWidth?: number
+  fontSize?: number
+  fontFamily?: string
+  fontWeight?: number | string
+}
+
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
 
-const buildCaptionCues = (lines: TranscriptLine[], maxWordsPerCue = 3): CaptionCue[] => {
+const splitCaptionWords = (
+  words: string[],
+  maxWordsPerCue: number,
+  maxTextWidth?: number,
+  fontSize = 16,
+  fontFamily = 'Inter',
+  fontWeight: number | string = 700
+) => {
+  if (!words.length) return []
+  if (!maxTextWidth || maxTextWidth <= 0) {
+    const chunks: string[][] = []
+    for (let index = 0; index < words.length; index += maxWordsPerCue) {
+      chunks.push(words.slice(index, index + maxWordsPerCue))
+    }
+    return chunks
+  }
+
+  const chunks: string[][] = []
+  let currentChunk: string[] = []
+
+  words.forEach((rawWord) => {
+    const word = rawWord.trim()
+    if (!word) return
+
+    const candidateChunk = [...currentChunk, word]
+    const candidateText = normalizeCaptionText(candidateChunk.join(' '))
+    const fitsWidth = measureTextWidth(candidateText, fontSize, fontFamily, Number(fontWeight)) <= maxTextWidth
+
+    if (
+      currentChunk.length > 0 &&
+      (candidateChunk.length > maxWordsPerCue || !fitsWidth)
+    ) {
+      chunks.push(currentChunk)
+      currentChunk = [word]
+      return
+    }
+
+    currentChunk = candidateChunk
+  })
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk)
+  }
+
+  return chunks
+}
+
+const buildCaptionCues = (lines: TranscriptLine[], options: CaptionCueBuildOptions = {}): CaptionCue[] => {
+  const {
+    maxWordsPerCue = 3,
+    maxTextWidth,
+    fontSize = 16,
+    fontFamily = 'Inter',
+    fontWeight = 700
+  } = options
   const cues: CaptionCue[] = []
 
   lines.forEach((line) => {
@@ -188,17 +250,28 @@ const buildCaptionCues = (lines: TranscriptLine[], maxWordsPerCue = 3): CaptionC
     )
 
     if (timedWords.length > 0) {
-      for (let index = 0; index < timedWords.length; index += maxWordsPerCue) {
-        const chunk = timedWords.slice(index, index + maxWordsPerCue)
-        if (!chunk.length) continue
+      const timedChunks = splitCaptionWords(
+        timedWords.map((word) => word.word),
+        maxWordsPerCue,
+        maxTextWidth,
+        fontSize,
+        fontFamily,
+        fontWeight
+      )
+      let timedWordIndex = 0
+
+      timedChunks.forEach((chunk, chunkIndex) => {
+        if (!chunk.length) return
+        const timedChunk = timedWords.slice(timedWordIndex, timedWordIndex + chunk.length)
+        timedWordIndex += chunk.length
         cues.push({
-          id: `${line.id}-cue-${index / maxWordsPerCue}`,
+          id: `${line.id}-cue-${chunkIndex}`,
           lineId: line.id,
-          start: chunk[0].start,
-          end: chunk[chunk.length - 1].end,
-          text: normalizeCaptionText(chunk.map((word) => word.word.trim()).join(' '))
+          start: timedChunk[0].start,
+          end: timedChunk[timedChunk.length - 1].end,
+          text: normalizeCaptionText(chunk.join(' '))
         })
-      }
+      })
       return
     }
 
@@ -206,12 +279,18 @@ const buildCaptionCues = (lines: TranscriptLine[], maxWordsPerCue = 3): CaptionC
     if (!fallbackWords.length) return
 
     const totalDuration = Math.max(line.end - line.start, 0.01)
-    const chunkCount = Math.ceil(fallbackWords.length / maxWordsPerCue)
+    const fallbackChunks = splitCaptionWords(
+      fallbackWords,
+      maxWordsPerCue,
+      maxTextWidth,
+      fontSize,
+      fontFamily,
+      fontWeight
+    )
+    const chunkCount = Math.max(fallbackChunks.length, 1)
     const chunkDuration = totalDuration / chunkCount
 
-    for (let index = 0; index < fallbackWords.length; index += maxWordsPerCue) {
-      const chunk = fallbackWords.slice(index, index + maxWordsPerCue)
-      const chunkIndex = Math.floor(index / maxWordsPerCue)
+    fallbackChunks.forEach((chunk, chunkIndex) => {
       const start = line.start + chunkIndex * chunkDuration
       const end =
         chunkIndex === chunkCount - 1
@@ -225,7 +304,7 @@ const buildCaptionCues = (lines: TranscriptLine[], maxWordsPerCue = 3): CaptionC
         end,
         text: normalizeCaptionText(chunk.join(' '))
       })
-    }
+    })
   })
 
   return cues
@@ -359,7 +438,34 @@ export function ClipEditorPage() {
         ? 'aspect-video w-full max-w-[760px]'
         : 'aspect-[9/16] h-full max-h-[500px] w-full max-w-[300px]'
 
-  const captionCues = useMemo(() => buildCaptionCues(transcriptLines, 3), [transcriptLines])
+  const captionCueBuildOptions = useMemo<CaptionCueBuildOptions>(() => {
+    const presetId = captionPreview?.presetId ?? null
+    const layout = getCaptionLayoutConfig(presetId, previewFrameWidth)
+    const lineMode = captionPreview?.lineMode || 'one-line'
+    const maxLines = lineMode === 'three-lines' ? 3 : 1
+    const rawBubbleWidth = Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
+    const maxBubbleWidth = layout.maxWidth ? Math.min(layout.maxWidth, rawBubbleWidth) : rawBubbleWidth
+    const scaledFontSize = clamp(
+      Math.round((captionPreview?.fontSize ?? 30) * (previewFrameWidth / 300)),
+      layout.minFontSize,
+      layout.maxFontSize
+    )
+    const paddingX = Math.round((captionPreview?.backgroundPaddingX ?? 24) * (previewFrameWidth / 300))
+    const maxTextWidth = Math.max(96, Math.min(maxBubbleWidth, previewFrameWidth - 24) - paddingX * 2)
+
+    return {
+      maxWordsPerCue: 3,
+      maxTextWidth: maxLines === 1 ? maxTextWidth : undefined,
+      fontSize: scaledFontSize,
+      fontFamily: captionPreview?.font || 'Inter',
+      fontWeight: Number(captionPreview?.fontWeight ?? 700)
+    }
+  }, [captionPreview, previewFrameWidth])
+
+  const captionCues = useMemo(
+    () => buildCaptionCues(transcriptLines, captionCueBuildOptions),
+    [captionCueBuildOptions, transcriptLines]
+  )
 
   const activeCaptionCue = useMemo(() => {
     return (
@@ -403,6 +509,8 @@ export function ClipEditorPage() {
           duration: Number(rawClip.duration ?? 0)
         }
 
+        const template = brandTemplate as BrandTemplate | null
+        const savedEdits = clipEdits as Record<string, any> | null
         const mappedSegments: TranscriptLine[] = (segments || []).map((segment: any) => ({
           id: segment.id,
           start: Number(segment.start_time ?? segment.start ?? 0),
@@ -416,15 +524,31 @@ export function ClipEditorPage() {
               }))
             : undefined
         }))
-        const initialCaptionCues = buildCaptionCues(mappedSegments, 3)
+        const initialLayout = getCaptionLayoutConfig(template?.caption.presetId ?? null, 260)
+        const initialFontSize = clamp(
+          Math.round(Number(template?.caption.fontSize ?? 30) * (260 / 300)),
+          initialLayout.minFontSize,
+          initialLayout.maxFontSize
+        )
+        const initialPaddingX = Math.round(Number(template?.caption.backgroundPaddingX ?? 24) * (260 / 300))
+        const initialBubbleWidth = initialLayout.maxWidth
+          ? Math.min(initialLayout.maxWidth, Math.max(initialLayout.minWidth, 260 * initialLayout.widthRatio))
+          : Math.max(initialLayout.minWidth, 260 * initialLayout.widthRatio)
+        const initialCaptionCues = buildCaptionCues(mappedSegments, {
+          maxWordsPerCue: 3,
+          maxTextWidth:
+            (template?.caption.lineMode || 'one-line') === 'one-line'
+              ? Math.max(96, Math.min(initialBubbleWidth, 236) - initialPaddingX * 2)
+              : undefined,
+          fontSize: initialFontSize,
+          fontFamily: template?.caption.font || 'Inter',
+          fontWeight: Number(template?.caption.fontWeight ?? 700)
+        })
 
         setClip(mappedClip)
         setMediaUrl(mediaSource?.mediaUrl ?? null)
         setTranscriptLines(mappedSegments)
         setCurrentTime(mappedClip.startTime)
-
-        const template = brandTemplate as BrandTemplate | null
-        const savedEdits = clipEdits as Record<string, any> | null
         const activeCaptionText =
           initialCaptionCues.find((cue) => mappedClip.startTime >= cue.start && mappedClip.startTime <= cue.end)?.text ||
           initialCaptionCues[0]?.text ||
