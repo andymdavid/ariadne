@@ -1821,56 +1821,61 @@ class DatabaseManager {
         WHERE clip_id = ?
       `)
 
-      const logoPositionX = edits.logo_position_x ?? 85
-      const logoPositionY = edits.logo_position_y ?? 85
+      const resolveEdit = (key: string, fallback: any) =>
+        Object.prototype.hasOwnProperty.call(edits, key)
+          ? edits[key]
+          : (existing as any)?.[key] ?? fallback
+
+      const logoPositionX = resolveEdit('logo_position_x', null)
+      const logoPositionY = resolveEdit('logo_position_y', null)
 
       const result = stmt.run(
-        edits.captions_enabled ?? 1,
-        edits.caption_segments ?? null,
-        edits.caption_font ?? 'Inter',
-        edits.caption_size ?? 48,
-        edits.caption_color ?? '#FFFFFF',
-        edits.caption_position ?? 'bottom',
-        edits.caption_custom_x ?? null,
-        edits.caption_custom_y ?? null,
-        edits.caption_bold ?? 1, // Keep for backward compatibility
-        edits.caption_weight ?? (edits.caption_bold ? 700 : 400), // Default based on bold
-        edits.caption_italic ?? 0,
-        edits.caption_outline ?? 1,
-        edits.caption_outline_color ?? '#000000',
-        edits.caption_outline_width ?? 2,
-        edits.caption_shadow ?? 0,
-        edits.caption_highlight_style ?? 'word',
-        edits.caption_background ?? 0,
-        edits.caption_background_color ?? '#000000',
-        edits.caption_background_opacity ?? 0.5,
-        edits.caption_text_case ?? 'none',
-        edits.caption_words_per_caption ?? 1,
-        edits.caption_max_width ?? 90,
-        edits.caption_line_height ?? 1.2,
-        edits.caption_letter_spacing ?? 0,
-        edits.logo_enabled ?? 0,
-        edits.logo_path ?? null,
-        edits.logo_position ?? 'bottom-right',
+        resolveEdit('captions_enabled', 1),
+        resolveEdit('caption_segments', null),
+        resolveEdit('caption_font', 'Inter'),
+        resolveEdit('caption_size', 48),
+        resolveEdit('caption_color', '#FFFFFF'),
+        resolveEdit('caption_position', null),
+        resolveEdit('caption_custom_x', null),
+        resolveEdit('caption_custom_y', null),
+        resolveEdit('caption_bold', 1), // Keep for backward compatibility
+        resolveEdit('caption_weight', Object.prototype.hasOwnProperty.call(edits, 'caption_bold') ? (edits.caption_bold ? 700 : 400) : 700),
+        resolveEdit('caption_italic', 0),
+        resolveEdit('caption_outline', 1),
+        resolveEdit('caption_outline_color', '#000000'),
+        resolveEdit('caption_outline_width', 2),
+        resolveEdit('caption_shadow', 0),
+        resolveEdit('caption_highlight_style', 'word'),
+        resolveEdit('caption_background', 0),
+        resolveEdit('caption_background_color', '#000000'),
+        resolveEdit('caption_background_opacity', 0.5),
+        resolveEdit('caption_text_case', 'none'),
+        resolveEdit('caption_words_per_caption', 1),
+        resolveEdit('caption_max_width', 90),
+        resolveEdit('caption_line_height', 1.2),
+        resolveEdit('caption_letter_spacing', 0),
+        resolveEdit('logo_enabled', 0),
+        resolveEdit('logo_path', null),
+        resolveEdit('logo_position', 'bottom-right'),
         logoPositionX,
         logoPositionY,
-        edits.logo_scale ?? 0.15,
-        edits.logo_opacity ?? 0.8,
-        edits.music_enabled ?? 0,
-        edits.music_path ?? null,
-        edits.music_volume ?? 0.3,
-        edits.music_duck_volume ?? 0.1,
-        edits.music_duck_enabled ?? 1,
-        edits.music_fade_in ?? 1.0,
-        edits.music_fade_out ?? 1.0,
-        edits.music_loop ?? 1,
-        edits.aspect_ratio ?? '9:16',
-        edits.crop_mode ?? 'center',
-        edits.crop_position_x ?? 50,
-        edits.crop_position_y ?? 50,
-        edits.zoom_level ?? 1,
-        edits.video_offset_x ?? 0,
-        edits.video_offset_y ?? 0,
+        resolveEdit('logo_scale', 0.15),
+        resolveEdit('logo_opacity', 0.8),
+        resolveEdit('music_enabled', null),
+        resolveEdit('music_path', null),
+        resolveEdit('music_volume', null),
+        resolveEdit('music_duck_volume', 0.1),
+        resolveEdit('music_duck_enabled', 1),
+        resolveEdit('music_fade_in', 1.0),
+        resolveEdit('music_fade_out', 1.0),
+        resolveEdit('music_loop', 1),
+        resolveEdit('aspect_ratio', '9:16'),
+        resolveEdit('crop_mode', 'center'),
+        resolveEdit('crop_position_x', 50),
+        resolveEdit('crop_position_y', 50),
+        resolveEdit('zoom_level', 1),
+        resolveEdit('video_offset_x', 0),
+        resolveEdit('video_offset_y', 0),
         now,
         clipId
       )
@@ -1899,8 +1904,8 @@ class DatabaseManager {
         )
       `)
 
-      const logoPositionX = edits.logo_position_x ?? 85
-      const logoPositionY = edits.logo_position_y ?? 85
+      const logoPositionX = edits.logo_position_x ?? null
+      const logoPositionY = edits.logo_position_y ?? null
 
       const result = stmt.run(
         clipId,
@@ -1909,7 +1914,7 @@ class DatabaseManager {
         edits.caption_font ?? 'Inter',
         edits.caption_size ?? 48,
         edits.caption_color ?? '#FFFFFF',
-        edits.caption_position ?? 'bottom',
+        edits.caption_position ?? null,
         edits.caption_custom_x ?? null,
         edits.caption_custom_y ?? null,
         edits.caption_bold ?? 1, // Keep for backward compatibility
@@ -1928,16 +1933,16 @@ class DatabaseManager {
         edits.caption_max_width ?? 90,
         edits.caption_line_height ?? 1.2,
         edits.caption_letter_spacing ?? 0,
-        edits.logo_enabled ?? 0,
+        edits.logo_enabled ?? null,
         edits.logo_path ?? null,
         edits.logo_position ?? 'bottom-right',
         logoPositionX,
         logoPositionY,
-        edits.logo_scale ?? 0.15,
-        edits.logo_opacity ?? 0.8,
-        edits.music_enabled ?? 0,
+        edits.logo_scale ?? null,
+        edits.logo_opacity ?? null,
+        edits.music_enabled ?? null,
         edits.music_path ?? null,
-        edits.music_volume ?? 0.3,
+        edits.music_volume ?? null,
         edits.music_duck_volume ?? 0.1,
         edits.music_duck_enabled ?? 1,
         edits.music_fade_in ?? 1.0,

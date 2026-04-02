@@ -183,6 +183,16 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
 
+const isUpdatedAfter = (candidate?: string | null, baseline?: string | null) => {
+  const candidateTime = candidate ? Date.parse(candidate) : Number.NaN
+  const baselineTime = baseline ? Date.parse(baseline) : Number.NaN
+
+  if (Number.isNaN(candidateTime)) return false
+  if (Number.isNaN(baselineTime)) return true
+
+  return candidateTime > baselineTime
+}
+
 const splitCaptionWords = (
   words: string[],
   maxWordsPerCue: number,
@@ -553,6 +563,13 @@ export function ClipEditorPage() {
           initialCaptionCues.find((cue) => mappedClip.startTime >= cue.start && mappedClip.startTime <= cue.end)?.text ||
           initialCaptionCues[0]?.text ||
           mappedClip.keyQuote
+        const clipOverridesCurrent = isUpdatedAfter(savedEdits?.updated_at, template?.updatedAt)
+        const useCaptionPositionOverride =
+          clipOverridesCurrent && savedEdits?.caption_position === 'custom'
+        const useLogoPositionOverride =
+          clipOverridesCurrent &&
+          savedEdits?.logo_position_x != null &&
+          savedEdits?.logo_position_y != null
 
         setCaptionPreview({
           presetId: template?.caption.presetId ?? null,
@@ -564,9 +581,9 @@ export function ClipEditorPage() {
           underline: template?.caption.underline ?? false,
           uppercase: template?.caption.uppercase ?? false,
           position: (
-            savedEdits?.caption_position ||
-            template?.caption.position ||
-            'bottom'
+            useCaptionPositionOverride
+              ? savedEdits?.caption_position
+              : template?.caption.position || 'bottom'
           ) as PreviewCaptionState['position'],
           lineMode: template?.caption.lineMode || 'one-line',
           backgroundEnabled: template?.caption.backgroundEnabled ?? true,
@@ -582,15 +599,15 @@ export function ClipEditorPage() {
           shadowOffsetX: template?.caption.shadowOffsetX ?? 0,
           shadowOffsetY: template?.caption.shadowOffsetY ?? 0,
           shadowBlur: template?.caption.shadowBlur ?? 0,
-          customX: savedEdits?.caption_custom_x ?? template?.caption.customX ?? null,
-          customY: savedEdits?.caption_custom_y ?? template?.caption.customY ?? null
+          customX: useCaptionPositionOverride ? (savedEdits?.caption_custom_x ?? null) : (template?.caption.customX ?? null),
+          customY: useCaptionPositionOverride ? (savedEdits?.caption_custom_y ?? null) : (template?.caption.customY ?? null)
         })
 
         setLogoPreview({
           enabled: (template?.logo.enabled ?? false) || Boolean(template?.logo.assetPath),
           assetPath: template?.logo.assetPath || null,
-          positionX: Number(template?.logo.positionX ?? 85),
-          positionY: Number(template?.logo.positionY ?? 85),
+          positionX: Number(useLogoPositionOverride ? savedEdits?.logo_position_x : (template?.logo.positionX ?? 85)),
+          positionY: Number(useLogoPositionOverride ? savedEdits?.logo_position_y : (template?.logo.positionY ?? 85)),
           scale: Number(template?.logo.scale ?? 0.15),
           opacity: Number(template?.logo.opacity ?? 0.8)
         })
@@ -1011,14 +1028,19 @@ export function ClipEditorPage() {
     setSaveClipFeedback('idle')
 
     try {
-      await window.electronAPI?.saveClipEdits?.(clipId, {
+      const clipEditPayload: Record<string, unknown> = {
         aspect_ratio: framePreview.aspectRatio,
-        crop_mode: framePreview.cropMode,
-        caption_position: captionPreview.position,
-        caption_custom_x: captionPreview.customX,
-        caption_custom_y: captionPreview.customY,
-        logo_position_x: logoPreview?.positionX ?? null,
-        logo_position_y: logoPreview?.positionY ?? null,
+        crop_mode: framePreview.cropMode
+      }
+
+      if (captionPreview.position === 'custom') {
+        clipEditPayload.caption_position = 'custom'
+        clipEditPayload.caption_custom_x = captionPreview.customX
+        clipEditPayload.caption_custom_y = captionPreview.customY
+      }
+
+      await window.electronAPI?.saveClipEdits?.(clipId, {
+        ...clipEditPayload
       })
 
       if (saveFeedbackTimeoutRef.current) {
@@ -1118,20 +1140,14 @@ export function ClipEditorPage() {
           await window.electronAPI?.saveClipEdits?.(clipId, {
             caption_position: 'custom',
             caption_custom_x: captionPreview.customX,
-            caption_custom_y: captionPreview.customY,
-            caption_font: captionPreview.font,
-            caption_text_case: captionPreview.uppercase ? 'uppercase' : 'none'
+            caption_custom_y: captionPreview.customY
           })
         }
 
         if (isDraggingLogo && logoPreview) {
           await window.electronAPI?.saveClipEdits?.(clipId, {
-            logo_enabled: logoPreview.enabled ? 1 : 0,
-            logo_path: logoPreview.assetPath,
             logo_position_x: logoPreview.positionX,
-            logo_position_y: logoPreview.positionY,
-            logo_scale: logoPreview.scale,
-            logo_opacity: logoPreview.opacity
+            logo_position_y: logoPreview.positionY
           })
         }
       } catch (dragSaveError) {
