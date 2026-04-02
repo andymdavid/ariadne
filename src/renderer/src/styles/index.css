@@ -33,6 +33,7 @@
     --ring: 213 94% 68%;  /* #58a6ff - accent-primary */
 
     --radius: 0.5rem;
+    --nav-dock-width: 72px;
   }
 
   * {
@@ -3063,7 +3064,7 @@
   /* Main Content Panel */
   .main-content-container {
     height: 100%;
-    margin-left: 220px;
+    margin-left: var(--nav-dock-width, 72px);
     padding: 0;
   }
 
@@ -3082,7 +3083,7 @@
   /* Responsive adjustments */
   @media (max-width: 1200px) {
     .main-content-container {
-      margin-left: 220px;
+      margin-left: var(--nav-dock-width, 72px);
     }
   }
 

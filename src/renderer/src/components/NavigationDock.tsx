@@ -6,7 +6,9 @@ import {
   IoLibrary,
   IoCalendar,
   IoAnalytics,
-  IoSearch 
+  IoSettings,
+  IoChevronForward,
+  IoChevronBack
 } from 'react-icons/io5'
 import { useScreenFlow } from '../stores/projectStore'
 
@@ -37,10 +39,11 @@ interface NavIcon {
   route: string
 }
 
-export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, isCommandMode = false, episodeId: _episodeId, isProcessing = false, sessionMessages = [], onAddMessage }: NavigationDockProps) {
+export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandModeExit, onCommand, isCommandMode = false, episodeId: _episodeId, isProcessing = false, sessionMessages = [], onAddMessage }: NavigationDockProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const [activeScreen, setActiveScreen] = useState<string>('home')
+  const [isExpanded, setIsExpanded] = useState(false)
   const [commandInput, setCommandInput] = useState('')
   const [showSlashCommands, setShowSlashCommands] = useState(false)
   const [, setSuggestions] = useState<string[]>([])
@@ -85,6 +88,12 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
       icon: IoAnalytics,
       label: 'Analytics',
       route: '/analytics'
+    },
+    {
+      id: 'settings',
+      icon: IoSettings,
+      label: 'Settings',
+      route: '/settings'
     }
   ]
 
@@ -103,11 +112,21 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
       screen = 'calendar'
     } else if (path === '/analytics') {
       screen = 'analytics'
+    } else if (path === '/settings') {
+      screen = 'settings'
     }
     
     setActiveScreen(screen)
     setCurrentScreen(screen)
   }, [location.pathname, setCurrentScreen])
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--nav-dock-width', isExpanded ? '220px' : '72px')
+
+    return () => {
+      document.documentElement.style.setProperty('--nav-dock-width', '72px')
+    }
+  }, [isExpanded])
 
   // Use session messages from parent or local state
   const displayMessages = sessionMessages.length > 0 ? sessionMessages : localMessages
@@ -423,11 +442,36 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
         </div>
       )}
 
-      <div className="fixed left-0 top-0 bottom-0 z-30 flex w-[220px] flex-col border-r border-border-default bg-[#0b0c10] px-4 py-6">
-        <div className="pb-6">
-          <div className="text-xs uppercase tracking-[0.24em] text-text-muted">Ariadne</div>
-          <div className="mt-3 text-3xl font-semibold text-text-primary">Menu</div>
-          <div className="mt-2 text-sm leading-relaxed text-text-secondary">Generate, brand, schedule, learn.</div>
+      <div
+        className={`fixed left-0 top-0 bottom-0 z-30 flex flex-col border-r border-border-default bg-[#0b0c10] px-3 py-4 transition-[width] duration-200 ${
+          isExpanded ? 'w-[220px]' : 'w-[72px]'
+        }`}
+      >
+        <div className={`flex items-center ${isExpanded ? 'justify-between gap-3 px-1 pb-5' : 'justify-center pb-5'}`}>
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="flex h-10 w-10 items-center justify-center rounded-[5px] border border-white/8 bg-[#13151b] text-text-primary transition-colors hover:bg-[#171a21]"
+            title="Home"
+          >
+            <span className="text-sm font-semibold tracking-[0.18em]">A</span>
+          </button>
+
+          {isExpanded && (
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] uppercase tracking-[0.22em] text-text-muted">Ariadne</div>
+              <div className="mt-1 text-sm text-text-secondary">Navigation</div>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsExpanded((current) => !current)}
+            className="flex h-10 w-10 items-center justify-center rounded-[5px] border border-white/8 bg-[#13151b] text-text-secondary transition-colors hover:bg-[#171a21] hover:text-text-primary"
+            title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+          >
+            {isExpanded ? <IoChevronBack size={16} /> : <IoChevronForward size={16} />}
+          </button>
         </div>
 
         <div className="flex-1 space-y-1.5">
@@ -439,44 +483,26 @@ export function NavigationDock({ onSearchTrigger, onCommandModeExit, onCommand, 
                 key={navIcon.id}
                 type="button"
                 onClick={() => handleNavClick(navIcon)}
-                className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+                className={`flex w-full items-center rounded-[5px] border text-left transition-colors ${
                   activeScreen === navIcon.id
-                    ? 'border-accent-primary bg-accent-primary/12 text-text-primary'
-                    : 'border-transparent bg-transparent text-text-secondary hover:border-border-default hover:bg-bg-secondary/80 hover:text-text-primary'
-                }`}
+                    ? 'border-white/12 bg-[#171a20] text-text-primary'
+                    : 'border-transparent bg-transparent text-text-secondary hover:border-white/8 hover:bg-[#12151a] hover:text-text-primary'
+                } ${isExpanded ? 'gap-3 px-3 py-3' : 'justify-center px-0 py-3'}`}
                 title={navIcon.label}
               >
                 <IconComponent size={18} />
-                <span className="text-sm font-medium">{navIcon.label}</span>
+                {isExpanded && <span className="text-sm font-medium">{navIcon.label}</span>}
               </button>
             )
           })}
         </div>
-
-        <div className="mt-4 border-t border-border-default pt-4">
-          <button
-            type="button"
-            onClick={() => {
-              if (isCommandMode && onCommandModeExit) {
-                onCommandModeExit()
-              } else {
-                onSearchTrigger()
-              }
-            }}
-            className="flex w-full items-center justify-between rounded-xl border border-border-default bg-bg-secondary/60 px-3 py-2 text-sm text-text-primary hover:bg-hover-bg transition-colors"
-            title={isCommandMode ? 'Exit command mode (Esc)' : 'Search commands (⌘K)'}
-          >
-            <span className="flex items-center gap-2">
-              <IoSearch size={16} />
-              {isCommandMode ? 'Close command mode' : 'Open command search'}
-            </span>
-            <span className="text-xs text-text-muted">{isCommandMode ? 'Esc' : '⌘K'}</span>
-          </button>
-        </div>
       </div>
 
       {isCommandMode && !isProcessing && displayMessages.length === 0 && (
-        <div className="fixed left-[244px] top-6 z-40 w-[560px] rounded-2xl border border-border-default bg-bg-primary/95 p-4 shadow-2xl backdrop-blur-xl">
+        <div
+          className="fixed top-6 z-40 w-[560px] rounded-2xl border border-border-default bg-bg-primary/95 p-4 shadow-2xl backdrop-blur-xl"
+          style={{ left: 'calc(var(--nav-dock-width, 72px) + 24px)' }}
+        >
           <div className="command-input-container">
             {!commandInput && (
               <div className="custom-placeholder">

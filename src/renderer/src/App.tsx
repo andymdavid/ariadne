@@ -72,6 +72,7 @@ function App() {
     if (path === '/asset-library') return 'asset-library'
     if (path === '/calendar') return 'calendar'
     if (path === '/analytics') return 'analytics'
+    if (path === '/settings') return 'settings'
     return 'home'
   }
 
@@ -575,6 +576,9 @@ function App() {
             break
           case '5':
             navigate('/analytics')
+            break
+          case '6':
+            navigate('/settings')
             break
         }
       }

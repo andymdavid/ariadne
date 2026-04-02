@@ -238,7 +238,10 @@ export function ClipWorkspacePage() {
 
   if (loading) {
     return (
-      <div className="ml-[220px] flex h-full items-center justify-center bg-[#0a0b0f]">
+      <div
+        className="flex h-full items-center justify-center bg-[#0a0b0f]"
+        style={{ marginLeft: 'var(--nav-dock-width, 72px)' }}
+      >
         <div className="flex h-full w-full items-center justify-center">
           <div className="text-center">
             <div className="text-lg text-text-primary">Loading clips…</div>
@@ -251,7 +254,10 @@ export function ClipWorkspacePage() {
 
   if (error || !episodeId) {
     return (
-      <div className="ml-[220px] flex h-full items-center justify-center bg-[#0a0b0f]">
+      <div
+        className="flex h-full items-center justify-center bg-[#0a0b0f]"
+        style={{ marginLeft: 'var(--nav-dock-width, 72px)' }}
+      >
         <div className="flex h-full w-full items-center justify-center">
           <div className="max-w-md text-center">
             <div className="text-lg text-text-primary">Workspace unavailable</div>
@@ -271,7 +277,10 @@ export function ClipWorkspacePage() {
   }
 
   return (
-    <div className="ml-[220px] h-full overflow-y-auto bg-[#0a0b0f] px-10 py-8">
+    <div
+      className="h-full overflow-y-auto bg-[#0a0b0f] px-10 py-8"
+      style={{ marginLeft: 'var(--nav-dock-width, 72px)' }}
+    >
       <div className="w-full pb-16">
         <button
           type="button"
