@@ -6,31 +6,30 @@
 
 @layer base {
   :root {
-    /* Shadcn UI theme variables - mapped to our dark theme */
-    --background: 210 100% 6%;  /* #0d1117 - bg-primary */
-    --foreground: 210 40% 96%;  /* #f0f6fc - text-primary */
+    --background: 0 0% 5%;
+    --foreground: 0 0% 98%;
 
-    --card: 215 28% 12%;  /* #161b22 - bg-secondary */
-    --card-foreground: 210 40% 96%;  /* #f0f6fc */
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 215 28% 12%;  /* #161b22 */
-    --popover-foreground: 210 40% 96%;  /* #f0f6fc */
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 98%;
 
-    --primary: 213 94% 68%;  /* #58a6ff - accent-primary */
-    --primary-foreground: 210 40% 96%;  /* #f0f6fc */
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 7%;
 
-    --secondary: 218 17% 17%;  /* #21262d - bg-tertiary */
-    --secondary-foreground: 210 40% 96%;  /* #f0f6fc */
+    --secondary: 0 0% 7%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 218 17% 17%;  /* #21262d */
-    --muted-foreground: 218 15% 52%;  /* #8b949e - text-secondary */
+    --muted: 0 0% 11%;
+    --muted-foreground: 0 0% 46%;
 
-    --destructive: 0 84% 64%;  /* #f85149 - accent-danger */
-    --destructive-foreground: 210 40% 96%;  /* #f0f6fc */
+    --destructive: 359 100% 61%;
+    --destructive-foreground: 0 0% 98%;
 
-    --border: 215 15% 22%;  /* #30363d - border-default */
-    --input: 215 15% 22%;  /* #30363d */
-    --ring: 213 94% 68%;  /* #58a6ff - accent-primary */
+    --border: 0 0% 11%;
+    --input: 0 0% 11%;
+    --ring: 0 0% 83.9%;
 
     --radius: 0.5rem;
     --nav-dock-width: 72px;
@@ -83,44 +82,49 @@
 @layer components {
   /* Button variants */
   .btn-primary {
-    @apply bg-accent-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md font-medium transition-colors;
+    @apply px-4 py-2 text-sm font-medium text-black transition-colors;
+    background: #f5f5f5;
+    border-radius: 5px;
   }
 
   .btn-secondary {
-    @apply bg-bg-tertiary hover:bg-hover-bg text-text-primary px-4 py-2 rounded-md font-medium transition-colors border border-border-default;
+    @apply px-4 py-2 text-sm font-medium text-text-primary transition-colors border;
+    background: #111111;
+    border-color: #1d1d1d;
+    border-radius: 5px;
   }
 
   .btn-ghost {
-    @apply hover:bg-hover-bg text-text-secondary hover:text-text-primary px-3 py-2 rounded-md font-medium transition-colors;
+    @apply px-3 py-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors;
+    border-radius: 5px;
   }
 
   /* Card component */
   .card {
-    @apply bg-bg-secondary border border-border-default rounded-lg;
+    @apply border;
+    background: #111111;
+    border-color: #1d1d1d;
+    border-radius: 5px;
   }
 
-  /* Settings card - glassmorphic like clip cards */
   .settings-card {
-    background: rgba(13, 17, 23, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 16px;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    box-shadow:
-      0 4px 16px rgba(0, 0, 0, 0.3),
-      0 2px 4px rgba(0, 0, 0, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    background: #111111;
+    border: 1px solid #1d1d1d;
+    border-radius: 5px;
+    box-shadow: none;
   }
 
-  /* Dark mode variant */
   body.dark-mode .settings-card {
-    background: rgba(13, 17, 23, 0.9);
-    border: 1px solid rgba(48, 54, 61, 0.6);
+    background: #111111;
+    border: 1px solid #1d1d1d;
   }
 
   /* Input styles */
   .input {
-    @apply bg-bg-tertiary border border-border-default rounded-md px-3 py-2 text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-primary transition-colors;
+    @apply px-3 py-2 text-text-primary placeholder-text-muted focus:outline-none transition-colors border;
+    background: #111111;
+    border-color: #1d1d1d;
+    border-radius: 5px;
   }
 
   .app-page {
@@ -138,7 +142,7 @@
     margin-right: calc(var(--app-page-padding-x) * -1);
     min-height: 72px;
     padding: 0 var(--app-page-padding-x);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid #1d1d1d;
   }
 
   .app-page-header-content {
@@ -158,25 +162,25 @@
   .app-page-subtitle {
     font-size: 14px;
     line-height: 1.5;
-    color: rgba(240, 246, 252, 0.58);
+    color: rgba(255, 255, 255, 0.42);
     max-width: 720px;
   }
 
   .app-page-separator {
     font-size: 14px;
     line-height: 1;
-    color: rgba(240, 246, 252, 0.34);
+    color: rgba(255, 255, 255, 0.24);
   }
 
   .app-surface {
-    background: #111318;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #111111;
+    border: 1px solid #1d1d1d;
     border-radius: 5px;
   }
 
   .app-surface-muted {
-    background: #0d0f13;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #0d0d0d;
+    border: 1px solid #1d1d1d;
     border-radius: 5px;
   }
 
@@ -185,9 +189,9 @@
     align-items: center;
     gap: 8px;
     border-radius: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: #15181e;
-    color: rgba(240, 246, 252, 0.88);
+    border: 1px solid #1d1d1d;
+    background: #131313;
+    color: rgba(255, 255, 255, 0.88);
     font-size: 14px;
     padding: 10px 16px;
   }
@@ -196,9 +200,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 14px;
-    background: #ffffff;
-    color: #050608;
+    border-radius: 5px;
+    background: #f5f5f5;
+    color: #0d0d0d;
     font-size: 14px;
     font-weight: 600;
     padding: 12px 18px;
@@ -209,19 +213,19 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 14px;
-    background: #1a1d24;
-    color: #f0f6fc;
+    border-radius: 5px;
+    background: #111111;
+    color: #f5f5f5;
     font-size: 14px;
     font-weight: 500;
     padding: 12px 18px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid #1d1d1d;
   }
 
   .app-stat-card {
-    background: #0f1217;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 16px;
+    background: #111111;
+    border: 1px solid #1d1d1d;
+    border-radius: 5px;
     padding: 14px 16px;
   }
 
@@ -242,9 +246,9 @@
   }
 
   .app-section-shell {
-    background: #111318;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 20px;
+    background: #111111;
+    border: 1px solid #1d1d1d;
+    border-radius: 10px;
     padding: 22px;
   }
 
@@ -274,9 +278,9 @@
   }
 
   .app-upload-panel {
-    background: #0d0f13;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 18px;
+    background: #0d0d0d;
+    border: 1px solid #1d1d1d;
+    border-radius: 5px;
     padding: 18px;
   }
 
@@ -287,9 +291,9 @@
     align-items: center;
     justify-content: center;
     gap: 12px;
-    border: 1px dashed rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
-    background: #0d0f13;
+    border: 1px dashed #262626;
+    border-radius: 5px;
+    background: #0d0d0d;
     text-align: center;
     padding: 24px;
   }
@@ -313,9 +317,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 16px;
-    background: #0d0f13;
+    border: 1px solid #1d1d1d;
+    border-radius: 5px;
+    background: #0d0d0d;
     padding: 14px 16px;
   }
 
