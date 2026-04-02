@@ -216,6 +216,25 @@ export function BrandTemplatePage() {
   }, [])
 
   useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || !template) return
+
+    audio.volume = template.music.volume
+
+    if (!template.music.enabled || !template.music.assetPath) {
+      audio.pause()
+      audio.currentTime = 0
+      return
+    }
+
+    if (isDemoPlaying && audio.paused) {
+      void audio.play().catch(() => {
+        // Ignore autoplay failures; visual preview should still continue.
+      })
+    }
+  }, [isDemoPlaying, template?.music.assetPath, template?.music.enabled, template?.music.volume, template])
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (!presetMenuRef.current) return
       if (!presetMenuRef.current.contains(event.target as Node)) {
