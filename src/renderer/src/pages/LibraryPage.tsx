@@ -193,7 +193,7 @@ export function LibraryPage() {
   if (savedProjects.length === 0) {
     return (
       <MainContentPanel>
-        <div className="flex-1 flex items-center justify-center p-8">
+        <div className="app-page flex items-center justify-center">
           <div className="max-w-2xl w-full space-y-8 text-center">
             <div className="space-y-4">
               <div className="text-6xl text-text-muted">📚</div>
@@ -217,9 +217,22 @@ export function LibraryPage() {
 
   return (
     <MainContentPanel>
-      <div className="flex-1 flex h-full overflow-hidden">
+      <div className="app-page flex h-full flex-col overflow-hidden">
+        <div className="app-page-header">
+          <div className="app-page-header-shell">
+            <div className="app-page-header-content">
+              <div className="app-page-title">Library</div>
+              <div className="app-page-subtitle">
+                Browse saved projects, inspect their clip breakdown, and manage stored work.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 overflow-hidden py-5">
         {/* Projects List */}
-        <div className="w-80 border-r border-border-default p-4 space-y-4 overflow-y-auto flex-shrink-0">
+        <div className="w-80 flex-shrink-0 overflow-y-auto border-r border-border-default pr-5">
+          <div className="app-section-shell space-y-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-text-primary">
               Saved Projects
@@ -228,7 +241,7 @@ export function LibraryPage() {
               <button 
                 onClick={handleCleanupDatabase}
                 disabled={isRefreshing}
-                className="p-1.5 rounded hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/8 bg-[#111111] transition-colors hover:border-white/12 hover:bg-[#141414] disabled:opacity-50"
                 title="Cleanup Database (remove invalid/duplicates)"
               >
                 <IoTrashBin className="w-4 h-4 text-text-muted" />
@@ -249,7 +262,7 @@ export function LibraryPage() {
                     setIsRefreshing(false);
                   }
                 }}
-                className="p-1.5 rounded hover:bg-red-500/20 transition-colors"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-red-500/20 bg-[#111111] transition-colors hover:bg-red-500/12"
                 title="Nuke ALL Projects (danger!)"
               >
                 <IoTrash className="w-4 h-4 text-red-500" />
@@ -257,7 +270,7 @@ export function LibraryPage() {
               <button 
                 onClick={handleRefresh}
                 disabled={isRefreshing}
-                className="p-1.5 rounded hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/8 bg-[#111111] transition-colors hover:border-white/12 hover:bg-[#141414] disabled:opacity-50"
                 title="Refresh library"
               >
                 <IoRefresh className={`w-4 h-4 text-text-muted ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -275,8 +288,8 @@ export function LibraryPage() {
             return (
               <div
                 key={project.id}
-                className={`settings-card p-4 space-y-3 cursor-pointer transition-all ${
-                  isSelected ? 'ring-2 ring-accent-primary' : ''
+                className={`app-surface p-4 space-y-3 cursor-pointer transition-colors ${
+                  isSelected ? 'border-white/16 bg-[#141414]' : 'hover:border-white/12 hover:bg-[#131313]'
                 }`}
                 onClick={() => setSelectedProject(project)}
               >
@@ -326,12 +339,13 @@ export function LibraryPage() {
               </div>
             )
           })}
+          </div>
         </div>
 
         {/* Project Details */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex flex-1 flex-col overflow-hidden pl-5">
           {selectedProject ? (
-            <div className="flex-1 p-8 overflow-y-auto">
+            <div className="app-section-shell flex-1 overflow-y-auto">
               <div className="space-y-6">
                 {/* Project Header */}
                 <div className="flex items-center justify-between">
@@ -344,7 +358,7 @@ export function LibraryPage() {
                     </p>
                   </div>
                   <div className="flex items-center space-x-3">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    <span className={`inline-flex min-h-[28px] items-center rounded-[5px] px-3 py-1 text-sm font-medium ${
                       selectedProject.processingStatus === 'completed' 
                         ? 'bg-accent-success/20 text-accent-success' 
                         : 'bg-accent-warning/20 text-accent-warning'
@@ -356,25 +370,25 @@ export function LibraryPage() {
 
                 {/* Project Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-4 settings-card">
+                  <div className="app-surface p-4 text-center">
                     <div className="text-2xl font-semibold text-text-primary">
                       {selectedProject.clipCount}
                     </div>
                     <div className="text-sm text-text-muted">Total Clips</div>
                   </div>
-                  <div className="text-center p-4 settings-card">
+                  <div className="app-surface p-4 text-center">
                     <div className="text-2xl font-semibold text-accent-success">
                       {getProjectStatus(selectedProject).approvedCount}
                     </div>
                     <div className="text-sm text-text-muted">Approved</div>
                   </div>
-                  <div className="text-center p-4 settings-card">
+                  <div className="app-surface p-4 text-center">
                     <div className="text-2xl font-semibold text-text-primary">
                       {formatDuration(selectedProject.duration)}
                     </div>
                     <div className="text-sm text-text-muted">Duration</div>
                   </div>
-                  <div className="text-center p-4 settings-card">
+                  <div className="app-surface p-4 text-center">
                     <div className="text-2xl font-semibold text-text-primary">
                       {Math.round(selectedProject.transcriptLength / 1000)}K
                     </div>
@@ -421,14 +435,14 @@ export function LibraryPage() {
                 {/* Actions */}
                 <div className="flex space-x-4 pt-4">
                   <button 
-                    className="btn-primary flex items-center space-x-2"
+                    className="btn-primary"
                     onClick={() => handleLoadProject(selectedProject)}
                   >
                     <IoPlay size={16} />
                     <span>Open Project</span>
                   </button>
                   <button 
-                    className="btn-secondary text-accent-danger border-accent-danger/50 hover:bg-accent-danger/10 flex items-center space-x-2"
+                    className="btn-secondary text-accent-danger border-accent-danger/50 hover:bg-accent-danger/10"
                     onClick={() => setShowDeleteConfirm(selectedProject.id)}
                   >
                     <IoTrash size={16} />
@@ -438,7 +452,7 @@ export function LibraryPage() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full">
+            <div className="app-section-shell flex h-full items-center justify-center">
               <div className="text-center space-y-4">
                 <div className="text-6xl text-text-muted">📁</div>
                 <h3 className="text-xl font-semibold text-text-primary">
@@ -451,12 +465,13 @@ export function LibraryPage() {
             </div>
           )}
         </div>
+        </div>
       </div>
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-bg-primary border border-border-default rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="app-surface max-w-md w-full mx-4 p-6">
             <h3 className="text-lg font-semibold text-text-primary mb-4">
               Delete Project
             </h3>
