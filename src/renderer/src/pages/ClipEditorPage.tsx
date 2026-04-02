@@ -432,45 +432,27 @@ const getPreviewCaptionText = (
         setCaptionPreview({
           presetId: template?.caption.presetId ?? null,
           text: activeCaptionText,
-          font: savedEdits?.caption_font || template?.caption.font || 'Inter',
-          fontSize: Number(savedEdits?.caption_size ?? template?.caption.fontSize ?? 30),
-          fontWeight: (
-            String(savedEdits?.caption_weight ?? template?.caption.fontWeight ?? '700') as PreviewCaptionState['fontWeight']
-          ),
-          italic: Boolean(savedEdits?.caption_italic ?? template?.caption.italic ?? false),
-          underline: Boolean(savedEdits?.caption_underline ?? template?.caption.underline ?? false),
-          uppercase:
-            savedEdits?.caption_text_case != null
-              ? String(savedEdits.caption_text_case).toLowerCase() === 'uppercase'
-              : (template?.caption.uppercase ?? false),
+          font: template?.caption.font || 'Inter',
+          fontSize: Number(template?.caption.fontSize ?? 30),
+          fontWeight: String(template?.caption.fontWeight ?? '700') as PreviewCaptionState['fontWeight'],
+          italic: template?.caption.italic ?? false,
+          underline: template?.caption.underline ?? false,
+          uppercase: template?.caption.uppercase ?? false,
           position: (
             savedEdits?.caption_position ||
             template?.caption.position ||
             'bottom'
           ) as PreviewCaptionState['position'],
-          lineMode:
-            Number(savedEdits?.caption_words_per_caption ?? 1) > 1
-              ? 'three-lines'
-              : (template?.caption.lineMode || 'one-line'),
-          backgroundEnabled:
-            savedEdits?.caption_background != null
-              ? Boolean(savedEdits.caption_background)
-              : (template?.caption.backgroundEnabled ?? true),
-          highlightColor:
-            savedEdits?.caption_text_color ||
-            savedEdits?.caption_color ||
-            template?.caption.highlightColor ||
-            '#111111',
-          backgroundColor: savedEdits?.caption_background_color || template?.caption.backgroundColor || '#ffffff',
+          lineMode: template?.caption.lineMode || 'one-line',
+          backgroundEnabled: template?.caption.backgroundEnabled ?? true,
+          highlightColor: template?.caption.highlightColor || '#111111',
+          backgroundColor: template?.caption.backgroundColor || '#ffffff',
           backgroundPaddingX: template?.caption.backgroundPaddingX ?? 24,
           backgroundPaddingY: template?.caption.backgroundPaddingY ?? 12,
           backgroundRadius: template?.caption.backgroundRadius ?? 16,
-          strokeColor: savedEdits?.caption_outline_color || template?.caption.strokeColor || '#000000',
-          strokeWidth: Number(savedEdits?.caption_outline_width ?? template?.caption.strokeWidth ?? 0),
-          shadowEnabled:
-            savedEdits?.caption_shadow != null
-              ? Boolean(savedEdits.caption_shadow)
-              : (template?.caption.shadowEnabled ?? false),
+          strokeColor: template?.caption.strokeColor || '#000000',
+          strokeWidth: Number(template?.caption.strokeWidth ?? 0),
+          shadowEnabled: template?.caption.shadowEnabled ?? false,
           shadowColor: template?.caption.shadowColor || '#000000',
           shadowOffsetX: template?.caption.shadowOffsetX ?? 0,
           shadowOffsetY: template?.caption.shadowOffsetY ?? 0,
@@ -480,15 +462,12 @@ const getPreviewCaptionText = (
         })
 
         setLogoPreview({
-          enabled:
-            savedEdits?.logo_enabled != null
-              ? Boolean(savedEdits.logo_enabled)
-              : ((template?.logo.enabled ?? false) || Boolean(template?.logo.assetPath)),
-          assetPath: savedEdits?.logo_path || template?.logo.assetPath || null,
+          enabled: (template?.logo.enabled ?? false) || Boolean(template?.logo.assetPath),
+          assetPath: template?.logo.assetPath || null,
           positionX: Number(savedEdits?.logo_position_x ?? template?.logo.positionX ?? 85),
           positionY: Number(savedEdits?.logo_position_y ?? template?.logo.positionY ?? 85),
-          scale: Number(savedEdits?.logo_scale ?? template?.logo.scale ?? 0.15),
-          opacity: Number(savedEdits?.logo_opacity ?? template?.logo.opacity ?? 0.8)
+          scale: Number(template?.logo.scale ?? 0.15),
+          opacity: Number(template?.logo.opacity ?? 0.8)
         })
 
         setFramePreview({
@@ -504,13 +483,9 @@ const getPreviewCaptionText = (
           ) as PreviewFrameState['cropMode']
         })
 
-        setMusicEnabled(
-          savedEdits?.music_enabled != null
-            ? Boolean(savedEdits.music_enabled)
-            : (template?.music.enabled ?? false)
-        )
-        setMusicAssetPath(savedEdits?.music_path || template?.music.assetPath || null)
-        setMusicVolume(Number(savedEdits?.music_volume ?? template?.music.volume ?? 0.3))
+        setMusicEnabled(template?.music.enabled ?? false)
+        setMusicAssetPath(template?.music.assetPath || null)
+        setMusicVolume(Number(template?.music.volume ?? 0.3))
       } catch (loadError) {
         console.error('Failed to load clip editor:', loadError)
         setError('Failed to load clip editor')
@@ -854,39 +829,11 @@ const getPreviewCaptionText = (
       await window.electronAPI?.saveClipEdits?.(clipId, {
         aspect_ratio: framePreview.aspectRatio,
         crop_mode: framePreview.cropMode,
-        caption_font: captionPreview.font,
-        caption_size: captionPreview.fontSize,
-        caption_weight: captionPreview.fontWeight,
-        caption_italic: captionPreview.italic ? 1 : 0,
-        caption_underline: captionPreview.underline ? 1 : 0,
-        caption_uppercase: captionPreview.uppercase ? 1 : 0,
         caption_position: captionPreview.position,
         caption_custom_x: captionPreview.customX,
         caption_custom_y: captionPreview.customY,
-        caption_words_per_caption: captionPreview.lineMode === 'one-line' ? 1 : 3,
-        caption_preset_id: captionPreview.presetId,
-        caption_text_color: captionPreview.highlightColor,
-        caption_background: captionPreview.backgroundEnabled ? 1 : 0,
-        caption_background_color: captionPreview.backgroundColor,
-        caption_background_padding_x: captionPreview.backgroundPaddingX,
-        caption_background_padding_y: captionPreview.backgroundPaddingY,
-        caption_background_radius: captionPreview.backgroundRadius,
-        caption_outline_color: captionPreview.strokeColor,
-        caption_outline_width: captionPreview.strokeWidth,
-        caption_shadow: captionPreview.shadowEnabled ? 1 : 0,
-        caption_shadow_color: captionPreview.shadowColor,
-        caption_shadow_offset_x: captionPreview.shadowOffsetX,
-        caption_shadow_offset_y: captionPreview.shadowOffsetY,
-        caption_shadow_blur: captionPreview.shadowBlur,
-        logo_enabled: logoPreview?.enabled ? 1 : 0,
-        logo_path: logoPreview?.assetPath ?? null,
         logo_position_x: logoPreview?.positionX ?? null,
         logo_position_y: logoPreview?.positionY ?? null,
-        logo_scale: logoPreview?.scale ?? null,
-        logo_opacity: logoPreview?.opacity ?? null,
-        music_enabled: musicEnabled ? 1 : 0,
-        music_path: musicAssetPath,
-        music_volume: musicVolume
       })
 
       if (saveFeedbackTimeoutRef.current) {
