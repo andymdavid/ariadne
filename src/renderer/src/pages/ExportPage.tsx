@@ -267,239 +267,232 @@ export function ExportPage() {
 
   return (
     <MainContentPanel>
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header with settings */}
-        <div className="border-b border-border-default p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold text-text-primary">
+      <div className="app-page flex h-full flex-col overflow-hidden">
+        <div className="mx-auto flex h-full w-full max-w-[1480px] flex-col">
+          <div className="app-page-header">
+            <div className="app-page-header-shell max-w-[1480px]">
+              <div className="app-page-header-content">
+                <div className="app-page-title">
                 {exportJob ? 'Export Progress' : 'Export Clips'}
-              </h2>
-              <div className="mt-1 flex items-center gap-2">
-                {exportStatusLabel && (
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted">
-                    {exportStatusLabel}
-                  </span>
-                )}
-                <p className="text-sm text-text-muted">
+                </div>
+                <div className="app-page-subtitle">
                   {exportStatusText}
-                </p>
+                </div>
               </div>
-            </div>
 
-            {/* Compact Export Settings */}
-            {!isExporting && !exportJob && (
-              <div className="flex items-center space-x-4">
-                {/* Aspect Ratio */}
-                <div className="flex items-center space-x-2">
-                  <label className="text-sm text-text-muted">Format:</label>
-                  <div className="flex space-x-1">
+              <div className="app-page-header-actions export-page-header-actions">
+                {!isExporting && !exportJob && (
+                  <>
+                    <div className="export-inline-controls">
+                      <span className="export-inline-label">Format</span>
+                      <div className="export-ratio-group">
                     {(['9:16', '1:1', '16:9'] as const).map((ratio) => (
                       <button
                         key={ratio}
                         onClick={() => setAspectRatio(ratio)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                        className={`export-ratio-chip ${
                           aspectRatio === ratio
-                            ? 'bg-accent-primary text-white'
-                            : 'bg-bg-secondary text-text-muted hover:bg-bg-tertiary'
+                            ? 'is-active'
+                            : ''
                         }`}
                       >
                         {ratio}
                       </button>
                     ))}
-                  </div>
-                </div>
+                      </div>
+                    </div>
 
-                {/* Captions Toggle */}
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={includeCaptions}
-                    onChange={(e) => setIncludeCaptions(e.target.checked)}
-                    className="w-4 h-4 rounded border-border-default text-accent-primary"
-                  />
-                  <span className="text-sm text-text-muted">Captions</span>
-                </label>
+                    <label className="export-inline-toggle">
+                      <input
+                        type="checkbox"
+                        checked={includeCaptions}
+                        onChange={(e) => setIncludeCaptions(e.target.checked)}
+                        className="h-4 w-4 rounded border-border-default bg-transparent"
+                      />
+                      <span>Captions</span>
+                    </label>
 
-                {/* Export Button */}
-                <button
-                  onClick={handleStartExport}
-                  disabled={approvedClips.length === 0}
-                  className="btn-primary flex items-center space-x-2"
-                >
-                  <IoDownload />
-                  <span>Export {approvedClips.length}</span>
-                </button>
+                    <button
+                      onClick={handleStartExport}
+                      disabled={approvedClips.length === 0}
+                      className="app-action-primary export-header-button"
+                    >
+                      <IoDownload />
+                      <span>Export {approvedClips.length}</span>
+                    </button>
+                  </>
+                )}
+
+                {isExporting && exportJob && (exportJob.status === 'processing' || exportJob.status === 'pending') && (
+                  <button
+                    onClick={handleCancelExport}
+                    className="app-action-secondary export-header-button"
+                  >
+                    <IoClose />
+                    <span>Cancel Export</span>
+                  </button>
+                )}
+
+                {exportJob && exportJob.status === 'completed' && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setExportJob(null)
+                      }}
+                      className="app-action-primary export-header-button"
+                    >
+                      <IoDownload />
+                      <span>Export Again</span>
+                    </button>
+                    <button
+                      onClick={() => navigate(`/review/${episodeId}`)}
+                      className="app-action-secondary export-header-button"
+                    >
+                      Back to Review
+                    </button>
+                  </>
+                )}
               </div>
-            )}
-
-            {isExporting && exportJob && (exportJob.status === 'processing' || exportJob.status === 'pending') && (
-              <button
-                onClick={handleCancelExport}
-                className="btn-secondary flex items-center space-x-2"
-              >
-                <IoClose />
-                <span>Cancel Export</span>
-              </button>
-            )}
-
-            {exportJob && exportJob.status === 'completed' && (
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={() => {
-                    setExportJob(null)
-                  }}
-                  className="btn-primary flex items-center space-x-2"
-                >
-                  <IoDownload />
-                  <span>Export Again</span>
-                </button>
-                <button
-                  onClick={() => navigate(`/review/${episodeId}`)}
-                  className="btn-secondary"
-                >
-                  Back to Review
-                </button>
-              </div>
-            )}
+            </div>
           </div>
 
-          {/* Export Progress Bar */}
-          {exportJob && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
+          <div className="export-page-body">
+            {exportJob && (
+              <section className="app-section-shell export-progress-shell">
+                <div className="export-progress-header">
+                  <div className="export-progress-status">
                   {exportJob.status === 'pending' && (
                     <>
-                      <div className="text-xl">⏳</div>
-                      <span className="text-sm text-text-primary">
+                        <div className="text-xl">⏳</div>
+                        <span className="text-sm text-text-primary">
                         {exportJob.progress > 0 || exportJob.currentClipIndex > 0
                           ? `Resuming export at clip ${Math.min(exportJob.currentClipIndex + 1, exportJob.totalClips)} of ${exportJob.totalClips}`
                           : 'Queued and preparing export'}
-                      </span>
+                        </span>
                     </>
                   )}
                   {exportJob.status === 'processing' && (
                     <>
-                      <div className="animate-spin text-xl">⏳</div>
-                      <span className="text-sm text-text-primary">
+                        <div className="animate-spin text-xl">⏳</div>
+                        <span className="text-sm text-text-primary">
                         Exporting clip {exportJob.currentClipIndex + 1} of {exportJob.totalClips}
-                      </span>
+                        </span>
                     </>
                   )}
                   {exportJob.status === 'completed' && (
                     <>
-                      <IoCheckmarkCircle className="text-xl text-accent-success" />
-                      <span className="text-sm text-accent-success font-medium">
+                        <IoCheckmarkCircle className="text-xl text-accent-success" />
+                        <span className="text-sm font-medium text-accent-success">
                         Export Complete! {exportJob.totalClips} clips exported
-                      </span>
+                        </span>
                     </>
                   )}
                   {exportJob.status === 'failed' && (
                     <>
-                      <IoWarning className="text-xl text-accent-danger" />
-                      <span className="text-sm text-accent-danger">
+                        <IoWarning className="text-xl text-accent-danger" />
+                        <span className="text-sm text-accent-danger">
                         {exportError}
-                      </span>
+                        </span>
                     </>
                   )}
                 </div>
-                <div className="text-lg font-bold text-accent-primary">
-                  {Math.round(exportJob.progress)}%
+                  <div className="export-progress-percent">{Math.round(exportJob.progress)}%</div>
                 </div>
-              </div>
 
-              <div className="w-full bg-bg-tertiary rounded-full h-2 overflow-hidden">
-                <div
-                  className="h-full bg-accent-primary transition-all duration-300"
-                  style={{ width: `${exportJob.progress}%` }}
-                />
-              </div>
-
-              {/* Output Paths */}
-              {exportJob.status === 'completed' && exportJob.outputPaths.length > 0 && (
-                <div className="text-xs text-text-muted">
-                  Exported to: {exportJob.outputPaths[0].split('/').slice(0, -1).join('/')}
+                <div className="export-progress-bar">
+                  <div
+                    className="export-progress-bar-fill"
+                    style={{ width: `${exportJob.progress}%` }}
+                  />
                 </div>
-              )}
-            </div>
-          )}
-        </div>
 
-        {/* Clips Grid */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-4">
-            {approvedClips.map((clip, index) => {
-              const clipTitle = clipTitles[clip.id]
-
-              return (
-                <div
-                  key={clip.id}
-                  className={`clip-card ${
-                    exportJob && index === exportJob.currentClipIndex ? 'selected' : ''
-                  }`}
-                  style={{
-                    opacity: exportJob && index < exportJob.currentClipIndex ? '0.5' : undefined,
-                    minWidth: '0',
-                    maxWidth: '100%',
-                    width: '100%',
-                    height: 'auto',
-                    minHeight: '340px',
-                    transform: 'scale(1)',
-                    cursor: 'default'
-                  }}
-                >
-                  {/* Status Badge */}
-                  {clip.status === 'approved' && (
-                    <div className="status-badge approved">✓</div>
-                  )}
-
-                  {exportJob && index < exportJob.currentClipIndex && (
-                    <div className="absolute top-12 right-12">
-                      <IoCheckmarkCircle className="text-xl text-accent-success" />
-                    </div>
-                  )}
-
-                  {/* Card Header */}
-                  <div className="clip-card-header">
-                    <span className={`content-type ${clip.contentType}`}>
-                      {clip.contentType}
-                    </span>
-                    <span className="shareability-score">
-                      {clip.shareabilityScore}★
-                    </span>
+                {exportJob.status === 'completed' && exportJob.outputPaths.length > 0 && (
+                  <div className="text-xs text-text-muted">
+                    Exported to: {exportJob.outputPaths[0].split('/').slice(0, -1).join('/')}
                   </div>
+                )}
+              </section>
+            )}
 
-                  {/* Title or Quote */}
-                  {clipTitle ? (
-                    <div className="flex-1">
-                      <h3 className="text-base font-semibold text-text-primary leading-tight mb-2">
-                        {clipTitle}
-                      </h3>
-                      <p className="text-sm text-text-muted line-clamp-3">
-                        {clip.keyQuote}
-                      </p>
-                    </div>
-                  ) : (
-                    <blockquote className="clip-quote">
-                      "{clip.keyQuote}"
-                    </blockquote>
-                  )}
-
-                  {/* Metadata */}
-                  <div className="clip-metadata">
-                    <span className="duration">{formatTime(clip.duration)}</span>
-                    <span className="divider">•</span>
-                    <span className="timestamp">
-                      {formatTime(clip.startTime)} - {formatTime(clip.endTime)}
-                    </span>
-                  </div>
-
-                  {/* Reason */}
-                  <p className="clip-reason">{clip.reason}</p>
+            <section className="app-section-shell export-clips-shell">
+              <div className="export-clips-header">
+                <div>
+                  <h2 className="export-section-title">Approved clips</h2>
+                  <p className="export-section-copy">{approvedClips.length} clips ready for delivery</p>
                 </div>
-              )
-            })}
+                {exportStatusLabel ? (
+                  <span className="export-status-pill">{exportStatusLabel}</span>
+                ) : null}
+              </div>
+              <div className="export-clips-grid">
+                {approvedClips.map((clip, index) => {
+                  const clipTitle = clipTitles[clip.id]
+
+                  return (
+                    <div
+                      key={clip.id}
+                      className={`clip-card ${
+                        exportJob && index === exportJob.currentClipIndex ? 'selected' : ''
+                      } export-clip-card`}
+                      style={{
+                        opacity: exportJob && index < exportJob.currentClipIndex ? '0.5' : undefined,
+                        minWidth: '0',
+                        maxWidth: '100%',
+                        width: '100%',
+                        height: 'auto',
+                        minHeight: '320px',
+                        transform: 'scale(1)',
+                        cursor: 'default'
+                      }}
+                    >
+                      {clip.status === 'approved' && (
+                        <div className="status-badge approved">✓</div>
+                      )}
+
+                      {exportJob && index < exportJob.currentClipIndex && (
+                        <div className="absolute top-12 right-12">
+                          <IoCheckmarkCircle className="text-xl text-accent-success" />
+                        </div>
+                      )}
+
+                      <div className="clip-card-header">
+                        <span className={`content-type ${clip.contentType}`}>
+                          {clip.contentType}
+                        </span>
+                        <span className="shareability-score">
+                          {clip.shareabilityScore}★
+                        </span>
+                      </div>
+
+                      {clipTitle ? (
+                        <div className="flex-1">
+                          <h3 className="text-base font-semibold leading-tight text-text-primary mb-2">
+                            {clipTitle}
+                          </h3>
+                          <p className="line-clamp-3 text-sm text-text-muted">
+                            {clip.keyQuote}
+                          </p>
+                        </div>
+                      ) : (
+                        <blockquote className="clip-quote">
+                          "{clip.keyQuote}"
+                        </blockquote>
+                      )}
+
+                      <div className="clip-metadata">
+                        <span className="duration">{formatTime(clip.duration)}</span>
+                        <span className="divider">•</span>
+                        <span className="timestamp">
+                          {formatTime(clip.startTime)} - {formatTime(clip.endTime)}
+                        </span>
+                      </div>
+
+                      <p className="clip-reason">{clip.reason}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
           </div>
         </div>
       </div>

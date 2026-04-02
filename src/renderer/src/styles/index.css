@@ -1451,6 +1451,171 @@
     width: 100%;
   }
 
+  .export-page-header-actions {
+    justify-self: end;
+  }
+
+  .export-header-button {
+    border-radius: 5px;
+    min-height: 42px;
+  }
+
+  .export-inline-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .export-inline-label {
+    font-size: 13px;
+    color: rgba(240, 246, 252, 0.52);
+  }
+
+  .export-ratio-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .export-ratio-chip {
+    min-height: 34px;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(240, 246, 252, 0.72);
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .export-ratio-chip.is-active {
+    background: #f5f5f5;
+    border-color: #f5f5f5;
+    color: #171717;
+  }
+
+  .export-inline-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(240, 246, 252, 0.72);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .export-page-body {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 0 28px;
+    overflow: hidden;
+  }
+
+  .export-progress-shell {
+    padding: 16px 18px;
+  }
+
+  .export-progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+
+  .export-progress-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .export-progress-percent {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f3f5f7;
+  }
+
+  .export-progress-bar {
+    width: 100%;
+    height: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .export-progress-bar-fill {
+    height: 100%;
+    background: #f5f5f5;
+    transition: width 0.3s ease;
+  }
+
+  .export-clips-shell {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    padding: 18px;
+    overflow: hidden;
+  }
+
+  .export-clips-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .export-section-title {
+    font-size: 18px;
+    line-height: 1.2;
+    font-weight: 600;
+    color: #f3f5f7;
+  }
+
+  .export-section-copy {
+    margin-top: 4px;
+    font-size: 13px;
+    color: rgba(240, 246, 252, 0.52);
+  }
+
+  .export-status-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(240, 246, 252, 0.62);
+  }
+
+  .export-clips-grid {
+    display: grid;
+    min-height: 0;
+    flex: 1;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+  }
+
+  .export-clip-card {
+    min-width: 0;
+    border-radius: 5px;
+    border-color: rgba(255, 255, 255, 0.06);
+    background: #171717;
+    box-shadow: none;
+  }
+
   .template-asset-row {
     display: flex;
     align-items: center;
