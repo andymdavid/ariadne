@@ -437,7 +437,7 @@
   }
 
   .clip-editor-shell {
-    gap: 12px;
+    gap: 6px;
     height: auto;
     min-height: calc(100vh - 28px);
   }
