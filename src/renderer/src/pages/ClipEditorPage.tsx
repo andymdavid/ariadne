@@ -265,9 +265,11 @@ export function ClipEditorPage() {
   const [musicEnabled, setMusicEnabled] = useState(false)
   const [musicAssetPath, setMusicAssetPath] = useState<string | null>(null)
   const [musicVolume, setMusicVolume] = useState(0.3)
-  const [trackerEnabled, setTrackerEnabled] = useState(false)
+  const [trackerEnabled, setTrackerEnabled] = useState(true)
   const [isDraggingCaption, setIsDraggingCaption] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
+  const [isCaptionSelected, setIsCaptionSelected] = useState(false)
+  const [isLogoSelected, setIsLogoSelected] = useState(false)
   const [previewFrameWidth, setPreviewFrameWidth] = useState(260)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -360,11 +362,12 @@ const getPreviewCaptionText = (
         setLoading(true)
         setError(null)
 
-        const [rawClip, mediaSource, segments, brandTemplate] = await Promise.all([
+        const [rawClip, mediaSource, segments, brandTemplate, clipEdits] = await Promise.all([
           window.electronAPI?.getClip?.(clipId),
           window.electronAPI?.getEpisodeMediaSource?.(episodeId),
           window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => []),
-          window.electronAPI?.getBrandTemplate?.().catch(() => null)
+          window.electronAPI?.getBrandTemplate?.().catch(() => null),
+          window.electronAPI?.getClipEdits?.(clipId).catch(() => null)
         ])
 
         if (!rawClip) {
@@ -400,6 +403,7 @@ const getPreviewCaptionText = (
         setCurrentTime(mappedClip.startTime)
 
         const template = brandTemplate as BrandTemplate | null
+        const savedEdits = clipEdits as Record<string, any> | null
         const firstLine = (segments || [])[0]
         const activeCaptionText =
           getPreviewCaptionText(
@@ -428,48 +432,85 @@ const getPreviewCaptionText = (
         setCaptionPreview({
           presetId: template?.caption.presetId ?? null,
           text: activeCaptionText,
-          font: template?.caption.font || 'Inter',
-          fontSize: template?.caption.fontSize ?? 30,
-          fontWeight: template?.caption.fontWeight || '700',
-          italic: template?.caption.italic ?? false,
-          underline: template?.caption.underline ?? false,
-          uppercase: template?.caption.uppercase ?? false,
-          position: (template?.caption.position || 'bottom') as PreviewCaptionState['position'],
-          lineMode: template?.caption.lineMode || 'one-line',
-          backgroundEnabled: template?.caption.backgroundEnabled ?? true,
-          highlightColor: template?.caption.highlightColor || '#111111',
-          backgroundColor: template?.caption.backgroundColor || '#ffffff',
+          font: savedEdits?.caption_font || template?.caption.font || 'Inter',
+          fontSize: Number(savedEdits?.caption_size ?? template?.caption.fontSize ?? 30),
+          fontWeight: (
+            String(savedEdits?.caption_weight ?? template?.caption.fontWeight ?? '700') as PreviewCaptionState['fontWeight']
+          ),
+          italic: Boolean(savedEdits?.caption_italic ?? template?.caption.italic ?? false),
+          underline: Boolean(savedEdits?.caption_underline ?? template?.caption.underline ?? false),
+          uppercase:
+            savedEdits?.caption_text_case != null
+              ? String(savedEdits.caption_text_case).toLowerCase() === 'uppercase'
+              : (template?.caption.uppercase ?? false),
+          position: (
+            savedEdits?.caption_position ||
+            template?.caption.position ||
+            'bottom'
+          ) as PreviewCaptionState['position'],
+          lineMode:
+            Number(savedEdits?.caption_words_per_caption ?? 1) > 1
+              ? 'three-lines'
+              : (template?.caption.lineMode || 'one-line'),
+          backgroundEnabled:
+            savedEdits?.caption_background != null
+              ? Boolean(savedEdits.caption_background)
+              : (template?.caption.backgroundEnabled ?? true),
+          highlightColor:
+            savedEdits?.caption_text_color ||
+            savedEdits?.caption_color ||
+            template?.caption.highlightColor ||
+            '#111111',
+          backgroundColor: savedEdits?.caption_background_color || template?.caption.backgroundColor || '#ffffff',
           backgroundPaddingX: template?.caption.backgroundPaddingX ?? 24,
           backgroundPaddingY: template?.caption.backgroundPaddingY ?? 12,
           backgroundRadius: template?.caption.backgroundRadius ?? 16,
-          strokeColor: template?.caption.strokeColor || '#000000',
-          strokeWidth: template?.caption.strokeWidth ?? 0,
-          shadowEnabled: template?.caption.shadowEnabled ?? false,
+          strokeColor: savedEdits?.caption_outline_color || template?.caption.strokeColor || '#000000',
+          strokeWidth: Number(savedEdits?.caption_outline_width ?? template?.caption.strokeWidth ?? 0),
+          shadowEnabled:
+            savedEdits?.caption_shadow != null
+              ? Boolean(savedEdits.caption_shadow)
+              : (template?.caption.shadowEnabled ?? false),
           shadowColor: template?.caption.shadowColor || '#000000',
           shadowOffsetX: template?.caption.shadowOffsetX ?? 0,
           shadowOffsetY: template?.caption.shadowOffsetY ?? 0,
           shadowBlur: template?.caption.shadowBlur ?? 0,
-          customX: template?.caption.customX ?? null,
-          customY: template?.caption.customY ?? null
+          customX: savedEdits?.caption_custom_x ?? template?.caption.customX ?? null,
+          customY: savedEdits?.caption_custom_y ?? template?.caption.customY ?? null
         })
 
         setLogoPreview({
-          enabled: (template?.logo.enabled ?? false) || Boolean(template?.logo.assetPath),
-          assetPath: template?.logo.assetPath || null,
-          positionX: template?.logo.positionX ?? 85,
-          positionY: template?.logo.positionY ?? 85,
-          scale: template?.logo.scale ?? 0.15,
-          opacity: template?.logo.opacity ?? 0.8
+          enabled:
+            savedEdits?.logo_enabled != null
+              ? Boolean(savedEdits.logo_enabled)
+              : ((template?.logo.enabled ?? false) || Boolean(template?.logo.assetPath)),
+          assetPath: savedEdits?.logo_path || template?.logo.assetPath || null,
+          positionX: Number(savedEdits?.logo_position_x ?? template?.logo.positionX ?? 85),
+          positionY: Number(savedEdits?.logo_position_y ?? template?.logo.positionY ?? 85),
+          scale: Number(savedEdits?.logo_scale ?? template?.logo.scale ?? 0.15),
+          opacity: Number(savedEdits?.logo_opacity ?? template?.logo.opacity ?? 0.8)
         })
 
         setFramePreview({
-          aspectRatio: (template?.frame.aspectRatio || '9:16') as PreviewFrameState['aspectRatio'],
-          cropMode: (template?.frame.cropMode || 'fit') as PreviewFrameState['cropMode']
+          aspectRatio: (
+            savedEdits?.aspect_ratio ||
+            template?.frame.aspectRatio ||
+            '9:16'
+          ) as PreviewFrameState['aspectRatio'],
+          cropMode: (
+            savedEdits?.crop_mode ||
+            template?.frame.cropMode ||
+            'fit'
+          ) as PreviewFrameState['cropMode']
         })
 
-        setMusicEnabled(template?.music.enabled ?? false)
-        setMusicAssetPath(template?.music.assetPath || null)
-        setMusicVolume(template?.music.volume ?? 0.3)
+        setMusicEnabled(
+          savedEdits?.music_enabled != null
+            ? Boolean(savedEdits.music_enabled)
+            : (template?.music.enabled ?? false)
+        )
+        setMusicAssetPath(savedEdits?.music_path || template?.music.assetPath || null)
+        setMusicVolume(Number(savedEdits?.music_volume ?? template?.music.volume ?? 0.3))
       } catch (loadError) {
         console.error('Failed to load clip editor:', loadError)
         setError('Failed to load clip editor')
@@ -944,7 +985,8 @@ const getPreviewCaptionText = (
             caption_position: 'custom',
             caption_custom_x: captionPreview.customX,
             caption_custom_y: captionPreview.customY,
-            caption_font: captionPreview.font
+            caption_font: captionPreview.font,
+            caption_text_case: captionPreview.uppercase ? 'uppercase' : 'none'
           })
         }
 
@@ -1123,6 +1165,10 @@ const getPreviewCaptionText = (
               <div
                 ref={previewFrameRef}
                 className={`relative min-h-0 overflow-hidden rounded-[5px] bg-black ${previewAspectClass}`}
+                onMouseDown={() => {
+                  setIsCaptionSelected(false)
+                  setIsLogoSelected(false)
+                }}
               >
                     {mediaUrl && framePreview?.cropMode === 'blur' ? (
                       <>
@@ -1154,26 +1200,54 @@ const getPreviewCaptionText = (
                       />
                     ) : null}
                     {logoPreview?.enabled && logoPreview.assetPath ? (
-                      <img
-                        src={`app-file://${logoPreview.assetPath}`}
-                        alt="Brand logo"
-                        className="absolute"
+                      <div
+                        className="absolute z-20 select-none"
                         style={{
                           left: `${logoPreview.positionX}%`,
                           top: `${logoPreview.positionY}%`,
                           transform: 'translate(-50%, -50%)',
                           width: `${logoPreview.scale * 100}%`,
-                          opacity: logoPreview.opacity,
-                          zIndex: 20,
-                          cursor: isDraggingLogo ? 'grabbing' : 'grab'
+                          cursor: trackerEnabled ? (isDraggingLogo ? 'grabbing' : 'grab') : 'default'
                         }}
                         onMouseDown={(event) => {
-                          if (!trackerEnabled) return
+                          if (!trackerEnabled || event.button !== 0) return
                           event.preventDefault()
                           event.stopPropagation()
+                          setIsCaptionSelected(false)
+                          setIsLogoSelected(true)
                           setIsDraggingLogo(true)
                         }}
-                      />
+                      >
+                        <div
+                          className={`relative rounded-[5px] ${
+                            isDraggingLogo || isLogoSelected ? 'ring-2 ring-white/80' : ''
+                          }`}
+                        >
+                          <img
+                            src={`app-file://${logoPreview.assetPath}`}
+                            alt="Brand logo"
+                            className="block w-full pointer-events-none"
+                            style={{ opacity: logoPreview.opacity }}
+                            draggable={false}
+                          />
+                          {trackerEnabled && isLogoSelected ? (
+                            <>
+                              <div className="absolute inset-0 border border-white/80" />
+                              {[
+                                'left-0 top-0 -translate-x-1/2 -translate-y-1/2',
+                                'right-0 top-0 translate-x-1/2 -translate-y-1/2',
+                                'left-0 bottom-0 -translate-x-1/2 translate-y-1/2',
+                                'right-0 bottom-0 translate-x-1/2 translate-y-1/2'
+                              ].map((handleClass) => (
+                                <span
+                                  key={handleClass}
+                                  className={`absolute h-4 w-4 rounded-full border-2 border-white bg-[#09090b] ${handleClass}`}
+                                />
+                              ))}
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
                     ) : null}
                     {captionPreview?.text ? (
                       (() => {
@@ -1263,16 +1337,29 @@ const getPreviewCaptionText = (
                                   ? 'translate(-50%, -50%)'
                                   : 'translateX(-50%)',
                               zIndex: 25,
-                              cursor: isDraggingCaption ? 'grabbing' : 'grab'
+                              cursor: trackerEnabled ? (isDraggingCaption ? 'grabbing' : 'grab') : 'default'
                             }}
                             onMouseDown={(event) => {
-                              if (!trackerEnabled) return
+                              if (!trackerEnabled || event.button !== 0) return
                               event.preventDefault()
                               event.stopPropagation()
+                              setIsLogoSelected(false)
+                              setIsCaptionSelected(true)
                               setIsDraggingCaption(true)
                             }}
                           >
-                            {captionText}
+                            <div
+                              className={`${
+                                trackerEnabled && (isDraggingCaption || isCaptionSelected)
+                                  ? 'ring-2 ring-white/80'
+                                  : ''
+                              }`}
+                              style={{
+                                borderRadius: captionPreview.backgroundEnabled ? `${radius}px` : '5px'
+                              }}
+                            >
+                              {captionText}
+                            </div>
                           </div>
                         )
                       })()
