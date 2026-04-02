@@ -604,7 +604,7 @@ class FFmpegService {
       } else if (frameSettings.cropMode === 'blur') {
         // Blur background mode: blurred background with fitted video on top
         filters.push(`${videoLabel}split[blur][fg]`)
-        filters.push(`[blur]scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=fill,crop=${resolution.width}:${resolution.height},boxblur=20:5[bg]`)
+        filters.push(`[blur]scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=increase,crop=${resolution.width}:${resolution.height},boxblur=20:5[bg]`)
         filters.push(`[fg]scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease[fgscaled]`)
         filters.push(`[bg][fgscaled]overlay=(W-w)/2:(H-h)/2${currentVideoOutput}`)
       }
@@ -648,7 +648,7 @@ class FFmpegService {
         videoLabel = '[vout]'
       } else {
         // No subtitles, just rename the label to vout
-        filters.push(`${videoLabel}copy[vout]`)
+        filters.push(`${videoLabel}null[vout]`)
         videoLabel = '[vout]'
       }
 
@@ -690,7 +690,7 @@ class FFmpegService {
         }
       } else {
         // Just copy original audio
-        filters.push(`${audioLabel}copy[aout]`)
+        filters.push(`${audioLabel}anull[aout]`)
       }
 
       console.log('[FFmpegService] Generated filter complex:', filters.join('; '))
