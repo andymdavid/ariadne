@@ -443,9 +443,9 @@
 
   .clip-editor-transcript-panel {
     display: flex;
-    height: 520px;
+    height: 572px;
     min-height: 0;
-    max-height: 520px;
+    max-height: 572px;
   }
 
   .clip-editor-header-action {
