@@ -200,11 +200,18 @@ const isLegacyDefaultLogoPosition = (x: unknown, y: unknown) =>
 
 const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
 
-const getTimedClipCaptionWordState = (cue: CaptionCue | null, currentTime: number) => {
+const getTimedClipCaptionWordState = (
+  cue: CaptionCue | null,
+  currentTime: number,
+  uppercase = false
+) => {
   if (!cue) return { words: [] as string[], activeIndex: -1 }
   const cueWords = cue.words.filter((word) => word.word?.trim())
   if (cueWords.length === 0) {
-    const fallbackWords = cue.text.split(' ').filter(Boolean)
+    const fallbackWords = cue.text
+      .split(' ')
+      .filter(Boolean)
+      .map((word) => (uppercase ? word.toUpperCase() : word))
     return {
       words: fallbackWords,
       activeIndex: fallbackWords.length > 0 ? 0 : -1
@@ -220,7 +227,7 @@ const getTimedClipCaptionWordState = (cue: CaptionCue | null, currentTime: numbe
         : cueWords.length - 1
 
   return {
-    words: cueWords.map((word) => word.word),
+    words: cueWords.map((word) => (uppercase ? word.word.toUpperCase() : word.word)),
     activeIndex: safeIndex
   }
 }
@@ -1518,7 +1525,7 @@ export function ClipEditorPage() {
                           ? captionPreview.text.toUpperCase()
                           : captionPreview.text
                         const previewCaptionWords = activeCaptionCue
-                          ? getTimedClipCaptionWordState(activeCaptionCue, currentTime)
+                          ? getTimedClipCaptionWordState(activeCaptionCue, currentTime, captionPreview.uppercase)
                           : {
                               words: captionText.split(' ').filter(Boolean),
                               activeIndex: captionText.trim() ? 0 : -1
