@@ -1084,7 +1084,7 @@ export function BrandTemplatePage() {
                               style={{
                                 background: preset.backgroundColor,
                                 color: preset.highlightColor,
-                                fontFamily: preset.font,
+                                fontFamily: getFontFamilyValue(preset.font),
                                 fontWeight: preset.fontWeight
                               }}
                             >
@@ -1761,6 +1761,10 @@ function toCssAspectRatio(aspectRatio: BrandTemplate['frame']['aspectRatio']) {
   return aspectRatio.replace(':', ' / ')
 }
 
+function getFontFamilyValue(fontFamily: string) {
+  return `"${fontFamily}", "Hedvig Letters Sans", system-ui, sans-serif`
+}
+
 function getPreviewMaxWidth(aspectRatio: BrandTemplate['frame']['aspectRatio']) {
   if (aspectRatio === '16:9') return 640
   if (aspectRatio === '1:1') return 430
@@ -1838,7 +1842,7 @@ function getPreviewCaptionTextStyle(caption: BrandTemplate['caption']): CSSPrope
   return {
     display: 'inline-block',
     whiteSpace: caption.lineMode === 'three-lines' ? 'pre-line' : 'normal',
-    fontFamily: caption.font,
+    fontFamily: getFontFamilyValue(caption.font),
     fontSize: `${caption.fontSize}px`,
     fontWeight: caption.fontWeight,
     fontStyle: caption.italic ? 'italic' : 'normal',
