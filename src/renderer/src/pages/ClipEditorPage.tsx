@@ -1487,11 +1487,11 @@ export function ClipEditorPage() {
                           layout.maxWidth ?? Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio),
                           previewFrameWidth - 24
                         )
-                        const singleLineWidth = Math.min(
+                        const singleLineMaxWidth = Math.min(
                           maxBubbleWidth,
                           Math.max(layout.minWidth, Math.ceil(measuredTextWidth + paddingX * 2))
                         )
-                        const resolvedBubbleWidth = maxLines === 1 ? singleLineWidth : bubbleWidth
+                        const resolvedBubbleWidth = maxLines === 1 ? undefined : bubbleWidth
 
                         return (
                           <div
@@ -1506,8 +1506,13 @@ export function ClipEditorPage() {
                               textDecoration: captionPreview.underline ? 'underline' : 'none',
                               color: captionPreview.highlightColor,
                               background: captionPreview.backgroundEnabled ? captionPreview.backgroundColor : 'transparent',
-                              width: `${resolvedBubbleWidth}px`,
-                              maxWidth: `${resolvedBubbleWidth}px`,
+                              width: resolvedBubbleWidth ? `${resolvedBubbleWidth}px` : 'auto',
+                              maxWidth:
+                                maxLines === 1
+                                  ? `${singleLineMaxWidth}px`
+                                  : resolvedBubbleWidth
+                                    ? `${resolvedBubbleWidth}px`
+                                    : 'none',
                               padding: captionPreview.backgroundEnabled ? `${paddingY}px ${paddingX}px` : '0',
                               borderRadius: captionPreview.backgroundEnabled ? `${radius}px` : '0',
                               WebkitTextStroke:
