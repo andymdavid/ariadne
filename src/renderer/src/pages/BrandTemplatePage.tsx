@@ -1796,7 +1796,7 @@ export function BrandTemplatePage() {
                         }}
                       >
                         <div
-                          className={`rounded-2xl px-6 py-3 text-center shadow-lg ${isDraggingCaption ? 'ring-2 ring-white/80' : ''}`}
+                          className={`rounded-2xl text-center shadow-lg ${isDraggingCaption ? 'ring-2 ring-white/80' : ''}`}
                           style={previewCaptionCardStyle}
                         >
                           <span style={previewCaptionTextStyle}>
