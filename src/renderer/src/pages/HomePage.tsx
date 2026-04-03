@@ -374,7 +374,7 @@ export function HomePage() {
               <button
                 type="button"
                 onClick={handleFileSelect}
-                className="app-surface-muted flex min-h-[190px] flex-col items-center justify-center border-dashed text-center transition-colors hover:border-white/14 hover:bg-[#111111]"
+                className="app-empty-state app-empty-state-compact text-center transition-colors"
               >
                 <IoAddCircleOutline size={28} className="text-text-muted" />
                 <div className="mt-4 text-lg font-medium text-text-primary">Upload local file</div>
@@ -388,18 +388,18 @@ export function HomePage() {
                   key={project.id}
                   type="button"
                   onClick={() => handleOpenProject(project)}
-                  className="app-surface group relative flex h-full min-h-[292px] flex-col p-3 text-left transition-colors hover:border-white/14 hover:bg-[#121212]"
+                  className="app-surface group relative flex h-full min-h-[292px] flex-col p-3 text-left transition-colors hover:border-[#262626] hover:bg-[#171717]"
                 >
                   <button
                     type="button"
                     onClick={(event) => handleDeleteProject(event, project)}
                     disabled={deletingProjectId === project.episode.projectId}
-                    className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/10 bg-[#111111] text-text-secondary opacity-0 transition hover:border-white/16 hover:text-text-primary group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-100"
+                    className="app-icon-button absolute right-4 top-4 z-10 opacity-0 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-100"
                     aria-label={`Delete ${project.name}`}
                   >
                     <IoClose size={14} />
                   </button>
-                  <div className="aspect-video w-full shrink-0 overflow-hidden rounded-[5px] bg-[#0d0d0d]">
+                  <div className="app-media-frame aspect-video w-full shrink-0">
                     <ProjectCardPreview project={project} />
                   </div>
                   <div className="mt-4 line-clamp-2 min-h-[3.5rem] text-lg font-medium leading-tight text-text-primary">

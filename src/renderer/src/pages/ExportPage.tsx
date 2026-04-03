@@ -209,7 +209,7 @@ export function ExportPage() {
       <MainContentPanel>
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center">
-            <div className="animate-spin text-4xl mb-4">⏳</div>
+            <div className="mb-4 text-4xl text-text-muted">⏳</div>
             <div className="text-text-secondary">Loading approved clips...</div>
           </div>
         </div>
@@ -225,10 +225,7 @@ export function ExportPage() {
             <IoWarning className="text-5xl text-accent-danger mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
             <p className="text-text-secondary mb-6">{error}</p>
-            <button
-              className="btn-primary"
-              onClick={() => navigate(`/review/${episodeId}`)}
-            >
+            <button className="btn-primary" onClick={() => navigate(`/review/${episodeId}`)}>
               Back to Review
             </button>
           </div>
@@ -252,10 +249,7 @@ export function ExportPage() {
                   You need to approve clips in the Review page before you can export them.
                 </p>
               </div>
-              <button
-                className="btn-primary"
-                onClick={() => navigate(`/review/${episodeId}`)}
-              >
+              <button className="btn-primary" onClick={() => navigate(`/review/${episodeId}`)}>
                 Go to Review
               </button>
             </div>
