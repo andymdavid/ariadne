@@ -1462,18 +1462,14 @@ export function ClipEditorPage() {
                         const bubbleWidth = layout.maxWidth
                           ? Math.min(layout.maxWidth, Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio))
                           : Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
-                        const fontSize = clamp(
-                          Math.round(captionPreview.fontSize * (previewFrameWidth / 300)),
-                          12,
-                          72
-                        )
-                        const paddingX = Math.round(captionPreview.backgroundPaddingX * (previewFrameWidth / 300))
-                        const paddingY = Math.round(captionPreview.backgroundPaddingY * (previewFrameWidth / 300))
-                        const radius = Math.round(captionPreview.backgroundRadius * (previewFrameWidth / 300))
-                        const strokeWidth = Math.max(0, Math.round(captionPreview.strokeWidth * (previewFrameWidth / 300)))
-                        const shadowBlur = Math.max(0, Math.round(captionPreview.shadowBlur * (previewFrameWidth / 300)))
-                        const shadowOffsetX = Math.round(captionPreview.shadowOffsetX * (previewFrameWidth / 300))
-                        const shadowOffsetY = Math.round(captionPreview.shadowOffsetY * (previewFrameWidth / 300))
+                        const fontSize = clamp(captionPreview.fontSize, 12, 72)
+                        const paddingX = Math.max(0, captionPreview.backgroundPaddingX)
+                        const paddingY = Math.max(0, captionPreview.backgroundPaddingY)
+                        const radius = Math.max(0, captionPreview.backgroundRadius)
+                        const strokeWidth = Math.max(0, captionPreview.strokeWidth)
+                        const shadowBlur = Math.max(0, captionPreview.shadowBlur)
+                        const shadowOffsetX = captionPreview.shadowOffsetX
+                        const shadowOffsetY = captionPreview.shadowOffsetY
                         const captionText = captionPreview.uppercase
                           ? captionPreview.text.toUpperCase()
                           : captionPreview.text
