@@ -574,6 +574,9 @@ export function ClipEditorPage() {
           clipOverridesCurrent &&
           savedEdits?.logo_position_x != null &&
           savedEdits?.logo_position_y != null
+        const useFrameOverride =
+          clipOverridesCurrent &&
+          (savedEdits?.aspect_ratio != null || savedEdits?.crop_mode != null)
 
         setCaptionPreview({
           presetId: template?.caption.presetId ?? null,
@@ -618,12 +621,12 @@ export function ClipEditorPage() {
 
         setFramePreview({
           aspectRatio: (
-            savedEdits?.aspect_ratio ||
+            (useFrameOverride ? savedEdits?.aspect_ratio : null) ||
             template?.frame.aspectRatio ||
             '9:16'
           ) as PreviewFrameState['aspectRatio'],
           cropMode: (
-            savedEdits?.crop_mode ||
+            (useFrameOverride ? savedEdits?.crop_mode : null) ||
             template?.frame.cropMode ||
             'fit'
           ) as PreviewFrameState['cropMode']
