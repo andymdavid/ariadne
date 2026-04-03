@@ -468,18 +468,14 @@ export function ClipEditorPage() {
     const maxLines = lineMode === 'three-lines' ? 3 : 1
     const rawBubbleWidth = Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
     const maxBubbleWidth = layout.maxWidth ? Math.min(layout.maxWidth, rawBubbleWidth) : rawBubbleWidth
-    const scaledFontSize = clamp(
-      Math.round((captionPreview?.fontSize ?? 30) * (previewFrameWidth / 300)),
-      layout.minFontSize,
-      layout.maxFontSize
-    )
-    const paddingX = Math.round((captionPreview?.backgroundPaddingX ?? 24) * (previewFrameWidth / 300))
+    const fontSize = clamp(captionPreview?.fontSize ?? 30, 12, 72)
+    const paddingX = Math.max(0, captionPreview?.backgroundPaddingX ?? 24)
     const maxTextWidth = Math.max(96, Math.min(maxBubbleWidth, previewFrameWidth - 24) - paddingX * 2)
 
     return {
       maxWordsPerCue: 3,
       maxTextWidth: maxLines === 1 ? maxTextWidth : undefined,
-      fontSize: scaledFontSize,
+      fontSize,
       fontFamily: captionPreview?.font || 'Inter',
       fontWeight: Number(captionPreview?.fontWeight ?? 700)
     }
@@ -1551,13 +1547,13 @@ export function ClipEditorPage() {
                               <span
                                 style={{
                                   display: 'inline-block',
-                                  whiteSpace: maxLines === 1 ? 'normal' : 'pre-line',
+                                  whiteSpace: maxLines === 1 ? 'nowrap' : 'pre-line',
                                   fontFamily: getFontFamilyValue(captionPreview.font),
                                   fontSize: `${fontSize}px`,
                                   fontWeight: captionPreview.fontWeight,
                                   fontStyle: captionPreview.italic ? 'italic' : 'normal',
                                   textDecoration: captionPreview.underline ? 'underline' : 'none',
-                                  lineHeight: maxLines === 1 ? 1.1 : 1.28,
+                                  lineHeight: maxLines === 1 ? 'normal' : 1.28,
                                   color: captionPreview.highlightColor,
                                   WebkitTextStroke:
                                     strokeWidth > 0 ? `${strokeWidth}px ${captionPreview.strokeColor}` : undefined,
