@@ -1475,7 +1475,7 @@ export function ClipEditModal({
   const isPagePresentation = presentation === 'page'
   const containerClassName = isPagePresentation
     ? 'h-full w-full bg-bg-primary border border-border-default overflow-hidden flex flex-col'
-    : 'absolute inset-0 bg-bg-primary rounded-xl border border-border-default shadow-2xl overflow-hidden flex flex-col z-[60]'
+    : 'absolute inset-0 legacy-editor-panel overflow-hidden flex flex-col z-[60]'
   const activeSection = EDITOR_SECTIONS.find((section) => section.id === activeTab) ?? EDITOR_SECTIONS[0]
   const clipDurationLabel = formatPreciseTime(editedEndTime - editedStartTime)
   const clipWordCount = visibleTrimWords.length
@@ -1497,7 +1497,7 @@ export function ClipEditModal({
             {isPagePresentation && onBack && (
               <button
                 onClick={onBack}
-                className="inline-flex h-9 items-center gap-2 rounded-full border border-border-default bg-bg-secondary px-3 text-sm text-text-secondary hover:bg-hover-bg hover:text-text-primary transition-colors"
+                className="shell-inline-button h-9"
               >
                 <IoArrowBack className="text-base" />
                 Back to Review
@@ -1514,7 +1514,7 @@ export function ClipEditModal({
           </div>
           <button
             onClick={handleClose}
-            className="w-8 h-8 rounded-full bg-bg-tertiary hover:bg-hover-bg flex items-center justify-center text-text-muted hover:text-text-primary transition-colors"
+            className="app-icon-button"
             aria-label={isPagePresentation ? 'Close editor' : 'Close modal'}
           >
             <IoClose className="text-xl" />
@@ -1542,11 +1542,7 @@ export function ClipEditModal({
                       key={section.id}
                       type="button"
                       onClick={() => setActiveTab(section.id)}
-                      className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
-                        isActive
-                          ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
-                          : 'border-transparent bg-transparent text-text-secondary hover:border-border-default hover:bg-bg-primary/60 hover:text-text-primary'
-                      }`}
+                      className={`legacy-editor-nav-button px-3 py-3 text-left ${isActive ? 'is-active' : ''}`}
                     >
                       <div className="text-sm font-medium">{section.label}</div>
                       <div className="mt-1 text-xs text-text-muted">{section.description}</div>
@@ -2436,18 +2432,14 @@ export function ClipEditModal({
           {/* Right Panel: Video Preview */}
           <div className={`border-l border-border-default bg-bg-secondary flex flex-col ${isPagePresentation ? 'w-[360px] p-3' : 'items-center justify-center p-4 flex-shrink-0'}`} style={isPagePresentation ? undefined : { width: '25%' }}>
           {isPagePresentation && (
-            <div className="mb-3 rounded-xl border border-border-default bg-bg-primary/70 p-3">
+            <div className="legacy-editor-panel mb-3 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Current Tool</div>
                   <div className="mt-1 text-lg font-semibold text-text-primary">{activeSection.label}</div>
                   <p className="mt-1 text-xs leading-relaxed text-text-muted">{activeSection.description}</p>
                 </div>
-                <div className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                  hasUnsavedChanges
-                    ? 'bg-amber-500/15 text-amber-300'
-                    : 'bg-emerald-500/15 text-emerald-300'
-                }`}>
+                <div className={`legacy-editor-status-pill ${hasUnsavedChanges ? 'is-dirty' : 'is-clean'}`}>
                   {hasUnsavedChanges ? 'Unsaved' : 'Saved'}
                 </div>
               </div>
@@ -2455,7 +2447,7 @@ export function ClipEditModal({
           )}
           <div
             ref={videoContainerRef}
-            className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center"
+            className="legacy-editor-panel relative overflow-hidden flex items-center justify-center"
             style={{
               aspectRatio: frameSettings?.aspectRatio || '9/16',
               width: '100%',
@@ -2857,7 +2849,7 @@ export function ClipEditModal({
             </div>
 
             {isPagePresentation && (
-              <div className="mt-3 flex-1 overflow-y-auto rounded-xl border border-border-default bg-bg-primary/70 p-3">
+              <div className="legacy-editor-panel mt-3 flex-1 overflow-y-auto p-3">
                 <div className="space-y-3">
                   <div>
                     <div className="text-xs uppercase tracking-[0.18em] text-text-muted">Clip Summary</div>
@@ -3001,9 +2993,7 @@ export function ClipEditModal({
             <Button
               onClick={handleSave}
               disabled={saving}
-              className={`flex items-center space-x-2 transition-colors ${
-                justSaved ? 'bg-green-600 hover:bg-green-700' : ''
-              }`}
+              className="flex items-center space-x-2"
             >
               {justSaved ? <IoCheckmarkCircle /> : <IoSaveOutline />}
               <span>{saving ? 'Saving...' : justSaved ? 'Saved!' : 'Save Changes'}</span>

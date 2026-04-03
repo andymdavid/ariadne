@@ -40,8 +40,8 @@ const cropModeOptions = [
     description: 'Scale and crop to fill frame',
     detail: 'Video fills entire frame (sides may be cut off)',
     visual: (
-      <div className="w-12 h-16 border-2 border-accent-primary rounded flex items-center justify-center bg-accent-primary/20">
-        <div className="w-full h-full bg-accent-primary/40"></div>
+      <div className="w-12 h-16 rounded-[5px] border border-white/20 bg-white/5 flex items-center justify-center">
+        <div className="w-full h-full bg-white/15"></div>
       </div>
     )
   },
@@ -51,9 +51,9 @@ const cropModeOptions = [
     description: 'Scale video layer with zoom control',
     detail: 'Drag to reposition, zoom slider to scale (CapCut style)',
     visual: (
-      <div className="w-12 h-16 border-2 border-accent-primary rounded relative">
-        <div className="absolute inset-1 bg-accent-primary/10"></div>
-        <div className="absolute inset-x-2 inset-y-0 bg-accent-primary/50"></div>
+      <div className="w-12 h-16 rounded-[5px] border border-white/20 relative">
+        <div className="absolute inset-1 bg-white/5"></div>
+        <div className="absolute inset-x-2 inset-y-0 bg-white/20"></div>
       </div>
     )
   },
@@ -63,9 +63,9 @@ const cropModeOptions = [
     description: 'Fill empty space with blur',
     detail: 'Blurred video behind (no black bars)',
     visual: (
-      <div className="w-12 h-16 border-2 border-accent-primary rounded flex items-center justify-center bg-gradient-to-b from-accent-primary/10 to-accent-primary/20 backdrop-blur-sm relative overflow-hidden">
-        <div className="absolute inset-0 bg-accent-primary/5 backdrop-blur"></div>
-        <div className="w-8 h-8 bg-accent-primary/40 border border-accent-primary/60 relative z-10"></div>
+      <div className="w-12 h-16 rounded-[5px] border border-white/20 flex items-center justify-center bg-white/5 relative overflow-hidden">
+        <div className="absolute inset-0 bg-white/5 backdrop-blur-sm"></div>
+        <div className="w-8 h-8 bg-white/15 border border-white/20 relative z-10"></div>
       </div>
     )
   }
@@ -199,7 +199,7 @@ export function FrameEditor({
       </div>
 
       {/* Aspect Ratio Selection */}
-      <div className="space-y-3 p-3 bg-bg-secondary rounded-lg border border-border-default">
+      <div className="legacy-editor-panel space-y-3 p-3">
         <div className="text-xs font-medium text-text-primary mb-2">Aspect Ratio</div>
 
         <div className="grid grid-cols-3 gap-3">
@@ -207,37 +207,31 @@ export function FrameEditor({
             <button
               key={option.value}
               onClick={() => updateSettings({ aspectRatio: option.value })}
-              className={`p-3 rounded-lg border-2 transition-all ${
-                settings.aspectRatio === option.value
-                  ? 'border-accent-primary bg-accent-primary/10'
-                  : 'border-border-default bg-bg-tertiary hover:bg-bg-primary'
-              }`}
+              className={`legacy-editor-option-card p-3 transition-all ${settings.aspectRatio === option.value ? 'is-active' : ''}`}
             >
               <div className="flex flex-col items-center space-y-2">
                 {/* Visual representation */}
                 <div className="flex items-center justify-center w-full h-12">
                   {option.value === '1:1' && (
-                    <div className={`w-10 h-10 border-2 rounded ${
-                      settings.aspectRatio === option.value ? 'border-accent-primary bg-accent-primary/20' : 'border-text-muted bg-bg-primary'
+                    <div className={`w-10 h-10 rounded-[5px] border ${
+                      settings.aspectRatio === option.value ? 'border-white/30 bg-white/10' : 'border-white/14 bg-black/20'
                     }`}></div>
                   )}
                   {option.value === '9:16' && (
-                    <div className={`w-7 h-12 border-2 rounded ${
-                      settings.aspectRatio === option.value ? 'border-accent-primary bg-accent-primary/20' : 'border-text-muted bg-bg-primary'
+                    <div className={`w-7 h-12 rounded-[5px] border ${
+                      settings.aspectRatio === option.value ? 'border-white/30 bg-white/10' : 'border-white/14 bg-black/20'
                     }`}></div>
                   )}
                   {option.value === '16:9' && (
-                    <div className={`w-12 h-7 border-2 rounded ${
-                      settings.aspectRatio === option.value ? 'border-accent-primary bg-accent-primary/20' : 'border-text-muted bg-bg-primary'
+                    <div className={`w-12 h-7 rounded-[5px] border ${
+                      settings.aspectRatio === option.value ? 'border-white/30 bg-white/10' : 'border-white/14 bg-black/20'
                     }`}></div>
                   )}
                 </div>
 
                 {/* Label */}
                 <div className="text-center">
-                  <div className={`text-sm font-semibold ${
-                    settings.aspectRatio === option.value ? 'text-accent-primary' : 'text-text-primary'
-                  }`}>
+                  <div className="text-sm font-semibold text-text-primary">
                     {option.label}
                   </div>
                   <div className="text-xs text-text-muted mt-0.5">
@@ -251,7 +245,7 @@ export function FrameEditor({
       </div>
 
       {/* Crop Mode Selection */}
-      <div className="space-y-3 p-3 bg-bg-secondary rounded-lg border border-border-default">
+      <div className="legacy-editor-panel space-y-3 p-3">
         <div className="text-xs font-medium text-text-primary mb-2">Crop Mode</div>
 
         <div className="space-y-3">
@@ -259,22 +253,18 @@ export function FrameEditor({
             <button
               key={option.value}
               onClick={() => updateSettings({ cropMode: option.value })}
-              className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
-                settings.cropMode === option.value
-                  ? 'border-accent-primary bg-accent-primary/10'
-                  : 'border-border-default bg-bg-tertiary hover:bg-bg-primary'
-              }`}
+              className={`legacy-editor-option-card w-full p-3 text-left transition-all ${settings.cropMode === option.value ? 'is-active' : ''}`}
             >
               <div className="flex items-start space-x-3">
                 {/* Radio indicator */}
                 <div className="flex-shrink-0 mt-1">
-                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
                     settings.cropMode === option.value
-                      ? 'border-accent-primary'
-                      : 'border-text-muted'
+                      ? 'border-white/50'
+                      : 'border-white/18'
                   }`}>
                     {settings.cropMode === option.value && (
-                      <div className="w-2 h-2 rounded-full bg-accent-primary"></div>
+                      <div className="w-2 h-2 rounded-full bg-white"></div>
                     )}
                   </div>
                 </div>
@@ -286,9 +276,7 @@ export function FrameEditor({
 
                 {/* Description */}
                 <div className="flex-1 min-w-0">
-                  <div className={`text-sm font-semibold ${
-                    settings.cropMode === option.value ? 'text-accent-primary' : 'text-text-primary'
-                  }`}>
+                  <div className="text-sm font-semibold text-text-primary">
                     {option.label}
                   </div>
                   <div className="text-xs text-text-muted mt-0.5">
@@ -305,7 +293,7 @@ export function FrameEditor({
       </div>
 
       {/* Info Box */}
-      <div className="p-3 bg-accent-primary/5 border border-accent-primary/20 rounded-lg">
+      <div className="legacy-editor-note">
         <p className="text-xs text-text-secondary">
           💡 <span className="font-medium">Tip:</span> {settings.cropMode === 'center' || settings.cropMode === 'fit'
             ? 'Drag the video in the preview to adjust framing; use the zoom slider to punch in or reveal more'
@@ -315,7 +303,7 @@ export function FrameEditor({
 
       {/* Zoom Control (Center crop only) */}
       {(settings.cropMode === 'center' || settings.cropMode === 'fit') && (
-        <div className="space-y-3 p-3 bg-bg-secondary rounded-lg border border-border-default">
+        <div className="legacy-editor-panel space-y-3 p-3">
           <div className="flex items-center justify-between text-xs font-medium text-text-primary">
             <span>Zoom / Scale</span>
             <span className="text-text-secondary">{(settings.zoomLevel ?? 1).toFixed(2)}x</span>
@@ -327,7 +315,7 @@ export function FrameEditor({
             step="0.01"
             value={settings.zoomLevel ?? 1}
             onChange={(e) => updateSettings({ zoomLevel: Number(e.target.value) })}
-            className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
+            className="legacy-editor-slider"
           />
           <p className="text-xs text-text-muted">
             1.0x keeps the default framing. Increase to punch in, decrease to reveal more of the original video.
@@ -337,7 +325,7 @@ export function FrameEditor({
             <div className="text-center">
               <button
                 onClick={() => updateSettings({ videoOffsetX: 0, videoOffsetY: 0 })}
-                className="text-xs text-accent-primary hover:underline"
+                className="text-xs text-text-secondary hover:text-text-primary"
               >
                 Reset position to center
               </button>

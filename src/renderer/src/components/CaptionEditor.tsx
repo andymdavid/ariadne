@@ -338,7 +338,7 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
   return (
     <div className="space-y-4">
       {/* Video Player with Caption Overlay */}
-      <div className="relative bg-bg-tertiary rounded-lg overflow-hidden" style={{ aspectRatio: '9/16', maxHeight: '70vh', margin: '0 auto' }}>
+      <div className="legacy-editor-panel relative overflow-hidden" style={{ aspectRatio: '9/16', maxHeight: '70vh', margin: '0 auto' }}>
         {clipPath ? (
           <>
             <video
@@ -400,7 +400,7 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
             <div className="absolute top-4 right-4">
               <button
                 onClick={togglePlayPause}
-                className="w-12 h-12 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center transition-colors"
+                className="app-icon-button h-12 w-12 rounded-[5px] bg-black/60 hover:bg-black/70"
               >
                 {isPlaying ? (
                   <IoPauseOutline className="text-white text-2xl" />
@@ -463,7 +463,7 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
                 <select
                   value={settings.font}
                   onChange={(e) => setSettings({ ...settings, font: e.target.value })}
-                  className="w-full px-2 py-1.5 text-sm bg-bg-secondary border border-border-default rounded text-text-primary"
+                  className="legacy-editor-select text-sm"
                 >
                   <option value="Inter">Inter</option>
                   <option value="Arial">Arial</option>
@@ -494,7 +494,7 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
                   type="color"
                   value={settings.color}
                   onChange={(e) => setSettings({ ...settings, color: e.target.value })}
-                  className="w-full h-8 bg-bg-secondary border border-border-default rounded cursor-pointer"
+                  className="legacy-editor-color"
                 />
               </div>
 
@@ -504,7 +504,7 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
                 <select
                   value={settings.position}
                   onChange={(e) => setSettings({ ...settings, position: e.target.value as any })}
-                  className="w-full px-2 py-1.5 text-sm bg-bg-secondary border border-border-default rounded text-text-primary"
+                  className="legacy-editor-select text-sm"
                 >
                   <option value="top">Top</option>
                   <option value="center">Center</option>
@@ -577,7 +577,7 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
                         type="color"
                         value={settings.outlineColor}
                         onChange={(e) => setSettings({ ...settings, outlineColor: e.target.value })}
-                        className="w-full h-8 bg-bg-secondary border border-border-default rounded cursor-pointer"
+                        className="legacy-editor-color"
                       />
                     </div>
                     <div>
@@ -602,7 +602,7 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
                         type="color"
                         value={settings.backgroundColor}
                         onChange={(e) => setSettings({ ...settings, backgroundColor: e.target.value })}
-                        className="w-full h-8 bg-bg-secondary border border-border-default rounded cursor-pointer"
+                        className="legacy-editor-color"
                       />
                     </div>
                     <div>

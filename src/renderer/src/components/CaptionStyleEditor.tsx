@@ -125,7 +125,7 @@ export function CaptionStyleEditor({
       {style.enabled && (
         <>
           {/* Style Settings Grid */}
-          <div className="space-y-3 p-3 bg-bg-secondary rounded-lg border border-border-default">
+          <div className="legacy-editor-panel space-y-3 p-3">
             <div className="text-xs font-medium text-text-primary mb-2">Style Settings</div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -135,7 +135,7 @@ export function CaptionStyleEditor({
                 <select
                   value={style.font}
                   onChange={(e) => updateStyle({ font: e.target.value })}
-                  className="w-full px-2 py-1.5 text-sm bg-bg-primary border border-border-default rounded text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                  className="legacy-editor-select text-sm focus:outline-none"
                 >
                   <option value="Inter">Inter</option>
                   <option value="Anton">Anton</option>
@@ -158,7 +158,7 @@ export function CaptionStyleEditor({
                       updateStyle({ position: newPosition, customX: undefined, customY: undefined })
                     }
                   }}
-                  className="w-full px-2 py-1.5 text-sm bg-bg-primary border border-border-default rounded text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                  className="legacy-editor-select text-sm focus:outline-none"
                 >
                   <option value="top">Top</option>
                   <option value="center">Center</option>
@@ -180,7 +180,7 @@ export function CaptionStyleEditor({
                   step="4"
                   value={Math.min(style.size, 160)}
                   onChange={(e) => updateStyle({ size: Number(e.target.value) })}
-                  className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
+                  className="legacy-editor-slider"
                 />
               </div>
 
@@ -192,7 +192,7 @@ export function CaptionStyleEditor({
                     type="color"
                     value={style.color}
                     onChange={(e) => updateStyle({ color: e.target.value })}
-                    className="w-12 h-8 bg-bg-primary border border-border-default rounded cursor-pointer"
+                    className="legacy-editor-color"
                   />
                   <span className="text-xs font-mono text-text-secondary">{style.color}</span>
                 </div>
@@ -201,7 +201,7 @@ export function CaptionStyleEditor({
           </div>
 
           {/* Layout & Spacing */}
-          <div className="space-y-3 p-3 bg-bg-secondary rounded-lg border border-border-default">
+          <div className="legacy-editor-panel space-y-3 p-3">
             <div className="text-xs font-medium text-text-primary mb-2">Layout & Spacing</div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -215,7 +215,7 @@ export function CaptionStyleEditor({
                   step="5"
                   value={style.maxWidth}
                   onChange={(e) => updateStyle({ maxWidth: Number(e.target.value) })}
-                  className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
+                  className="legacy-editor-slider"
                 />
               </div>
 
@@ -229,7 +229,7 @@ export function CaptionStyleEditor({
                   step="0.1"
                   value={style.lineHeight}
                   onChange={(e) => updateStyle({ lineHeight: Number(e.target.value) })}
-                  className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
+                  className="legacy-editor-slider"
                 />
               </div>
 
@@ -243,14 +243,14 @@ export function CaptionStyleEditor({
                   step="1"
                   value={style.letterSpacing}
                   onChange={(e) => updateStyle({ letterSpacing: Number(e.target.value) })}
-                  className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
+                  className="legacy-editor-slider"
                 />
               </div>
             </div>
           </div>
 
           {/* Text Style Toggles */}
-          <div className="space-y-3 p-3 bg-bg-secondary rounded-lg border border-border-default">
+          <div className="legacy-editor-panel space-y-3 p-3">
             <div className="text-xs font-medium text-text-primary mb-2">Text Style</div>
 
             <div className="flex flex-wrap gap-4">
@@ -259,7 +259,7 @@ export function CaptionStyleEditor({
                 <select
                   value={style.weight}
                   onChange={(e) => updateStyle({ weight: parseInt(e.target.value) })}
-                  className="px-2 py-1 text-xs bg-bg-primary border border-border-default rounded text-text-primary"
+                  className="legacy-editor-select text-xs"
                 >
                   <option value="100">Thin (100)</option>
                   <option value="200">ExtraLight (200)</option>
@@ -322,8 +322,8 @@ export function CaptionStyleEditor({
                   onClick={() => updateStyle({ textCase: 'normal' })}
                   className={`flex-1 px-3 py-1.5 text-xs rounded transition-colors ${
                     style.textCase === 'normal'
-                      ? 'bg-accent-primary text-white'
-                      : 'bg-bg-tertiary text-text-secondary hover:bg-bg-primary'
+                      ? 'legacy-editor-segmented-button is-active'
+                      : 'legacy-editor-segmented-button'
                   }`}
                 >
                   Normal
@@ -332,8 +332,8 @@ export function CaptionStyleEditor({
                   onClick={() => updateStyle({ textCase: 'uppercase' })}
                   className={`flex-1 px-3 py-1.5 text-xs rounded transition-colors ${
                     style.textCase === 'uppercase'
-                      ? 'bg-accent-primary text-white'
-                      : 'bg-bg-tertiary text-text-secondary hover:bg-bg-primary'
+                      ? 'legacy-editor-segmented-button is-active'
+                      : 'legacy-editor-segmented-button'
                   }`}
                 >
                   UPPERCASE
@@ -342,8 +342,8 @@ export function CaptionStyleEditor({
                   onClick={() => updateStyle({ textCase: 'lowercase' })}
                   className={`flex-1 px-3 py-1.5 text-xs rounded transition-colors ${
                     style.textCase === 'lowercase'
-                      ? 'bg-accent-primary text-white'
-                      : 'bg-bg-tertiary text-text-secondary hover:bg-bg-primary'
+                      ? 'legacy-editor-segmented-button is-active'
+                      : 'legacy-editor-segmented-button'
                   }`}
                 >
                   lowercase
@@ -361,7 +361,7 @@ export function CaptionStyleEditor({
                       type="color"
                       value={style.outlineColor}
                       onChange={(e) => updateStyle({ outlineColor: e.target.value })}
-                      className="w-12 h-8 bg-bg-primary border border-border-default rounded cursor-pointer"
+                      className="legacy-editor-color"
                     />
                     <span className="text-xs font-mono text-text-secondary">{style.outlineColor}</span>
                   </div>
@@ -374,7 +374,7 @@ export function CaptionStyleEditor({
                     max="8"
                     value={style.outlineWidth}
                     onChange={(e) => updateStyle({ outlineWidth: Number(e.target.value) })}
-                    className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
+                    className="legacy-editor-slider"
                   />
                 </div>
               </div>
@@ -390,7 +390,7 @@ export function CaptionStyleEditor({
                       type="color"
                       value={style.backgroundColor}
                       onChange={(e) => updateStyle({ backgroundColor: e.target.value })}
-                      className="w-12 h-8 bg-bg-primary border border-border-default rounded cursor-pointer"
+                      className="legacy-editor-color"
                     />
                     <span className="text-xs font-mono text-text-secondary">{style.backgroundColor}</span>
                   </div>
@@ -404,7 +404,7 @@ export function CaptionStyleEditor({
                     step="0.1"
                     value={style.backgroundOpacity}
                     onChange={(e) => updateStyle({ backgroundOpacity: Number(e.target.value) })}
-                    className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
+                    className="legacy-editor-slider"
                   />
                 </div>
               </div>
@@ -412,7 +412,7 @@ export function CaptionStyleEditor({
           </div>
 
           {/* Highlight Style */}
-          <div className="space-y-3 p-3 bg-bg-secondary rounded-lg border border-border-default">
+          <div className="legacy-editor-panel space-y-3 p-3">
             <div className="text-xs font-medium text-text-primary mb-2">Highlight Style</div>
 
             <div className="flex gap-3">
@@ -463,7 +463,7 @@ export function CaptionStyleEditor({
                   step="1"
                   value={style.wordsPerCaption}
                   onChange={(e) => updateStyle({ wordsPerCaption: Number(e.target.value) })}
-                  className="w-full h-2 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-primary"
+                  className="legacy-editor-slider"
                 />
                 <div className="flex justify-between text-xs text-text-muted mt-1">
                   <span>1</span>
@@ -474,7 +474,7 @@ export function CaptionStyleEditor({
           </div>
 
           {/* Tips */}
-          <div className="p-3 bg-accent-primary/5 border border-accent-primary/20 rounded-lg space-y-2">
+          <div className="legacy-editor-note space-y-2">
             <p className="text-xs text-text-secondary">
               💡 <span className="font-medium">Tip:</span> Drag the caption on the video preview to reposition it
             </p>
