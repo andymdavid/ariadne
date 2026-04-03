@@ -65,7 +65,7 @@ const stageLabels = {
 }
 
 export function TranscriptionProgress() {
-  const { stage, progress, stageProgress, message, timeRemaining } = useProcessingStore()
+  const { stage, progress, stageProgress, message, timeRemaining, recentTranscriptLines } = useProcessingStore()
   
   const [currentThinkingMessage, setCurrentThinkingMessage] = useState('')
   const [messageIndex, setMessageIndex] = useState(0)
@@ -174,65 +174,115 @@ export function TranscriptionProgress() {
     || (isQueued ? 'Waiting for processing to start...' : null)
     || (isRecovered ? 'Restoring durable processing state...' : null)
 
+  const statusRows = (() => {
+    const rows: Array<{ label: string; tone?: 'active' | 'done' }> = []
+
+    if (stage === 'uploading' || stage === 'extracting' || stage === 'transcribing' || stage === 'analyzing' || stage === 'generating') {
+      rows.push({ label: 'Preparing source media', tone: stage === 'uploading' ? 'active' : 'done' })
+    }
+
+    if (stage === 'extracting' || stage === 'transcribing' || stage === 'analyzing' || stage === 'generating' || stage === 'completed') {
+      rows.push({ label: 'Audio extraction complete', tone: stage === 'extracting' ? 'active' : 'done' })
+    }
+
+    if (stage === 'transcribing' || stage === 'analyzing' || stage === 'generating' || stage === 'completed') {
+      rows.push({ label: statusMessage || 'Transcribing audio', tone: stage === 'transcribing' ? 'active' : 'done' })
+    }
+
+    if (stage === 'analyzing' || stage === 'generating' || stage === 'completed') {
+      rows.push({ label: 'Ranking clip candidates', tone: stage === 'analyzing' ? 'active' : 'done' })
+    }
+
+    if (stage === 'generating' || stage === 'completed') {
+      rows.push({ label: 'Generating content package', tone: stage === 'generating' ? 'active' : 'done' })
+    }
+
+    if (stage === 'completed') {
+      rows.push({ label: 'Ready for review', tone: 'done' })
+    }
+
+    return rows
+  })()
+
   return (
-    <div className="max-w-2xl w-full space-y-6 text-center">
-      {/* Clean Minimal Header */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-center space-x-3">
-          <span className="text-2xl">{stageEmojis[stage]}</span>
-          <h2 className="text-lg font-medium text-text-primary">
-            {getStageTitle()}
-          </h2>
+    <div className="app-page-content-shell flex w-full flex-col gap-6 pt-20 pb-10">
+      <section className="app-section-shell processing-shell">
+        <div className="processing-shell-header">
+          <div className="processing-shell-title-row">
+            <span className="processing-shell-emoji">{stageEmojis[stage]}</span>
+            <h2 className="processing-shell-title">{getStageTitle()}</h2>
+          </div>
+
+          {statusMessage ? (
+            <p className="processing-shell-copy">
+              {statusMessage}
+            </p>
+          ) : null}
+
+          <div className="processing-shell-inline-status">{getInlineStatus()}</div>
         </div>
-        
-        {statusMessage && (
-          <p className="text-sm text-text-secondary">
-            {statusMessage}
-          </p>
-        )}
 
-        {showDualProgress && (
-          <p className="text-xs text-text-muted">
-            {getInlineStatus()}
-          </p>
-        )}
-      </div>
-
-      {/* Progress Bar */}
-      <div className="space-y-3">
-        {showDualProgress && (
-          <div className="space-y-2">
-            <div className="flex justify-between items-center text-xs uppercase tracking-[0.12em] text-text-muted">
-              <span>Current Stage</span>
-              <span>{getStageLabel()}</span>
+        <div className="processing-progress-stack">
+          {showDualProgress ? (
+            <div className="processing-progress-block">
+              <div className="processing-progress-labels">
+                <span>Current stage</span>
+                <span>{getStageLabel()}</span>
+              </div>
+              <div className="processing-progress-track processing-progress-track-sm">
+                <div
+                  className="processing-progress-fill"
+                  style={{ width: `${Math.max(resolvedStageProgress, 1)}%` }}
+                />
+              </div>
             </div>
-            <div className="w-full bg-bg-tertiary rounded-full h-2 shadow-inner">
+          ) : null}
+
+          <div className="processing-progress-block">
+            <div className="processing-progress-labels">
+              <span>Overall progress</span>
+              <span>{getOverallLabel()}</span>
+            </div>
+            <div className="processing-progress-track">
               <div
-                className="bg-gradient-to-r from-accent-secondary to-accent-primary h-2 rounded-full transition-all duration-500 ease-out shadow-sm"
-                style={{ width: `${Math.max(resolvedStageProgress, 1)}%` }}
+                className="processing-progress-fill"
+                style={{ width: `${Math.max(progress, 1)}%` }}
               />
             </div>
           </div>
-        )}
-
-        <div className="w-full bg-bg-tertiary rounded-full h-3 shadow-inner">
-          <div 
-            className="bg-gradient-to-r from-accent-primary to-accent-secondary h-3 rounded-full transition-all duration-500 ease-out shadow-sm"
-            style={{ width: `${Math.max(progress, 1)}%` }}
-          />
         </div>
-        
-        {!showDualProgress && (
-          <div className="flex justify-between items-center text-sm text-text-muted">
-            <span>{getStageLabel()}</span>
-            {timeRemaining && (
-              <span>{formatTimeRemaining(timeRemaining)}</span>
-            )}
+      </section>
+
+      <section className="app-section-shell processing-status-shell">
+        <div className="app-section-header !mb-4">
+          <div>
+            <h2 className="app-section-title !mt-0">Session status</h2>
           </div>
-        )}
-      </div>
+          {timeRemaining ? (
+            <div className="app-chip">{formatTimeRemaining(timeRemaining)}</div>
+          ) : null}
+        </div>
 
+        <div className="processing-status-list">
+          {statusRows.map((row, index) => (
+            <div key={`${row.label}-${index}`} className="processing-status-row">
+              <div className="processing-status-row-main">
+                <span className={`processing-status-dot ${row.tone === 'done' ? 'is-done' : row.tone === 'active' ? 'is-active' : ''}`} />
+                <span>{row.label}</span>
+              </div>
+            </div>
+          ))}
 
+          {(recentTranscriptLines || []).slice(-4).map((line, index) => (
+            <div key={`transcript-${index}`} className="processing-status-row">
+              <div className="processing-status-row-main">
+                <span className="processing-status-dot is-active" />
+                <span className="truncate">{line}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }

@@ -307,7 +307,7 @@ export function HomePage() {
     <MainContentPanel>
       <div className="app-page">
         {isProcessing ? (
-          <div className="flex h-full items-center justify-center">
+          <div className="flex min-h-full justify-center">
             <TranscriptionProgress />
           </div>
         ) : (
