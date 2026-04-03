@@ -258,12 +258,12 @@ export function ReviewPage() {
         <button
           type="button"
           onClick={() => navigate('/')}
-          className="absolute left-8 top-8 z-20 inline-flex items-center gap-2 rounded-[5px] border border-white/8 bg-[#131313] px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#151515] hover:text-text-primary"
+          className="shell-inline-button absolute left-8 top-8 z-20"
         >
           <IoArrowBack size={15} />
           <span>Back</span>
         </button>
-        <div className="absolute left-8 top-24 z-20 max-w-xs rounded-[5px] border border-white/8 bg-[#131313] px-4 py-3 text-xs text-text-muted">
+        <div className="shell-inline-note absolute left-8 top-24 z-20 max-w-xs">
           Use the inspection panel on the right to review pipeline runs, saved evaluations, and workflow diagnostics for this episode.
         </div>
         <ClipCarousel

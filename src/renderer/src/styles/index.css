@@ -432,6 +432,35 @@
     background: #0d0d0d;
   }
 
+  .shell-inline-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 5px;
+    border: 1px solid #1d1d1d;
+    background: #121212;
+    color: rgba(240, 246, 252, 0.72);
+    padding: 8px 12px;
+    font-size: 14px;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  }
+
+  .shell-inline-button:hover {
+    background: #171717;
+    border-color: #262626;
+    color: #f3f5f7;
+  }
+
+  .shell-inline-note {
+    border-radius: 5px;
+    border: 1px solid #1d1d1d;
+    background: #121212;
+    color: rgba(240, 246, 252, 0.58);
+    padding: 12px 14px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
   .nav-rail {
     position: fixed;
     left: 0;
@@ -502,6 +531,102 @@
     background: rgba(18, 18, 18, 0.96);
     padding: 16px;
     box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+  }
+
+  .clip-workspace-shell {
+    min-height: 100%;
+    overflow-y: auto;
+    background: #0d0d0d;
+    padding: 32px 40px;
+  }
+
+  .clip-workspace-score {
+    color: #f3f5f7;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .clip-preview-badge {
+    position: absolute;
+    color: rgba(255, 255, 255, 0.78);
+    background: rgba(17, 17, 17, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .clip-preview-badge-label {
+    left: 12px;
+    top: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+  }
+
+  .clip-preview-badge-duration {
+    right: 12px;
+    top: 12px;
+    font-weight: 500;
+  }
+
+  .clip-preview-overlay {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.28), transparent);
+    color: #f3f5f7;
+  }
+
+  .clip-preview-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.08);
+    color: #f3f5f7;
+  }
+
+  .library-toolbar-button-danger {
+    border-color: #2a2a2a;
+    color: rgba(240, 246, 252, 0.68);
+  }
+
+  .library-toolbar-button-danger:hover {
+    border-color: #3a3a3a;
+    background: #171717;
+    color: #f3f5f7;
+  }
+
+  .library-project-card {
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .library-project-card:hover {
+    border-color: #262626;
+    background: #171717;
+  }
+
+  .library-project-card-selected {
+    border-color: rgba(245, 245, 245, 0.18);
+    background: #171717;
+  }
+
+  .library-status-pill {
+    display: inline-flex;
+    min-height: 28px;
+    align-items: center;
+    border-radius: 5px;
+    padding: 4px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    border: 1px solid #1d1d1d;
+    background: #171717;
+    color: rgba(240, 246, 252, 0.82);
   }
 
   .workspace-shell {
@@ -2932,20 +3057,11 @@
   }
 
   /* Status message types for nav dock */
-  .status-message-nav.status .status-icon-nav {
-    color: #58a6ff;
-  }
-
-  .status-message-nav.success .status-icon-nav {
-    color: #3fb950;
-  }
-
-  .status-message-nav.error .status-icon-nav {
-    color: #f85149;
-  }
-
+  .status-message-nav.status .status-icon-nav,
+  .status-message-nav.success .status-icon-nav,
+  .status-message-nav.error .status-icon-nav,
   .status-message-nav.info .status-icon-nav {
-    color: #a5a5a5;
+    color: rgba(240, 246, 252, 0.6);
   }
 
   .status-message-nav.info .status-text-nav {
@@ -3118,13 +3234,13 @@
     z-index: 1000;
     
     /* Glass Effect */
-    background: rgba(22, 27, 34, 0.95);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    background: rgba(18, 18, 18, 0.96);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
     
     /* Border & Shadow */
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
+    border: 1px solid #1d1d1d;
+    border-radius: 10px;
     box-shadow: 
       0 8px 32px rgba(0, 0, 0, 0.3),
       0 2px 8px rgba(0, 0, 0, 0.2);
@@ -3135,8 +3251,8 @@
   }
 
   .command-dropdown-header {
-    padding: 16px 20px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid #1d1d1d;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -3176,11 +3292,11 @@
 
   .dropdown-command:hover,
   .dropdown-command.selected {
-    background: rgba(88, 166, 255, 0.1);
+    background: #171717;
   }
 
   .dropdown-command.selected {
-    border: 1px solid rgba(88, 166, 255, 0.3);
+    border: 1px solid #262626;
   }
 
   .command-text {
@@ -3198,7 +3314,7 @@
 
   .dropdown-command:hover .command-text,
   .dropdown-command.selected .command-text {
-    color: #58a6ff;
+    color: #f3f5f7;
   }
 
   /* Main Display Box */
@@ -3335,20 +3451,11 @@
   }
 
   /* Status Message Types */
-  .status-message.status .status-icon {
-    color: #58a6ff;
-  }
-
-  .status-message.success .status-icon {
-    color: #3fb950;
-  }
-
-  .status-message.error .status-icon {
-    color: #f85149;
-  }
-
+  .status-message.status .status-icon,
+  .status-message.success .status-icon,
+  .status-message.error .status-icon,
   .status-message.info .status-icon {
-    color: #a5a5a5;
+    color: rgba(240, 246, 252, 0.6);
   }
 
   .status-message.info .status-text {
@@ -3515,9 +3622,9 @@
   }
 
   .status-prompt:hover {
-    background: rgba(88, 166, 255, 0.05);
+    background: rgba(255, 255, 255, 0.02);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(88, 166, 255, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
   }
 
   .status-prompt:active {
@@ -3529,7 +3636,7 @@
   .command-input-field.typing::after {
     content: "|";
     animation: typingBlink 1.2s infinite;
-    color: #58a6ff;
+    color: rgba(240, 246, 252, 0.72);
     margin-left: 2px;
   }
 
@@ -3636,14 +3743,14 @@
 
   /* Enhanced status message styling for AI companion */
   .status-message-dropdown.ai-companion {
-    background: rgba(88, 166, 255, 0.05);
-    border-left: 2px solid rgba(88, 166, 255, 0.3);
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 2px solid rgba(255, 255, 255, 0.12);
     animation: slideInFromLeft 0.3s ease-out;
   }
 
   .status-message.ai-companion {
-    background: rgba(88, 166, 255, 0.05);
-    border-left: 2px solid rgba(88, 166, 255, 0.3);
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 2px solid rgba(255, 255, 255, 0.12);
     animation: slideInFromLeft 0.3s ease-out;
   }
 
@@ -4048,31 +4155,20 @@
   border-color: #262626;
 }
 
-.clip-card-button-approve {
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.26);
-  color: #86efac;
-}
-
-.clip-card-button-approve:hover {
-  background: rgba(34, 197, 94, 0.18);
-  border-color: rgba(34, 197, 94, 0.34);
-}
-
-.clip-card-button-reject {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.24);
-  color: #fca5a5;
-}
-
-.clip-card-button-reject:hover {
-  background: rgba(239, 68, 68, 0.16);
-  border-color: rgba(239, 68, 68, 0.32);
-}
-
+.clip-card-button-approve,
+.clip-card-button-reject,
 .clip-card-button-secondary {
   background: #171717;
-  color: rgba(240, 246, 252, 0.92);
+  border-color: #1d1d1d;
+  color: rgba(240, 246, 252, 0.88);
+}
+
+.clip-card-button-approve:hover,
+.clip-card-button-reject:hover,
+.clip-card-button-secondary:hover {
+  background: #1b1b1b;
+  border-color: #262626;
+  color: #f3f5f7;
 }
 
 .clip-card-button-icon {

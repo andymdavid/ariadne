@@ -241,7 +241,7 @@ export function LibraryPage() {
               <button 
                 onClick={handleCleanupDatabase}
                 disabled={isRefreshing}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/8 bg-[#111111] transition-colors hover:border-white/12 hover:bg-[#141414] disabled:opacity-50"
+                className="app-icon-button disabled:opacity-50"
                 title="Cleanup Database (remove invalid/duplicates)"
               >
                 <IoTrashBin className="w-4 h-4 text-text-muted" />
@@ -262,15 +262,15 @@ export function LibraryPage() {
                     setIsRefreshing(false);
                   }
                 }}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-red-500/20 bg-[#111111] transition-colors hover:bg-red-500/12"
+                className="app-icon-button library-toolbar-button-danger"
                 title="Nuke ALL Projects (danger!)"
               >
-                <IoTrash className="w-4 h-4 text-red-500" />
+                <IoTrash className="w-4 h-4 text-text-muted" />
               </button>
               <button 
                 onClick={handleRefresh}
                 disabled={isRefreshing}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/8 bg-[#111111] transition-colors hover:border-white/12 hover:bg-[#141414] disabled:opacity-50"
+                className="app-icon-button disabled:opacity-50"
                 title="Refresh library"
               >
                 <IoRefresh className={`w-4 h-4 text-text-muted ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -288,8 +288,8 @@ export function LibraryPage() {
             return (
               <div
                 key={project.id}
-                className={`app-surface p-4 space-y-3 cursor-pointer transition-colors ${
-                  isSelected ? 'border-white/16 bg-[#141414]' : 'hover:border-white/12 hover:bg-[#131313]'
+                className={`app-surface library-project-card p-4 space-y-3 cursor-pointer ${
+                  isSelected ? 'library-project-card-selected' : ''
                 }`}
                 onClick={() => setSelectedProject(project)}
               >
@@ -358,11 +358,7 @@ export function LibraryPage() {
                     </p>
                   </div>
                   <div className="flex items-center space-x-3">
-                    <span className={`inline-flex min-h-[28px] items-center rounded-[5px] px-3 py-1 text-sm font-medium ${
-                      selectedProject.processingStatus === 'completed' 
-                        ? 'bg-accent-success/20 text-accent-success' 
-                        : 'bg-accent-warning/20 text-accent-warning'
-                    }`}>
+                    <span className="library-status-pill">
                       {selectedProject.processingStatus}
                     </span>
                   </div>
@@ -442,7 +438,7 @@ export function LibraryPage() {
                     <span>Open Project</span>
                   </button>
                   <button 
-                    className="btn-secondary text-accent-danger border-accent-danger/50 hover:bg-accent-danger/10"
+                    className="btn-secondary"
                     onClick={() => setShowDeleteConfirm(selectedProject.id)}
                   >
                     <IoTrash size={16} />
@@ -470,7 +466,7 @@ export function LibraryPage() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="app-surface max-w-md w-full mx-4 p-6">
             <h3 className="text-lg font-semibold text-text-primary mb-4">
               Delete Project
@@ -483,7 +479,7 @@ export function LibraryPage() {
             <div className="flex space-x-3">
               <button
                 onClick={() => handleDeleteProject(showDeleteConfirm)}
-                className="btn-secondary bg-accent-danger hover:bg-red-600 text-white border-accent-danger flex-1"
+                className="btn-secondary flex-1"
               >
                 Delete Project
               </button>

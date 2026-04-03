@@ -126,19 +126,19 @@ function ClipPreview({
           </div>
         )}
 
-        <div className={`absolute left-3 top-3 bg-black/55 font-medium uppercase tracking-[0.16em] text-white/75 ${compact ? 'rounded-[5px] px-2 py-1 text-[10px]' : 'rounded-full px-3 py-1 text-[11px]'}`}>
+        <div className={`clip-preview-badge clip-preview-badge-label ${compact ? 'rounded-[5px] px-2 py-1 text-[10px]' : 'rounded-[5px] px-3 py-1 text-[11px]'}`}>
           Clip preview
         </div>
-        <div className={`absolute right-3 top-3 bg-black/70 font-medium text-white ${compact ? 'rounded-[5px] px-2 py-1 text-[12px]' : 'rounded-full px-3 py-1 text-sm'}`}>
+        <div className={`clip-preview-badge clip-preview-badge-duration ${compact ? 'rounded-[5px] px-2 py-1 text-[12px]' : 'rounded-[5px] px-3 py-1 text-sm'}`}>
           {formatTime(endTime - startTime)}
         </div>
         <button
           type="button"
           onClick={togglePlayback}
-          className={`absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/80 via-black/30 to-transparent text-white ${compact ? 'px-3 py-2.5 text-[12px]' : 'px-4 py-4 text-sm'}`}
+          className={`clip-preview-overlay ${compact ? 'px-3 py-2.5 text-[12px]' : 'px-4 py-4 text-sm'}`}
         >
           <span className="max-w-[70%] truncate text-left">{title}</span>
-          <span className={`inline-flex items-center gap-1.5 bg-white/14 ${compact ? 'rounded-[5px] px-2 py-1.5 text-[11px]' : 'rounded-full px-3 py-2'}`}>
+          <span className={`clip-preview-action ${compact ? 'rounded-[5px] px-2 py-1.5 text-[11px]' : 'rounded-[5px] px-3 py-2'}`}>
             {isPlaying ? <IoPause size={compact ? 13 : 16} /> : <IoPlay size={compact ? 13 : 16} />}
             {isPlaying ? 'Pause' : 'Preview'}
           </span>
@@ -239,7 +239,7 @@ export function ClipWorkspacePage() {
   if (loading) {
     return (
       <div
-        className="flex h-full items-center justify-center bg-[#0a0b0f]"
+        className="clip-workspace-shell flex h-full items-center justify-center"
         style={{ marginLeft: 'var(--nav-dock-width, 72px)' }}
       >
         <div className="flex h-full w-full items-center justify-center">
@@ -255,7 +255,7 @@ export function ClipWorkspacePage() {
   if (error || !episodeId) {
     return (
       <div
-        className="flex h-full items-center justify-center bg-[#0a0b0f]"
+        className="clip-workspace-shell flex h-full items-center justify-center"
         style={{ marginLeft: 'var(--nav-dock-width, 72px)' }}
       >
         <div className="flex h-full w-full items-center justify-center">
@@ -278,14 +278,14 @@ export function ClipWorkspacePage() {
 
   return (
     <div
-      className="h-full overflow-y-auto bg-[#0a0b0f] px-10 py-8"
+      className="clip-workspace-shell"
       style={{ marginLeft: 'var(--nav-dock-width, 72px)' }}
     >
       <div className="w-full pb-16">
         <button
           type="button"
           onClick={() => navigate('/')}
-          className="inline-flex items-center gap-2 rounded-[5px] border border-white/8 bg-[#12151b]/88 px-3 py-2 text-sm text-text-secondary transition-colors hover:border-white/12 hover:bg-[#171b22] hover:text-text-primary"
+          className="shell-inline-button"
         >
           <IoArrowBack size={15} />
           <span>Back home</span>
@@ -320,7 +320,7 @@ export function ClipWorkspacePage() {
                 </div>
 
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[18px] font-semibold leading-none text-[#72e695]">
+                  <div className="clip-workspace-score">
                     {Math.round(clip.shareabilityScore * 10)}
                   </div>
                   <div className="clip-card-header !mb-0">
