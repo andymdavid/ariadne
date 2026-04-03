@@ -1491,17 +1491,10 @@ export function ClipEditorPage() {
 
                         return (
                           <div
-                            className={`absolute left-1/2 -translate-x-1/2 items-center justify-center text-center ${
-                              maxLines === 1 ? 'inline-flex whitespace-nowrap leading-none' : 'leading-[1.28]'
+                            className={`absolute left-1/2 -translate-x-1/2 text-center ${
+                              maxLines === 1 ? 'whitespace-nowrap' : 'leading-[1.28]'
                             }`}
                             style={{
-                              fontFamily: getFontFamilyValue(captionPreview.font),
-                              fontSize: `${fontSize}px`,
-                              fontWeight: captionPreview.fontWeight,
-                              fontStyle: captionPreview.italic ? 'italic' : 'normal',
-                              textDecoration: captionPreview.underline ? 'underline' : 'none',
-                              color: captionPreview.highlightColor,
-                              background: captionPreview.backgroundEnabled ? captionPreview.backgroundColor : 'transparent',
                               width: resolvedBubbleWidth ? `${resolvedBubbleWidth}px` : 'auto',
                               maxWidth:
                                 maxLines === 1
@@ -1509,13 +1502,6 @@ export function ClipEditorPage() {
                                   : resolvedBubbleWidth
                                     ? `${resolvedBubbleWidth}px`
                                     : 'none',
-                              padding: captionPreview.backgroundEnabled ? `${paddingY}px ${paddingX}px` : '0',
-                              borderRadius: captionPreview.backgroundEnabled ? `${radius}px` : '0',
-                              WebkitTextStroke:
-                                strokeWidth > 0 ? `${strokeWidth}px ${captionPreview.strokeColor}` : undefined,
-                              textShadow: captionPreview.shadowEnabled
-                                ? `${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${captionPreview.shadowColor}`
-                                : undefined,
                               top:
                                 captionPreview.position === 'top'
                                   ? '12%'
@@ -1555,12 +1541,33 @@ export function ClipEditorPage() {
                                 trackerEnabled && (isDraggingCaption || isCaptionSelected)
                                   ? 'ring-2 ring-white/80'
                                   : ''
-                              }`}
+                              } rounded-2xl text-center shadow-lg`}
                               style={{
-                                borderRadius: captionPreview.backgroundEnabled ? `${radius}px` : '5px'
+                                background: captionPreview.backgroundEnabled ? captionPreview.backgroundColor : 'transparent',
+                                padding: captionPreview.backgroundEnabled ? `${paddingY}px ${paddingX}px` : '0',
+                                borderRadius: captionPreview.backgroundEnabled ? `${radius}px` : '0'
                               }}
                             >
-                              {captionText}
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  whiteSpace: maxLines === 1 ? 'normal' : 'pre-line',
+                                  fontFamily: getFontFamilyValue(captionPreview.font),
+                                  fontSize: `${fontSize}px`,
+                                  fontWeight: captionPreview.fontWeight,
+                                  fontStyle: captionPreview.italic ? 'italic' : 'normal',
+                                  textDecoration: captionPreview.underline ? 'underline' : 'none',
+                                  lineHeight: maxLines === 1 ? 1.1 : 1.28,
+                                  color: captionPreview.highlightColor,
+                                  WebkitTextStroke:
+                                    strokeWidth > 0 ? `${strokeWidth}px ${captionPreview.strokeColor}` : undefined,
+                                  textShadow: captionPreview.shadowEnabled
+                                    ? `${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${captionPreview.shadowColor}`
+                                    : undefined
+                                }}
+                              >
+                                {captionText}
+                              </span>
                             </div>
                           </div>
                         )
