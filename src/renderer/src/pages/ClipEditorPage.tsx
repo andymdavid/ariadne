@@ -178,6 +178,11 @@ type CaptionCue = {
   start: number
   end: number
   text: string
+  words: Array<{
+    word: string
+    start: number
+    end: number
+  }>
 }
 
 type CaptionCueBuildOptions = {
@@ -195,12 +200,28 @@ const isLegacyDefaultLogoPosition = (x: unknown, y: unknown) =>
 
 const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
 
-const formatClipCaptionPreviewText = (text: string) => {
-  const words = text.split(' ').filter(Boolean)
-  if (words.length === 0) return { highlighted: '', remaining: '' }
+const getTimedClipCaptionWordState = (cue: CaptionCue | null, currentTime: number) => {
+  if (!cue) return { words: [] as string[], activeIndex: -1 }
+  const cueWords = cue.words.filter((word) => word.word?.trim())
+  if (cueWords.length === 0) {
+    const fallbackWords = cue.text.split(' ').filter(Boolean)
+    return {
+      words: fallbackWords,
+      activeIndex: fallbackWords.length > 0 ? 0 : -1
+    }
+  }
+
+  const activeIndex = cueWords.findIndex((word) => currentTime >= word.start && currentTime <= word.end)
+  const safeIndex =
+    activeIndex >= 0
+      ? activeIndex
+      : currentTime < cueWords[0].start
+        ? 0
+        : cueWords.length - 1
+
   return {
-    highlighted: words[0] ?? '',
-    remaining: words.slice(1).join(' ')
+    words: cueWords.map((word) => word.word),
+    activeIndex: safeIndex
   }
 }
 
@@ -300,7 +321,12 @@ const buildCaptionCues = (lines: TranscriptLine[], options: CaptionCueBuildOptio
           lineId: line.id,
           start: timedChunk[0].start,
           end: timedChunk[timedChunk.length - 1].end,
-          text: normalizeCaptionText(chunk.join(' '))
+          text: normalizeCaptionText(chunk.join(' ')),
+          words: timedChunk.map((word) => ({
+            word: word.word,
+            start: word.start,
+            end: word.end
+          }))
         })
       })
       return
@@ -333,7 +359,20 @@ const buildCaptionCues = (lines: TranscriptLine[], options: CaptionCueBuildOptio
         lineId: line.id,
         start,
         end,
-        text: normalizeCaptionText(chunk.join(' '))
+        text: normalizeCaptionText(chunk.join(' ')),
+        words: chunk.map((word, wordIndex) => {
+          const wordDuration = chunkDuration / Math.max(chunk.length, 1)
+          const wordStart = start + wordIndex * wordDuration
+          const wordEnd = chunkIndex === chunkCount - 1 && wordIndex === chunk.length - 1
+            ? end
+            : Math.min(end, wordStart + wordDuration)
+
+          return {
+            word,
+            start: wordStart,
+            end: wordEnd
+          }
+        })
       })
     })
   })
@@ -1478,7 +1517,12 @@ export function ClipEditorPage() {
                         const captionText = captionPreview.uppercase
                           ? captionPreview.text.toUpperCase()
                           : captionPreview.text
-                        const previewCaptionText = formatClipCaptionPreviewText(captionText)
+                        const previewCaptionWords = activeCaptionCue
+                          ? getTimedClipCaptionWordState(activeCaptionCue, currentTime)
+                          : {
+                              words: captionText.split(' ').filter(Boolean),
+                              activeIndex: captionText.trim() ? 0 : -1
+                            }
                         const measuredTextWidth = measureTextWidth(
                           captionText,
                           fontSize,
@@ -1572,17 +1616,20 @@ export function ClipEditorPage() {
                                     : undefined
                                 }}
                               >
-                                <span style={{ color: captionPreview.highlightColor }}>
-                                  {previewCaptionText.highlighted}
-                                </span>
-                                {previewCaptionText.remaining ? (
-                                  <>
-                                    {' '}
-                                    <span style={{ color: captionPreview.textColor }}>
-                                      {previewCaptionText.remaining}
-                                    </span>
-                                  </>
-                                ) : null}
+                                {previewCaptionWords.words.map((word, index) => (
+                                  <span
+                                    key={`${word}-${index}`}
+                                    style={{
+                                      color:
+                                        index === previewCaptionWords.activeIndex
+                                          ? captionPreview.highlightColor
+                                          : captionPreview.textColor
+                                    }}
+                                  >
+                                    {index > 0 ? ' ' : ''}
+                                    {word}
+                                  </span>
+                                ))}
                               </span>
                             </div>
                           </div>
