@@ -126,11 +126,6 @@
     box-shadow: none;
   }
 
-  body.dark-mode .settings-card {
-    background: #121212;
-    border: 1px solid #1d1d1d;
-  }
-
   /* Input styles */
   .input {
     @apply px-3 py-2 text-text-primary placeholder-text-muted focus:outline-none transition-colors border;
@@ -2056,7 +2051,7 @@
   }
 
   .slider::-webkit-slider-track {
-    background: #374151;
+    background: #1d1d1d;
     height: 8px;
     border-radius: 4px;
   }
@@ -2064,7 +2059,7 @@
   .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    background: #3b82f6;
+    background: #f5f5f5;
     height: 20px;
     width: 20px;
     border-radius: 50%;
@@ -2073,14 +2068,14 @@
   }
 
   .slider::-moz-range-track {
-    background: #374151;
+    background: #1d1d1d;
     height: 8px;
     border-radius: 4px;
     border: none;
   }
 
   .slider::-moz-range-thumb {
-    background: #3b82f6;
+    background: #f5f5f5;
     height: 16px;
     width: 16px;
     border-radius: 50%;
@@ -2187,7 +2182,7 @@
   .command-input.typing::after {
     content: "|";
     animation: blink 1s infinite;
-    color: #58a6ff;
+    color: rgba(240, 246, 252, 0.78);
     margin-left: 2px;
   }
 
@@ -2204,15 +2199,15 @@
     min-width: 40px;
     
     /* Styling */
-    background: rgba(88, 166, 255, 0.15);
-    border: 1px solid rgba(88, 166, 255, 0.3);
-    border-radius: 20px;
+    background: #121212;
+    border: 1px solid #1d1d1d;
+    border-radius: 5px;
     
     /* Icon */
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #58a6ff;
+    color: rgba(240, 246, 252, 0.72);
     
     /* Interaction */
     cursor: pointer;
@@ -2220,9 +2215,10 @@
   }
 
   .nav-button:hover:not(:disabled) {
-    background: rgba(88, 166, 255, 0.25);
-    border-color: rgba(88, 166, 255, 0.5);
-    transform: translateX(2px);
+    background: #171717;
+    border-color: #262626;
+    color: #f3f5f7;
+    transform: none;
   }
 
   .nav-button:disabled {
@@ -2235,8 +2231,8 @@
   .processing-spinner {
     width: 16px;
     height: 16px;
-    border: 2px solid rgba(88, 166, 255, 0.3);
-    border-top: 2px solid #58a6ff;
+    border: 2px solid rgba(240, 246, 252, 0.16);
+    border-top: 2px solid rgba(240, 246, 252, 0.82);
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
@@ -2759,17 +2755,15 @@
 
   /* Active State - Blue accent color for solid icons */
   .nav-icon.active {
-    background: rgba(88, 166, 255, 0.25);
-    color: #58a6ff; /* Blue accent color */
-    border-radius: 20px; /* Perfectly circular */
-    box-shadow: 
-      0 2px 8px rgba(88, 166, 255, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    transform: scale(1.02);
+    background: #171717;
+    color: #f3f5f7;
+    border-radius: 5px;
+    box-shadow: none;
+    transform: none;
   }
 
   .nav-icon.active .nav-icon-solid {
-    filter: drop-shadow(0 0 6px rgba(88, 166, 255, 0.4));
+    filter: none;
   }
 
   /* Hover State - 90% white opacity for solid icons */
@@ -2793,11 +2787,11 @@
   }
 
   .nav-icon.completed:not(.active) {
-    color: rgba(46, 160, 67, 0.8); /* Green tint for completed */
+    color: rgba(240, 246, 252, 0.78);
   }
 
   .nav-icon.completed:hover:not(.active):not(.disabled) {
-    color: rgba(46, 160, 67, 1.0); /* Brighter green on hover */
+    color: #f3f5f7;
     transform: translateY(-1px);
   }
 
@@ -2805,8 +2799,8 @@
     position: absolute;
     top: -2px;
     right: -2px;
-    background: #2ea043; /* Green success color */
-    color: white;
+    background: #f5f5f5;
+    color: #0d0d0d;
     border-radius: 50%;
     padding: 2px;
     font-size: 10px;
@@ -3873,12 +3867,6 @@
 }
 
 /* Dark mode variant */
-body.dark-mode .clip-card {
-  background: #121212;
-  border: 1px solid #1d1d1d;
-}
-
-/* Light gradient for glass depth */
 .clip-card::after {
   content: none;
 }
@@ -3894,12 +3882,6 @@ body.dark-mode .clip-card {
   opacity: 1;
   border-color: rgba(245, 245, 245, 0.28);
   background: #171717;
-}
-
-/* Dark mode variant */
-body.dark-mode .clip-card.selected {
-  background: #171717;
-  border-color: rgba(245, 245, 245, 0.28);
 }
 
 .clip-card:hover:not(.selected) {
@@ -3926,15 +3908,15 @@ body.dark-mode .clip-card.selected {
 }
 
 .status-badge.approved {
-  background: rgba(46, 160, 67, 0.15);
-  color: #2ea043;
-  border: 1.5px solid rgba(46, 160, 67, 0.4);
+  background: #171717;
+  color: #f3f5f7;
+  border: 1px solid rgba(245, 245, 245, 0.24);
 }
 
 .status-badge.rejected {
-  background: rgba(248, 81, 73, 0.15);
-  color: #f85149;
-  border: 1.5px solid rgba(248, 81, 73, 0.4);
+  background: #171717;
+  color: rgba(240, 246, 252, 0.82);
+  border: 1px solid #262626;
 }
 
 /* Card Header */
@@ -4153,7 +4135,7 @@ body.dark-mode .clip-card.selected {
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
-  border-radius: 6px;
+  border-radius: 5px;
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -4161,23 +4143,23 @@ body.dark-mode .clip-card.selected {
 }
 
 .btn-approve {
-  background: rgba(46, 160, 67, 0.15);
-  color: #2ea043;
-  border: 1px solid rgba(46, 160, 67, 0.3);
+  background: #121212;
+  color: #f3f5f7;
+  border: 1px solid #1d1d1d;
 }
 
 .btn-approve:hover {
-  background: rgba(46, 160, 67, 0.25);
+  background: #171717;
 }
 
 .btn-reject {
-  background: rgba(248, 81, 73, 0.15);
-  color: #f85149;
-  border: 1px solid rgba(248, 81, 73, 0.3);
+  background: #121212;
+  color: rgba(240, 246, 252, 0.78);
+  border: 1px solid #1d1d1d;
 }
 
 .btn-reject:hover {
-  background: rgba(248, 81, 73, 0.25);
+  background: #171717;
 }
 
 /* Carousel Hint */
@@ -4193,26 +4175,16 @@ body.dark-mode .clip-card.selected {
   padding: 12px 24px;
 
   /* Glassmorphic styling - 20% opacity */
-  background: rgba(22, 27, 34, 0.2);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 24px;
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.3),
-    0 2px 8px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  background: rgba(18, 18, 18, 0.96);
+  border: 1px solid #1d1d1d;
+  border-radius: 10px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
 
   font-size: 13px;
   color: rgba(240, 246, 252, 0.6);
   white-space: nowrap;
 }
 
-/* Dark mode variant */
-body.dark-mode .carousel-hint {
-  background: rgba(22, 27, 34, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
 
 .clip-counter {
   font-weight: 600;
