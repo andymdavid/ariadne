@@ -18,6 +18,7 @@ function createDefaultBrandTemplate(): BrandTemplate {
       animation: 'box',
       lineMode: 'one-line',
       backgroundEnabled: true,
+      textColor: '#5F5F5F',
       highlightColor: '#111111',
       backgroundColor: '#ffffff',
       backgroundPaddingX: 24,

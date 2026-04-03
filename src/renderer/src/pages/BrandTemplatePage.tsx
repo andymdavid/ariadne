@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import {
   IoAddOutline,
+  IoArrowRedoOutline,
+  IoArrowUndoOutline,
   IoCloudUploadOutline,
   IoChevronDown,
   IoChevronForward,
@@ -25,6 +27,7 @@ const captionPresets = [
     text: '',
     font: 'Inter',
     fontWeight: '700' as const,
+    textColor: '#5F5F5F',
     highlightColor: '#111111',
     backgroundColor: '#ffffff'
   },
@@ -34,6 +37,7 @@ const captionPresets = [
     text: 'TO GET STARTED',
     font: 'Inter',
     fontWeight: '800' as const,
+    textColor: '#B3B3B3',
     highlightColor: '#ffffff',
     backgroundColor: '#111111'
   },
@@ -43,6 +47,7 @@ const captionPresets = [
     text: 'Build clips that hook fast',
     font: 'Inter',
     fontWeight: '800' as const,
+    textColor: '#5F5F5F',
     highlightColor: '#111111',
     backgroundColor: '#ffffff'
   },
@@ -52,6 +57,7 @@ const captionPresets = [
     text: 'One Line',
     font: 'Inter',
     fontWeight: '700' as const,
+    textColor: '#5F5F5F',
     highlightColor: '#111111',
     backgroundColor: '#ffffff'
   },
@@ -61,6 +67,7 @@ const captionPresets = [
     text: 'TO GET STARTED',
     font: 'Inter',
     fontWeight: '700' as const,
+    textColor: '#B3B3B3',
     highlightColor: '#59f0c2',
     backgroundColor: '#111111'
   },
@@ -70,6 +77,7 @@ const captionPresets = [
     text: 'TO GET',
     font: 'Inter',
     fontWeight: '800' as const,
+    textColor: '#B3B3B3',
     highlightColor: '#ff4fe1',
     backgroundColor: '#111111'
   }
@@ -114,6 +122,15 @@ const cropModeSummaryLabel: Record<BrandTemplate['frame']['cropMode'], string> =
 const SAFE_AREA_PERCENT = 6
 const CENTER_SNAP_THRESHOLD_PERCENT = 2.5
 
+function cloneTemplateState(template: BrandTemplate): BrandTemplate {
+  return JSON.parse(JSON.stringify(template)) as BrandTemplate
+}
+
+function templatesEqual(left: BrandTemplate | null, right: BrandTemplate | null) {
+  if (!left || !right) return false
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 const defaultBrandTemplate: BrandTemplate = {
   caption: {
     presetId: 'deep-diver',
@@ -130,6 +147,7 @@ const defaultBrandTemplate: BrandTemplate = {
     animation: 'box',
     lineMode: 'one-line',
     backgroundEnabled: true,
+    textColor: '#5F5F5F',
     highlightColor: '#111111',
     backgroundColor: '#ffffff',
     backgroundPaddingX: 24,
@@ -177,6 +195,7 @@ const defaultBrandTemplate: BrandTemplate = {
 
 export function BrandTemplatePage() {
   const [template, setTemplate] = useState<BrandTemplate | null>(null)
+  const [savedTemplate, setSavedTemplate] = useState<BrandTemplate | null>(null)
   const [presets, setPresets] = useState<BrandTemplatePreset[]>([])
   const [activePresetId, setActivePresetId] = useState<string>('')
   const [logos, setLogos] = useState<string[]>([])
@@ -197,6 +216,7 @@ export function BrandTemplatePage() {
   const [demoPhase, setDemoPhase] = useState<'intro' | 'demo' | 'outro'>('demo')
   const [captionWordIndex, setCaptionWordIndex] = useState(0)
   const [demoProgress, setDemoProgress] = useState(0)
+  const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false })
   const previewRef = useRef<HTMLDivElement>(null)
   const presetMenuRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -204,6 +224,9 @@ export function BrandTemplatePage() {
   const demoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const savedStateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const historyRef = useRef<BrandTemplate[]>([])
+  const historyIndexRef = useRef(-1)
+  const dragStartTemplateRef = useRef<BrandTemplate | null>(null)
 
   useEffect(() => {
     void loadPageState()
@@ -218,6 +241,42 @@ export function BrandTemplatePage() {
       }
     }
   }, [])
+
+  const syncHistoryState = () => {
+    setHistoryState({
+      canUndo: historyIndexRef.current > 0,
+      canRedo: historyIndexRef.current < historyRef.current.length - 1
+    })
+  }
+
+  const resetHistory = (nextTemplate: BrandTemplate) => {
+    const cloned = cloneTemplateState(nextTemplate)
+    historyRef.current = [cloned]
+    historyIndexRef.current = 0
+    syncHistoryState()
+  }
+
+  const pushHistory = (nextTemplate: BrandTemplate) => {
+    const cloned = cloneTemplateState(nextTemplate)
+    const current = historyRef.current[historyIndexRef.current] ?? null
+    if (current && templatesEqual(current, cloned)) {
+      syncHistoryState()
+      return
+    }
+
+    historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1)
+    historyRef.current.push(cloned)
+    historyIndexRef.current = historyRef.current.length - 1
+    syncHistoryState()
+  }
+
+  const applyDraftTemplate = (nextTemplate: BrandTemplate, options?: { recordHistory?: boolean }) => {
+    setTemplate(nextTemplate)
+    setShowSavedState(false)
+    if (options?.recordHistory !== false) {
+      pushHistory(nextTemplate)
+    }
+  }
 
   useEffect(() => {
     const audio = audioRef.current
@@ -344,11 +403,15 @@ export function BrandTemplatePage() {
 
     const handleMouseUp = () => {
       if (isDraggingCaption || isDraggingLogo || isResizingLogo) {
+        if (template && dragStartTemplateRef.current && !templatesEqual(template, dragStartTemplateRef.current)) {
+          pushHistory(template)
+        }
+        dragStartTemplateRef.current = null
         setIsDraggingCaption(false)
         setIsDraggingLogo(false)
         setIsResizingLogo(false)
         setDragGuides({ horizontal: false, vertical: false })
-        void persistTemplate()
+        setShowSavedState(false)
       }
     }
 
@@ -365,9 +428,30 @@ export function BrandTemplatePage() {
   const selectedCaptionPreset =
     captionPresets.find((preset) => preset.id === template?.caption.presetId) ?? captionPresets[3]
   const activePreset = presets.find((preset) => preset.id === activePresetId) ?? null
+  const isDirty = template != null && savedTemplate != null && !templatesEqual(template, savedTemplate)
+
+  const handleUndo = () => {
+    if (historyIndexRef.current <= 0) return
+    historyIndexRef.current -= 1
+    const previous = historyRef.current[historyIndexRef.current]
+    if (!previous) return
+    setTemplate(cloneTemplateState(previous))
+    setShowSavedState(false)
+    syncHistoryState()
+  }
+
+  const handleRedo = () => {
+    if (historyIndexRef.current >= historyRef.current.length - 1) return
+    historyIndexRef.current += 1
+    const next = historyRef.current[historyIndexRef.current]
+    if (!next) return
+    setTemplate(cloneTemplateState(next))
+    setShowSavedState(false)
+    syncHistoryState()
+  }
 
   const applyTemplateState = (resolvedTemplate: BrandTemplate) => {
-    setTemplate({
+    const nextTemplate = {
       ...defaultBrandTemplate,
       ...resolvedTemplate,
       caption: {
@@ -394,7 +478,12 @@ export function BrandTemplatePage() {
         ...defaultBrandTemplate.ai,
         ...resolvedTemplate.ai
       }
-    })
+    }
+
+    setTemplate(nextTemplate)
+    setSavedTemplate(cloneTemplateState(nextTemplate))
+    setShowSavedState(false)
+    resetHistory(nextTemplate)
   }
 
   const loadPageState = async () => {
@@ -483,8 +572,7 @@ export function BrandTemplatePage() {
       }
     }
 
-    setTemplate(nextTemplate)
-    void persistTemplate(nextTemplate)
+    applyDraftTemplate(nextTemplate)
   }
 
   const updateCaption = (updates: Partial<BrandTemplate['caption']>) => {
@@ -498,8 +586,7 @@ export function BrandTemplatePage() {
       }
     }
 
-    setTemplate(nextTemplate)
-    void persistTemplate(nextTemplate)
+    applyDraftTemplate(nextTemplate)
   }
 
   const updateLogo = (updates: Partial<BrandTemplate['logo']>) => {
@@ -513,8 +600,7 @@ export function BrandTemplatePage() {
       }
     }
 
-    setTemplate(nextTemplate)
-    void persistTemplate(nextTemplate)
+    applyDraftTemplate(nextTemplate)
   }
 
   const updateIntroOutro = (updates: Partial<BrandTemplate['introOutro']>) => {
@@ -528,8 +614,7 @@ export function BrandTemplatePage() {
       }
     }
 
-    setTemplate(nextTemplate)
-    void persistTemplate(nextTemplate)
+    applyDraftTemplate(nextTemplate)
   }
 
   const updateMusic = (updates: Partial<BrandTemplate['music']>) => {
@@ -543,8 +628,7 @@ export function BrandTemplatePage() {
       }
     }
 
-    setTemplate(nextTemplate)
-    void persistTemplate(nextTemplate)
+    applyDraftTemplate(nextTemplate)
   }
 
   const handleCreatePreset = async () => {
@@ -708,6 +792,7 @@ export function BrandTemplatePage() {
       font: preset.font,
       fontWeight: preset.fontWeight,
       backgroundEnabled: preset.id !== 'none',
+      textColor: preset.textColor,
       highlightColor: preset.highlightColor,
       backgroundColor: preset.backgroundColor
     })
@@ -856,8 +941,26 @@ export function BrandTemplatePage() {
                 <div className="app-page-header-actions justify-self-end">
                   <button
                     type="button"
+                    className="app-action-secondary"
+                    onClick={handleUndo}
+                    disabled={!historyState.canUndo || isSaving}
+                    aria-label="Undo template changes"
+                  >
+                    <IoArrowUndoOutline size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="app-action-secondary"
+                    onClick={handleRedo}
+                    disabled={!historyState.canRedo || isSaving}
+                    aria-label="Redo template changes"
+                  >
+                    <IoArrowRedoOutline size={16} />
+                  </button>
+                  <button
+                    type="button"
                     className="app-action-primary brand-header-save-button"
-                    disabled={isSaving}
+                    disabled={isSaving || !isDirty}
                     onClick={() => void handleSavePreset()}
                   >
                     {isSaving ? 'Saving...' : showSavedState ? 'Saved' : 'Save template'}
@@ -1083,7 +1186,7 @@ export function BrandTemplatePage() {
                               className="template-caption-preset-preview"
                               style={{
                                 background: preset.backgroundColor,
-                                color: preset.highlightColor,
+                                color: preset.textColor,
                                 fontFamily: getFontFamilyValue(preset.font),
                                 fontWeight: preset.fontWeight
                               }}
@@ -1283,6 +1386,15 @@ export function BrandTemplatePage() {
                               One line
                             </button>
                           </div>
+                        </div>
+
+                        <div className="template-form-row template-form-row-spread">
+                          <span className="template-settings-group-label !mb-0">Text color</span>
+                          <ColorField
+                            label="Text"
+                            value={template.caption.textColor}
+                            onChange={(value) => updateCaption({ textColor: value })}
+                          />
                         </div>
 
                         <div className="template-form-row template-form-row-spread">
@@ -1624,6 +1736,7 @@ export function BrandTemplatePage() {
                           if (event.button !== 0) return
                           event.preventDefault()
                           event.stopPropagation()
+                          dragStartTemplateRef.current = template ? cloneTemplateState(template) : null
                           setIsLogoSelected(true)
                           setIsDraggingLogo(true)
                         }}
@@ -1657,6 +1770,7 @@ export function BrandTemplatePage() {
                                     if (event.button !== 0) return
                                     event.preventDefault()
                                     event.stopPropagation()
+                                    dragStartTemplateRef.current = template ? cloneTemplateState(template) : null
                                     setIsLogoSelected(true)
                                     setIsDraggingLogo(false)
                                     setIsResizingLogo(true)
@@ -1677,6 +1791,7 @@ export function BrandTemplatePage() {
                         onMouseDown={(event) => {
                           if (event.button !== 0) return
                           event.preventDefault()
+                          dragStartTemplateRef.current = template ? cloneTemplateState(template) : null
                           setIsDraggingCaption(true)
                         }}
                       >
@@ -1685,11 +1800,15 @@ export function BrandTemplatePage() {
                           style={previewCaptionCardStyle}
                         >
                           <span style={previewCaptionTextStyle}>
-                            {previewCaptionText.highlighted}
+                            <span style={{ color: template.caption.highlightColor }}>
+                              {previewCaptionText.highlighted}
+                            </span>
                             {previewCaptionText.remaining ? (
                               <>
                                 {' '}
-                                <span className="text-black/35">{previewCaptionText.remaining}</span>
+                                <span style={{ color: template.caption.textColor }}>
+                                  {previewCaptionText.remaining}
+                                </span>
                               </>
                             ) : null}
                           </span>
@@ -1847,7 +1966,7 @@ function getPreviewCaptionTextStyle(caption: BrandTemplate['caption']): CSSPrope
     fontWeight: caption.fontWeight,
     fontStyle: caption.italic ? 'italic' : 'normal',
     textDecoration: caption.underline ? 'underline' : 'none',
-    color: caption.highlightColor,
+    color: caption.textColor,
     WebkitTextStroke:
       caption.strokeWidth > 0 ? `${caption.strokeWidth}px ${caption.strokeColor}` : undefined,
     textShadow

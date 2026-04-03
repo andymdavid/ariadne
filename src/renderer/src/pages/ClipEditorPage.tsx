@@ -26,6 +26,7 @@ const clipCaptionPresets = [
     text: '',
     font: 'Inter',
     fontWeight: '700' as const,
+    textColor: '#5F5F5F',
     highlightColor: '#111111',
     backgroundColor: '#ffffff',
     backgroundEnabled: false,
@@ -37,6 +38,7 @@ const clipCaptionPresets = [
     text: 'TO GET STARTED',
     font: 'Inter',
     fontWeight: '800' as const,
+    textColor: '#B3B3B3',
     highlightColor: '#ffffff',
     backgroundColor: '#111111',
     backgroundEnabled: true,
@@ -48,6 +50,7 @@ const clipCaptionPresets = [
     text: 'Build clips that hook fast',
     font: 'Inter',
     fontWeight: '800' as const,
+    textColor: '#5F5F5F',
     highlightColor: '#111111',
     backgroundColor: '#ffffff',
     backgroundEnabled: true,
@@ -59,6 +62,7 @@ const clipCaptionPresets = [
     text: 'One Line',
     font: 'Inter',
     fontWeight: '700' as const,
+    textColor: '#5F5F5F',
     highlightColor: '#111111',
     backgroundColor: '#ffffff',
     backgroundEnabled: true,
@@ -70,6 +74,7 @@ const clipCaptionPresets = [
     text: 'TO GET STARTED',
     font: 'Inter',
     fontWeight: '700' as const,
+    textColor: '#B3B3B3',
     highlightColor: '#59f0c2',
     backgroundColor: '#111111',
     backgroundEnabled: true,
@@ -81,6 +86,7 @@ const clipCaptionPresets = [
     text: 'TO GET',
     font: 'Inter',
     fontWeight: '800' as const,
+    textColor: '#B3B3B3',
     highlightColor: '#ff4fe1',
     backgroundColor: '#111111',
     backgroundEnabled: true,
@@ -125,6 +131,7 @@ type PreviewCaptionState = {
   position: 'top' | 'center' | 'bottom' | 'custom'
   lineMode: 'one-line' | 'three-lines'
   backgroundEnabled: boolean
+  textColor: string
   highlightColor: string
   backgroundColor: string
   backgroundPaddingX: number
@@ -597,6 +604,7 @@ export function ClipEditorPage() {
           ) as PreviewCaptionState['position'],
           lineMode: template?.caption.lineMode || 'one-line',
           backgroundEnabled: template?.caption.backgroundEnabled ?? true,
+          textColor: template?.caption.textColor || '#5F5F5F',
           highlightColor: template?.caption.highlightColor || '#111111',
           backgroundColor: template?.caption.backgroundColor || '#ffffff',
           backgroundPaddingX: template?.caption.backgroundPaddingX ?? 24,
@@ -1022,6 +1030,7 @@ export function ClipEditorPage() {
         presetId: nextPreset.id,
         font: nextPreset.font,
         fontWeight: nextPreset.fontWeight,
+        textColor: nextPreset.textColor,
         highlightColor: nextPreset.highlightColor,
         backgroundColor: nextPreset.backgroundColor,
         backgroundEnabled: nextPreset.backgroundEnabled,

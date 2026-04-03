@@ -146,6 +146,7 @@ export interface BrandTemplateCaptionDefaults {
   animation: 'box';
   lineMode: 'one-line' | 'three-lines';
   backgroundEnabled: boolean;
+  textColor: string;
   highlightColor: string;
   backgroundColor: string;
   backgroundPaddingX: number;
