@@ -1817,18 +1817,21 @@
     position: absolute;
     inset: 0;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(0, 0, 0, 0.08) 100%);
+    pointer-events: none;
   }
 
   .brand-template-preview-dim {
     position: absolute;
     inset: 0;
     background: rgba(0, 0, 0, 0.16);
+    pointer-events: none;
   }
 
   .brand-template-preview-gradient {
     position: absolute;
     inset: 0;
     background: linear-gradient(180deg, rgba(0, 0, 0, 0.08) 0%, transparent 42%, rgba(0, 0, 0, 0.16) 100%);
+    pointer-events: none;
   }
 
   .brand-template-preview-safe-area {

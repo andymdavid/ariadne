@@ -1816,7 +1816,7 @@ export function BrandTemplatePage() {
                       </div>
                     )}
 
-                    <div className="absolute bottom-5 left-5 right-5 flex items-center gap-3">
+                    <div className="absolute bottom-5 left-5 right-5 z-30 flex items-center gap-3">
                       <button
                         type="button"
                         className="brand-template-preview-play-button"
