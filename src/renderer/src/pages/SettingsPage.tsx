@@ -182,7 +182,7 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6">
+          <div className="app-page-content-shell flex flex-1 flex-col gap-6">
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)]">
               <section className="app-section-shell">
                 <div className="app-section-header">

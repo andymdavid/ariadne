@@ -229,7 +229,7 @@ export function LibraryPage() {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 overflow-hidden py-5">
+        <div className="app-page-content-shell flex min-h-0 flex-1 overflow-hidden py-5">
         {/* Projects List */}
         <div className="w-80 flex-shrink-0 overflow-y-auto border-r border-border-default pr-5">
           <div className="app-section-shell space-y-4">

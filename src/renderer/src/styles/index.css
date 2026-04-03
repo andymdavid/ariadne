@@ -154,12 +154,18 @@
 
   .app-page-header-shell {
     width: 100%;
-    max-width: 72rem;
+    max-width: 1380px;
     margin: 0 auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 24px;
+  }
+
+  .app-page-content-shell {
+    width: 100%;
+    max-width: 1380px;
+    margin: 0 auto;
   }
 
   .app-page-header-content {

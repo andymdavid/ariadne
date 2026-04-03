@@ -311,7 +311,7 @@ export function HomePage() {
             <TranscriptionProgress />
           </div>
         ) : (
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 pt-32 pb-10">
+          <div className="app-page-content-shell flex flex-col gap-6 pt-32 pb-10">
             <div className="mx-auto w-full max-w-3xl">
               <div className="app-section-shell">
                 <div className="app-section-header !mb-5">

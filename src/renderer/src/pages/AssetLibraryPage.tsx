@@ -145,7 +145,7 @@ export function AssetLibraryPage() {
             </div>
           </div>
 
-          <div className="mx-auto grid min-h-0 h-full w-full max-w-6xl flex-1 grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)] gap-6">
+          <div className="app-page-content-shell grid min-h-0 h-full flex-1 grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)] gap-6">
             <div className="flex min-h-0 flex-col gap-6">
               <section className="app-section-shell asset-library-shell">
                 <div className="app-section-header">

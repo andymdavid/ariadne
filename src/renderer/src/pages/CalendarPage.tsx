@@ -15,7 +15,7 @@ export function CalendarPage() {
             </div>
           </div>
 
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-end gap-3">
+          <div className="app-page-content-shell flex items-center justify-end gap-3">
             <button
               disabled
               className="app-action-primary cursor-not-allowed opacity-50"
@@ -30,7 +30,7 @@ export function CalendarPage() {
             </button>
           </div>
 
-          <div className="mx-auto w-full max-w-4xl app-section-shell">
+          <div className="app-page-content-shell app-section-shell">
             <div className="text-lg font-semibold text-text-primary">Coming Soon</div>
             <div className="mt-3 max-w-2xl text-sm leading-6 text-text-secondary">
               Ariadne does not currently publish or schedule posts from the desktop app. This surface is
