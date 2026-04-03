@@ -195,6 +195,15 @@ const isLegacyDefaultLogoPosition = (x: unknown, y: unknown) =>
 
 const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
 
+const formatClipCaptionPreviewText = (text: string) => {
+  const words = text.split(' ').filter(Boolean)
+  if (words.length === 0) return { highlighted: '', remaining: '' }
+  return {
+    highlighted: words[0] ?? '',
+    remaining: words.slice(1).join(' ')
+  }
+}
+
 const isUpdatedAfter = (candidate?: string | null, baseline?: string | null) => {
   const candidateTime = candidate ? Date.parse(candidate) : Number.NaN
   const baselineTime = baseline ? Date.parse(baseline) : Number.NaN
@@ -1469,6 +1478,7 @@ export function ClipEditorPage() {
                         const captionText = captionPreview.uppercase
                           ? captionPreview.text.toUpperCase()
                           : captionPreview.text
+                        const previewCaptionText = formatClipCaptionPreviewText(captionText)
                         const measuredTextWidth = measureTextWidth(
                           captionText,
                           fontSize,
@@ -1562,7 +1572,17 @@ export function ClipEditorPage() {
                                     : undefined
                                 }}
                               >
-                                {captionText}
+                                <span style={{ color: captionPreview.highlightColor }}>
+                                  {previewCaptionText.highlighted}
+                                </span>
+                                {previewCaptionText.remaining ? (
+                                  <>
+                                    {' '}
+                                    <span style={{ color: captionPreview.textColor }}>
+                                      {previewCaptionText.remaining}
+                                    </span>
+                                  </>
+                                ) : null}
                               </span>
                             </div>
                           </div>
