@@ -121,10 +121,10 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
   }, [location.pathname, setCurrentScreen])
 
   useEffect(() => {
-    document.documentElement.style.setProperty('--nav-dock-width', isExpanded ? '236px' : '76px')
+    document.documentElement.style.setProperty('--nav-dock-width', isExpanded ? '220px' : '72px')
 
     return () => {
-      document.documentElement.style.setProperty('--nav-dock-width', '76px')
+      document.documentElement.style.setProperty('--nav-dock-width', '72px')
     }
   }, [isExpanded])
 
@@ -372,6 +372,27 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
     return [...currentCommands, ...commonCommands]
   }
 
+  const BrandMark = () => (
+    <svg width="24" height="24" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path
+        d="M16 2C23.732 2 30 8.268 30 16C30 23.732 23.732 30 16 30C8.268 30 2 23.732 2 16C2 8.268 8.268 2 16 2Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <path
+        d="M16 6C20.418 6 24 9.582 24 14C24 18.418 20.418 22 16 22C11.582 22 8 18.418 8 14C8 9.582 11.582 6 16 6Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        opacity="0.7"
+      />
+      <path
+        d="M16 10C17.657 10 19 11.343 19 13C19 14.657 17.657 16 16 16C14.343 16 13 14.657 13 13C13 11.343 14.343 10 16 10Z"
+        fill="currentColor"
+        opacity="0.5"
+      />
+    </svg>
+  )
+
   return (
     <>
       {/* Status Mode Display (replaces command suggestions) */}
@@ -444,37 +465,25 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
 
       <div
         className={`nav-rail ${
-          isExpanded ? 'w-[236px]' : 'w-[76px]'
+          isExpanded ? 'w-[220px]' : 'w-[72px]'
         }`}
       >
-        <div className={`flex items-center ${isExpanded ? 'justify-between gap-3 px-1 pb-4' : 'justify-center pb-4'}`}>
+        <div className="nav-rail-header">
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="nav-rail-button"
+            className="nav-rail-header-link"
             title="Home"
           >
-            <span className="text-sm font-semibold tracking-[0.18em]">A</span>
-          </button>
-
-          {isExpanded && (
-            <div className="min-w-0 flex-1">
-              <div className="nav-rail-heading">Ariadne</div>
-              <div className="nav-rail-copy">Workspace</div>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setIsExpanded((current) => !current)}
-            className="nav-rail-button is-muted"
-            title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-          >
-            {isExpanded ? <IoChevronBack size={16} /> : <IoChevronForward size={16} />}
+            <span className="nav-rail-brand-mark">
+              <BrandMark />
+            </span>
+            {isExpanded && <span className="nav-rail-brand-name">Ariadne</span>}
           </button>
         </div>
 
-        <div className="flex-1 space-y-1">
+        <div className="nav-rail-body">
+          <div className="flex-1 space-y-1">
           {navIcons.map((navIcon) => {
             const IconComponent = navIcon.icon
 
@@ -495,6 +504,19 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
               </button>
             )
           })}
+          </div>
+        </div>
+
+        <div className="nav-rail-footer">
+          <button
+            type="button"
+            onClick={() => setIsExpanded((current) => !current)}
+            className={`nav-rail-item ${isExpanded ? 'gap-3 px-3 py-2.5' : 'justify-center px-0 py-2.5'}`}
+            title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+          >
+            {isExpanded ? <IoChevronBack size={18} /> : <IoChevronForward size={18} />}
+            {isExpanded && <span className="nav-rail-label">Collapse</span>}
+          </button>
         </div>
       </div>
 
