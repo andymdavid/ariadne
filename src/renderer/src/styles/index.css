@@ -31,7 +31,7 @@
     --input: 0 0% 11%;
     --ring: 0 0% 83.9%;
 
-    --radius: 0.5rem;
+    --radius: 0.1875rem;
     --nav-dock-width: 72px;
   }
 
@@ -96,7 +96,7 @@
     height: 36px;
     min-height: 36px;
     padding: 0 16px;
-    border-radius: 5px;
+    border-radius: 3px;
     font-size: 14px;
     line-height: 1;
     font-weight: 500;
@@ -186,13 +186,13 @@
     @apply border;
     background: #121212;
     border-color: #1d1d1d;
-    border-radius: 5px;
+    border-radius: 3px;
   }
 
   .settings-card {
     background: #121212;
     border: 1px solid #1d1d1d;
-    border-radius: 5px;
+    border-radius: 3px;
     box-shadow: none;
   }
 
@@ -201,7 +201,7 @@
     @apply px-3 py-2 text-text-primary placeholder-text-muted focus:outline-none transition-colors border;
     background: #121212;
     border-color: #1d1d1d;
-    border-radius: 5px;
+    border-radius: 3px;
   }
 
   .app-page {
@@ -278,20 +278,20 @@
   .app-surface {
     background: #121212;
     border: 1px solid #1d1d1d;
-    border-radius: 5px;
+    border-radius: 3px;
   }
 
   .app-surface-muted {
     background: #111111;
     border: 1px solid #1d1d1d;
-    border-radius: 5px;
+    border-radius: 3px;
   }
 
   .app-chip {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    border-radius: 5px;
+    border-radius: 3px;
     border: 1px solid #1d1d1d;
     background: #121212;
     color: rgba(255, 255, 255, 0.74);
@@ -311,7 +311,7 @@
   .app-stat-card {
     background: #121212;
     border: 1px solid #1d1d1d;
-    border-radius: 5px;
+    border-radius: 3px;
     padding: 14px 16px;
   }
 
@@ -334,7 +334,7 @@
   .app-section-shell {
     background: #121212;
     border: 1px solid #1d1d1d;
-    border-radius: 10px;
+    border-radius: 4px;
     padding: 22px;
   }
 
@@ -366,7 +366,7 @@
   .app-upload-panel {
     background: #111111;
     border: 1px solid #1d1d1d;
-    border-radius: 5px;
+    border-radius: 3px;
     padding: 18px;
   }
 
@@ -378,7 +378,7 @@
     justify-content: center;
     gap: 12px;
     border: 1px dashed #262626;
-    border-radius: 5px;
+    border-radius: 3px;
     background: #111111;
     text-align: center;
     padding: 24px;
@@ -408,7 +408,7 @@
     justify-content: space-between;
     gap: 16px;
     border: 1px solid #1d1d1d;
-    border-radius: 5px;
+    border-radius: 3px;
     background: #111111;
     padding: 14px 16px;
   }
@@ -421,7 +421,7 @@
     height: 36px;
     min-width: 36px;
     min-height: 36px;
-    border-radius: 5px;
+    border-radius: 3px;
     border: 1px solid #1d1d1d;
     background: #111111;
     color: rgba(240, 246, 252, 0.68);
@@ -441,26 +441,26 @@
   .asset-library-upload-panel {
     background: #111111;
     border: 1px solid #1d1d1d;
-    border-radius: 5px;
+    border-radius: 3px;
     padding: 18px;
   }
 
   .asset-library-row {
-    border-radius: 5px;
+    border-radius: 3px;
     background: #111111;
     border: 1px solid #1d1d1d;
     padding: 12px 14px;
   }
 
   .asset-library-chip {
-    border-radius: 5px;
+    border-radius: 3px;
     background: #131313;
     border: 1px solid #1d1d1d;
     padding: 8px 12px;
   }
 
   .asset-library-upload-action {
-    border-radius: 5px;
+    border-radius: 3px;
     background: #131313;
     min-height: 44px;
   }
@@ -476,7 +476,7 @@
     width: 36px;
     height: 36px;
     flex-shrink: 0;
-    border-radius: 5px;
+    border-radius: 3px;
     background: #171717;
     color: rgba(240, 246, 252, 0.9);
     border: 1px solid #1d1d1d;
@@ -484,7 +484,7 @@
 
   .app-media-frame {
     overflow: hidden;
-    border-radius: 5px;
+    border-radius: 3px;
     background: #0d0d0d;
   }
 
@@ -493,7 +493,7 @@
   }
 
   .shell-inline-note {
-    border-radius: 5px;
+    border-radius: 3px;
     border: 1px solid #1d1d1d;
     background: #121212;
     color: rgba(240, 246, 252, 0.58);
@@ -568,7 +568,7 @@
     justify-content: center;
     width: 44px;
     height: 44px;
-    border-radius: 5px;
+    border-radius: 3px;
     border: 1px solid transparent;
     background: transparent;
     color: rgba(240, 246, 252, 0.56);
@@ -592,7 +592,7 @@
     display: flex;
     width: 100%;
     align-items: center;
-    border-radius: 5px;
+    border-radius: 3px;
     border: 1px solid transparent;
     background: transparent;
     text-align: left;
@@ -628,7 +628,7 @@
     top: 24px;
     z-index: 40;
     width: 560px;
-    border-radius: 10px;
+    border-radius: 4px;
     border: 1px solid #1d1d1d;
     background: rgba(18, 18, 18, 0.96);
     padding: 16px;

@@ -496,7 +496,7 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
                   activeScreen === navIcon.id
                     ? 'is-active'
                     : ''
-                } ${isExpanded ? 'gap-3 px-3 py-2.5' : 'justify-center px-0 py-2.5'}`}
+                } ${isExpanded ? 'gap-3 px-3 py-2.5' : 'mx-auto h-11 w-11 justify-center px-0 py-0'}`}
                 title={navIcon.label}
               >
                 <IconComponent size={18} />
@@ -511,7 +511,7 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
           <button
             type="button"
             onClick={() => setIsExpanded((current) => !current)}
-            className={`nav-rail-item ${isExpanded ? 'gap-3 px-3 py-2.5' : 'justify-center px-0 py-2.5'}`}
+            className={`nav-rail-item ${isExpanded ? 'gap-3 px-3 py-2.5' : 'mx-auto h-11 w-11 justify-center px-0 py-0'}`}
             title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
           >
             {isExpanded ? <IoChevronBack size={18} /> : <IoChevronForward size={18} />}
