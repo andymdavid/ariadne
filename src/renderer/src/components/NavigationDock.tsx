@@ -121,10 +121,10 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
   }, [location.pathname, setCurrentScreen])
 
   useEffect(() => {
-    document.documentElement.style.setProperty('--nav-dock-width', isExpanded ? '220px' : '72px')
+    document.documentElement.style.setProperty('--nav-dock-width', isExpanded ? '236px' : '76px')
 
     return () => {
-      document.documentElement.style.setProperty('--nav-dock-width', '72px')
+      document.documentElement.style.setProperty('--nav-dock-width', '76px')
     }
   }, [isExpanded])
 
@@ -444,10 +444,10 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
 
       <div
         className={`nav-rail ${
-          isExpanded ? 'w-[220px]' : 'w-[72px]'
+          isExpanded ? 'w-[236px]' : 'w-[76px]'
         }`}
       >
-        <div className={`flex items-center ${isExpanded ? 'justify-between gap-3 px-1 pb-5' : 'justify-center pb-5'}`}>
+        <div className={`flex items-center ${isExpanded ? 'justify-between gap-3 px-1 pb-4' : 'justify-center pb-4'}`}>
           <button
             type="button"
             onClick={() => navigate('/')}
@@ -459,8 +459,8 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
 
           {isExpanded && (
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] uppercase tracking-[0.22em] text-text-muted">Ariadne</div>
-              <div className="mt-1 text-sm text-text-secondary">Navigation</div>
+              <div className="nav-rail-heading">Ariadne</div>
+              <div className="nav-rail-copy">Workspace</div>
             </div>
           )}
 
@@ -474,7 +474,7 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
           </button>
         </div>
 
-        <div className="flex-1 space-y-1.5">
+        <div className="flex-1 space-y-1">
           {navIcons.map((navIcon) => {
             const IconComponent = navIcon.icon
 
@@ -487,11 +487,11 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
                   activeScreen === navIcon.id
                     ? 'is-active'
                     : ''
-                } ${isExpanded ? 'gap-3 px-3 py-3' : 'justify-center px-0 py-3'}`}
+                } ${isExpanded ? 'gap-3 px-3 py-2.5' : 'justify-center px-0 py-2.5'}`}
                 title={navIcon.label}
               >
                 <IconComponent size={18} />
-                {isExpanded && <span className="text-sm font-medium">{navIcon.label}</span>}
+                {isExpanded && <span className="nav-rail-label">{navIcon.label}</span>}
               </button>
             )
           })}
