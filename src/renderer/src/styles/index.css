@@ -2,7 +2,7 @@
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 
-@import url('https://fonts.googleapis.com/css2?family=Anton&family=Archivo+Black&family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=Hedvig+Letters+Sans&family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@500;600;700;800&family=Oswald:wght@500;600;700&family=Poppins:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Archivo+Black&family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=Bitcount:wght@100..900&family=Hedvig+Letters+Sans&family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@500;600;700;800&family=Oswald:wght@500;600;700&family=Poppins:wght@500;600;700;800&display=swap');
 
 @layer base {
   :root {
@@ -518,6 +518,7 @@
   .nav-rail-header {
     display: flex;
     align-items: center;
+    justify-content: center;
     height: 72px;
     min-height: 72px;
     border-bottom: 1px solid #1d1d1d;
@@ -527,28 +528,42 @@
   .nav-rail-header-link {
     display: flex;
     width: 100%;
+    justify-content: center;
     min-width: 0;
     align-items: center;
     gap: 12px;
     color: #f3f5f7;
   }
 
+  .nav-rail.is-expanded .nav-rail-header-link {
+    justify-content: flex-start;
+  }
+
   .nav-rail-brand-mark {
     display: inline-flex;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
     color: #f3f5f7;
   }
 
+  .nav-rail-brand-image {
+    display: block;
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+  }
+
   .nav-rail-brand-name {
     min-width: 0;
-    font-size: 15px;
+    font-family: 'Bitcount', system-ui, sans-serif;
+    font-size: 18px;
     line-height: 1;
     font-weight: 500;
-    letter-spacing: -0.015em;
+    letter-spacing: 0;
+    text-transform: lowercase;
     color: #f3f5f7;
   }
 
