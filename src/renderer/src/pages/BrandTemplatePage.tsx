@@ -111,6 +111,9 @@ const cropModeSummaryLabel: Record<BrandTemplate['frame']['cropMode'], string> =
   blur: 'blur'
 }
 
+const SAFE_AREA_PERCENT = 6
+const CENTER_SNAP_THRESHOLD_PERCENT = 2.5
+
 const defaultBrandTemplate: BrandTemplate = {
   caption: {
     presetId: 'deep-diver',
@@ -188,6 +191,7 @@ export function BrandTemplatePage() {
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
   const [isResizingLogo, setIsResizingLogo] = useState(false)
   const [isLogoSelected, setIsLogoSelected] = useState(false)
+  const [dragGuides, setDragGuides] = useState({ horizontal: false, vertical: false })
   const [isPresetMenuOpen, setIsPresetMenuOpen] = useState(false)
   const [isDemoPlaying, setIsDemoPlaying] = useState(false)
   const [demoPhase, setDemoPhase] = useState<'intro' | 'demo' | 'outro'>('demo')
@@ -251,14 +255,33 @@ export function BrandTemplatePage() {
   useEffect(() => {
     if (!template) return
 
+    const getSnappedPosition = (rawX: number, rawY: number, bounds: { minX: number; maxX: number; minY: number; maxY: number }) => {
+      const vertical = Math.abs(rawX - 50) <= CENTER_SNAP_THRESHOLD_PERCENT
+      const horizontal = Math.abs(rawY - 50) <= CENTER_SNAP_THRESHOLD_PERCENT
+
+      setDragGuides({ horizontal, vertical })
+
+      return {
+        x: clamp(vertical ? 50 : rawX, bounds.minX, bounds.maxX),
+        y: clamp(horizontal ? 50 : rawY, bounds.minY, bounds.maxY)
+      }
+    }
+
     const handleMouseMove = (event: MouseEvent) => {
       if (!previewRef.current) return
 
       const rect = previewRef.current.getBoundingClientRect()
-      const x = ((event.clientX - rect.left) / rect.width) * 100
-      const y = ((event.clientY - rect.top) / rect.height) * 100
+      const rawX = ((event.clientX - rect.left) / rect.width) * 100
+      const rawY = ((event.clientY - rect.top) / rect.height) * 100
 
       if (isDraggingCaption) {
+        const nextPosition = getSnappedPosition(rawX, rawY, {
+          minX: SAFE_AREA_PERCENT,
+          maxX: 100 - SAFE_AREA_PERCENT,
+          minY: SAFE_AREA_PERCENT,
+          maxY: 100 - SAFE_AREA_PERCENT
+        })
+
         setTemplate((current) =>
           current
             ? {
@@ -266,8 +289,8 @@ export function BrandTemplatePage() {
                 caption: {
                   ...current.caption,
                   position: 'custom',
-                  customX: clamp(x, 10, 90),
-                  customY: clamp(y, 10, 90)
+                  customX: nextPosition.x,
+                  customY: nextPosition.y
                 }
               }
             : current
@@ -275,14 +298,21 @@ export function BrandTemplatePage() {
       }
 
       if (isDraggingLogo) {
+        const nextPosition = getSnappedPosition(rawX, rawY, {
+          minX: SAFE_AREA_PERCENT,
+          maxX: 100 - SAFE_AREA_PERCENT,
+          minY: SAFE_AREA_PERCENT,
+          maxY: 100 - SAFE_AREA_PERCENT
+        })
+
         setTemplate((current) =>
           current
             ? {
                 ...current,
                 logo: {
                   ...current.logo,
-                  positionX: clamp(x, 8, 92),
-                  positionY: clamp(y, 8, 92)
+                  positionX: nextPosition.x,
+                  positionY: nextPosition.y
                 }
               }
             : current
@@ -317,6 +347,7 @@ export function BrandTemplatePage() {
         setIsDraggingCaption(false)
         setIsDraggingLogo(false)
         setIsResizingLogo(false)
+        setDragGuides({ horizontal: false, vertical: false })
         void persistTemplate()
       }
     }
@@ -1561,6 +1592,17 @@ export function BrandTemplatePage() {
                       style={previewImageStyle}
                     />
                     <div className="brand-template-preview-gradient" />
+                    <div
+                      className={`brand-template-preview-safe-area ${
+                        isDraggingCaption || isDraggingLogo ? 'is-active' : ''
+                      }`}
+                      style={{
+                        inset: `${SAFE_AREA_PERCENT}%`
+                      }}
+                    />
+
+                    {dragGuides.vertical ? <div className="brand-template-preview-guide is-vertical" /> : null}
+                    {dragGuides.horizontal ? <div className="brand-template-preview-guide is-horizontal" /> : null}
 
                     {musicSelected ? (
                       <div className="brand-template-preview-audio-indicator absolute right-4 top-4 z-20">

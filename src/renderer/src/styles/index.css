@@ -1831,6 +1831,45 @@
     background: linear-gradient(180deg, rgba(0, 0, 0, 0.08) 0%, transparent 42%, rgba(0, 0, 0, 0.16) 100%);
   }
 
+  .brand-template-preview-safe-area {
+    position: absolute;
+    z-index: 12;
+    border: 1px dashed rgba(255, 255, 255, 0.14);
+    border-radius: 3px;
+    pointer-events: none;
+    opacity: 0.24;
+    transition: opacity 0.18s ease, border-color 0.18s ease;
+  }
+
+  .brand-template-preview-safe-area.is-active {
+    opacity: 0.56;
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+
+  .brand-template-preview-guide {
+    position: absolute;
+    z-index: 14;
+    pointer-events: none;
+    background: rgba(255, 255, 255, 0.72);
+    opacity: 0.95;
+  }
+
+  .brand-template-preview-guide.is-vertical {
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-0.5px);
+  }
+
+  .brand-template-preview-guide.is-horizontal {
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    transform: translateY(-0.5px);
+  }
+
   .brand-template-preview-audio-indicator,
   .clip-editor-audio-indicator {
     display: inline-flex;
