@@ -1190,7 +1190,7 @@
   }
 
   .brand-settings-flyout-scroll {
-    max-height: min(720px, calc(100vh - 184px));
+    height: min(720px, calc(100vh - 184px));
   }
 
   .workspace-panel-scroll {

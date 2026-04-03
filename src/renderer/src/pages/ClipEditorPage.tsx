@@ -90,6 +90,8 @@ const clipCaptionPresets = [
 
 const aspectRatioCycle: Array<'9:16' | '1:1' | '16:9'> = ['9:16', '1:1', '16:9']
 const cropModeCycle: Array<'fit' | 'center' | 'blur'> = ['fit', 'center', 'blur']
+const SAFE_AREA_PERCENT = 6
+const CENTER_SNAP_THRESHOLD_PERCENT = 2.5
 
 type ClipRecord = {
   id: string
@@ -180,6 +182,7 @@ type CaptionCueBuildOptions = {
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+const getFontFamilyValue = (fontFamily: string) => `"${fontFamily}", "Hedvig Letters Sans", system-ui, sans-serif`
 
 const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
 
@@ -329,7 +332,7 @@ const measureTextWidth = (
   if (typeof document === 'undefined') return text.length * fontSize * 0.56
   const context = document.createElement('canvas').getContext('2d')
   if (!context) return text.length * fontSize * 0.56
-  context.font = `${fontWeight} ${fontSize}px ${fontFamily}`
+  context.font = `${fontWeight} ${fontSize}px ${getFontFamilyValue(fontFamily)}`
   return context.measureText(text).width
 }
 
@@ -425,6 +428,7 @@ export function ClipEditorPage() {
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
   const [isCaptionSelected, setIsCaptionSelected] = useState(false)
   const [isLogoSelected, setIsLogoSelected] = useState(false)
+  const [dragGuides, setDragGuides] = useState({ horizontal: false, vertical: false })
   const [previewFrameWidth, setPreviewFrameWidth] = useState(260)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1098,10 +1102,23 @@ export function ClipEditorPage() {
     const previewFrame = previewFrameRef.current
     if (!previewFrame || (!isDraggingCaption && !isDraggingLogo)) return
 
+    const getSnappedPosition = (rawX: number, rawY: number) => {
+      const vertical = Math.abs(rawX - 50) <= CENTER_SNAP_THRESHOLD_PERCENT
+      const horizontal = Math.abs(rawY - 50) <= CENTER_SNAP_THRESHOLD_PERCENT
+
+      setDragGuides({ horizontal, vertical })
+
+      return {
+        x: clamp(vertical ? 50 : rawX, SAFE_AREA_PERCENT, 100 - SAFE_AREA_PERCENT),
+        y: clamp(horizontal ? 50 : rawY, SAFE_AREA_PERCENT, 100 - SAFE_AREA_PERCENT)
+      }
+    }
+
     const handleMouseMove = (event: MouseEvent) => {
       const rect = previewFrame.getBoundingClientRect()
-      const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 8, 92)
-      const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 8, 92)
+      const rawX = ((event.clientX - rect.left) / rect.width) * 100
+      const rawY = ((event.clientY - rect.top) / rect.height) * 100
+      const nextPosition = getSnappedPosition(rawX, rawY)
 
       if (isDraggingCaption) {
         setCaptionPreview((current) =>
@@ -1109,8 +1126,8 @@ export function ClipEditorPage() {
             ? {
                 ...current,
                 position: 'custom',
-                customX: x,
-                customY: y
+                customX: nextPosition.x,
+                customY: nextPosition.y
               }
             : current
         )
@@ -1121,8 +1138,8 @@ export function ClipEditorPage() {
           current
             ? {
                 ...current,
-                positionX: x,
-                positionY: y
+                positionX: nextPosition.x,
+                positionY: nextPosition.y
               }
             : current
         )
@@ -1132,6 +1149,7 @@ export function ClipEditorPage() {
     const handleMouseUp = async () => {
       setIsDraggingCaption(false)
       setIsDraggingLogo(false)
+      setDragGuides({ horizontal: false, vertical: false })
 
       try {
         if (!clipId) return
@@ -1321,6 +1339,14 @@ export function ClipEditorPage() {
                   setIsLogoSelected(false)
                 }}
               >
+                    <div
+                      className={`brand-template-preview-safe-area ${
+                        isDraggingCaption || isDraggingLogo ? 'is-active' : ''
+                      }`}
+                      style={{ inset: `${SAFE_AREA_PERCENT}%` }}
+                    />
+                    {dragGuides.vertical ? <div className="brand-template-preview-guide is-vertical" /> : null}
+                    {dragGuides.horizontal ? <div className="brand-template-preview-guide is-horizontal" /> : null}
                     {mediaUrl && framePreview?.cropMode === 'blur' ? (
                       <>
                         <video
@@ -1458,7 +1484,7 @@ export function ClipEditorPage() {
                               maxLines === 1 ? 'inline-flex whitespace-nowrap leading-none' : 'leading-[1.28]'
                             }`}
                             style={{
-                              fontFamily: captionPreview.font,
+                              fontFamily: getFontFamilyValue(captionPreview.font),
                               fontSize: `${fontSize}px`,
                               fontWeight: captionPreview.fontWeight,
                               fontStyle: captionPreview.italic ? 'italic' : 'normal',
