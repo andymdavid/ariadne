@@ -1514,7 +1514,7 @@ export function BrandTemplatePage() {
             <div className="brand-template-preview-stage">
               <div
                 ref={previewRef}
-                className={`brand-template-preview-frame relative overflow-hidden bg-[#eedec3] transition-transform duration-200 ${
+                className={`brand-template-preview-frame relative overflow-hidden transition-transform duration-200 ${
                   activeMenu ? 'translate-x-4' : '-translate-x-2'
                 }`}
                 style={{
@@ -1549,19 +1549,20 @@ export function BrandTemplatePage() {
                           aria-hidden="true"
                           className="absolute inset-0 h-full w-full object-cover scale-110 blur-2xl"
                         />
-                        <div className="absolute inset-0 bg-black/18" />
+                        <div className="brand-template-preview-dim" />
                       </>
                     ) : null}
+                    <div className="brand-template-preview-media" />
                     <img
                       src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=80"
                       alt="Preview backdrop"
                       className="absolute inset-0 h-full w-full object-cover"
                       style={previewImageStyle}
                     />
-                    <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/20" />
+                    <div className="brand-template-preview-gradient" />
 
                     {musicSelected ? (
-                      <div className="absolute right-4 top-4 z-20 rounded-full bg-black/28 p-2 text-white/85">
+                      <div className="brand-template-preview-audio-indicator absolute right-4 top-4 z-20">
                         <IoMusicalNotes size={16} />
                       </div>
                     ) : null}
@@ -1656,7 +1657,7 @@ export function BrandTemplatePage() {
                     <div className="absolute bottom-5 left-5 right-5 flex items-center gap-3">
                       <button
                         type="button"
-                        className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white"
+                        className="brand-template-preview-play-button"
                         onClick={(event) => {
                           event.stopPropagation()
                           startDemoPlayback()
@@ -1664,9 +1665,9 @@ export function BrandTemplatePage() {
                       >
                         {isDemoPlaying ? '■' : '▶'}
                       </button>
-                      <div className="h-1.5 flex-1 rounded-full bg-white/20">
+                      <div className="brand-template-preview-progress-track">
                         <div
-                          className="h-full rounded-full bg-white/60 transition-all duration-200"
+                          className="brand-template-preview-progress-fill"
                           style={{ width: `${Math.max(demoProgress, 6)}%` }}
                         />
                       </div>

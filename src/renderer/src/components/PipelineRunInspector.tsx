@@ -146,7 +146,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
   const recentFailureEvents = failureEvents.slice(0, 5)
 
   return (
-    <aside className="absolute right-8 top-8 z-20 w-[360px] max-w-[calc(100%-4rem)] rounded-[10px] border border-white/8 bg-[#171717]/96 p-4 text-sm text-text-secondary shadow-[0_18px_42px_rgba(0,0,0,0.22)] backdrop-blur">
+    <aside className="inspector-panel text-sm">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-[0.24em] text-text-primary">Run Inspection</h3>
@@ -157,14 +157,14 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
         <button
           type="button"
           onClick={() => setIsExpanded((current) => !current)}
-          className="rounded-[5px] border border-white/10 bg-white/4 px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:border-white/15 hover:bg-white/8 hover:text-text-primary"
+          className="inspector-toggle"
         >
           {isExpanded ? 'Hide' : 'Inspect'}
         </button>
       </div>
 
       {!isExpanded ? (
-        <div className="rounded-[5px] border border-white/8 bg-[#131313] p-3 text-[11px] text-text-muted">
+        <div className="inspector-note text-[11px] text-text-muted">
           Open this panel to compare recorded runs, inspect workflow events, and review saved evaluation summaries.
         </div>
       ) : loading ? (
@@ -179,15 +179,15 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                 key={run.jobId}
                 type="button"
                 onClick={() => setSelectedJobId(run.jobId)}
-                className={`w-full rounded-[5px] border px-3 py-3 text-left transition-colors ${
+                className={`inspector-item ${
                   selectedJobId === run.jobId
-                    ? 'border-white/14 bg-[#151515] text-text-primary'
-                    : 'border-white/8 bg-[#131313] hover:border-white/12 hover:bg-[#151515]'
+                    ? 'is-active text-text-primary'
+                    : ''
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-mono text-xs text-text-primary">{shortId(run.jobId)}</span>
-                  <span className="rounded-[5px] bg-white/6 px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                  <span className="inspector-pill">
                     {run.status}
                   </span>
                 </div>
@@ -208,7 +208,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
           </div>
 
           {selectedComparison && (
-            <div className="rounded-[5px] border border-white/8 bg-[#131313] p-3">
+            <div className="inspector-card">
               <div className="mb-3 flex items-center justify-between">
                 <div className="font-mono text-xs text-text-primary">{shortId(selectedComparison.jobId)}</div>
                 <div className="text-[11px] text-text-muted">{formatDateTime(selectedComparison.completedAt)}</div>
@@ -230,7 +230,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
               </div>
 
               {selectedConfig && (
-                <div className="mt-3 rounded-[5px] bg-black/20 p-2 text-[11px] text-text-muted">
+                <div className="inspector-subcard mt-3 text-[11px] text-text-muted">
                   <div>Config snapshot</div>
                   <div className="mt-1 text-text-primary">
                     {(selectedConfig.apiModelId as string | undefined) || 'local/heuristic'}
@@ -245,7 +245,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                   <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Top Clips</div>
                   <div className="space-y-2">
                     {selectedComparison.topClipPreview.slice(0, 3).map((clip) => (
-                      <div key={clip.id} className="rounded-[5px] bg-black/20 p-2">
+                      <div key={clip.id} className="inspector-subcard">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[11px] text-text-primary">{clip.contentType}</span>
                           <span className="text-[11px] text-text-muted">{clip.shareabilityScore.toFixed(1)}</span>
@@ -266,7 +266,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
           )}
 
           {selectedWorkflowJob && (
-            <div className="rounded-[5px] border border-white/8 bg-[#131313] p-3">
+            <div className="inspector-card">
               <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Workflow Diagnostics</div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                 <span>Job ID</span>
@@ -296,7 +296,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                 ) : (
                   <div className="space-y-2">
                     {recentWorkflowEvents.map((event) => (
-                      <div key={event.id} className="rounded-[5px] bg-black/20 p-2 text-[11px]">
+                      <div key={event.id} className="inspector-subcard text-[11px]">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-text-primary">{event.eventType}</span>
                           <span className="text-text-muted">{formatDateTime(event.createdAt)}</span>
@@ -315,7 +315,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                 ) : (
                   <div className="space-y-2">
                     {recentFailureEvents.map((event) => (
-                      <div key={event.id} className="rounded-[5px] bg-black/20 p-2 text-[11px]">
+                      <div key={event.id} className="inspector-subcard text-[11px]">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-text-primary">{event.errorCode}</span>
                           <span className="text-text-muted">{formatDateTime(event.createdAt)}</span>
@@ -329,7 +329,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
             </div>
           )}
 
-          <div className="rounded-[5px] border border-white/8 bg-[#131313] p-3">
+          <div className="inspector-card">
             <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Saved Evaluations</div>
             {evaluations.length === 0 ? (
               <div className="text-[11px] text-text-muted">No saved evaluation summaries yet.</div>
@@ -338,7 +338,7 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                 {evaluations.slice(0, 5).map((evaluation) => {
                   const summary = parseJson<{ runs?: Array<{ jobId: string; finalClipCount: number; aiAnalysisSucceeded: boolean }> }>(evaluation.summaryJson)
                   return (
-                    <div key={evaluation.id} className="rounded-[5px] bg-black/20 p-2 text-[11px]">
+                    <div key={evaluation.id} className="inspector-subcard text-[11px]">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-text-primary">
                           {shortId(evaluation.baselineJobId)} vs {shortId(evaluation.candidateJobId)}

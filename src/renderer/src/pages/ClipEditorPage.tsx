@@ -1195,7 +1195,7 @@ export function ClipEditorPage() {
             <button
               type="button"
               onClick={() => navigate('/')}
-              className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#12151b] px-4 py-2 text-sm text-text-primary transition-colors hover:bg-[#171b22]"
+              className="clip-editor-error-button"
             >
               <IoArrowBack size={15} />
               Back home
@@ -1248,12 +1248,11 @@ export function ClipEditorPage() {
             <div className="workspace-panel-scroll">
               <div className="mb-5 flex items-center justify-between gap-4">
                 <h2 className="workspace-panel-title !mt-0">Transcript</h2>
-                <label className="inline-flex items-center gap-3 text-sm text-text-secondary">
+                <label className="clip-editor-transcript-toggle">
                   <input
                     type="checkbox"
                     checked={isTranscriptOnly}
                     onChange={(event) => setIsTranscriptOnly(event.target.checked)}
-                    className="h-4 w-4 rounded border-white/12 bg-transparent"
                   />
                   Transcript only
                 </label>
@@ -1265,8 +1264,8 @@ export function ClipEditorPage() {
                     <div
                       key={line.id}
                       data-line-id={line.id}
-                      className={`rounded-xl px-3 py-2 transition-colors ${
-                        activeLineId === line.id ? 'bg-white/8 text-white' : ''
+                      className={`clip-editor-transcript-line ${
+                        activeLineId === line.id ? 'is-active' : ''
                       }`}
                     >
                       {line.text}
@@ -1316,7 +1315,7 @@ export function ClipEditorPage() {
             <div className="clip-editor-preview-canvas">
               <div
                 ref={previewFrameRef}
-                className={`relative min-h-0 overflow-hidden rounded-[5px] bg-black ${previewAspectClass}`}
+                className={`clip-editor-preview-frame relative min-h-0 overflow-hidden ${previewAspectClass}`}
                 onMouseDown={() => {
                   setIsCaptionSelected(false)
                   setIsLogoSelected(false)
@@ -1331,7 +1330,7 @@ export function ClipEditorPage() {
                           muted
                           preload="metadata"
                         />
-                        <div className="absolute inset-0 bg-black/18" />
+                        <div className="clip-editor-preview-dim" />
                         <video
                           ref={videoRef}
                           src={mediaUrl}
@@ -1359,6 +1358,7 @@ export function ClipEditorPage() {
                         onPause={handleVideoPause}
                       />
                     ) : null}
+                    <div className="clip-editor-preview-dim" />
                     {logoPreview?.enabled && logoPreview.assetPath ? (
                       <div
                         className="absolute z-20 select-none"
@@ -1525,7 +1525,7 @@ export function ClipEditorPage() {
                       })()
                     ) : null}
                     {musicEnabled ? (
-                      <div className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-[5px] bg-black/45 text-white/85">
+                      <div className="clip-editor-audio-indicator absolute right-4 top-4">
                         <IoMusicalNotesOutline size={17} />
                       </div>
                     ) : null}
