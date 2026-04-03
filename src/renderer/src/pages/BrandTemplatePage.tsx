@@ -835,8 +835,9 @@ export function BrandTemplatePage() {
             </div>
           </div>
 
-          <div className="brand-template-body">
-            <div className="brand-template-menus">
+          <div className="app-page-content-shell">
+            <div className="brand-template-body">
+              <div className="brand-template-menus">
               <section className="workspace-panel brand-settings-panel w-[320px] shrink-0">
                 <div className="workspace-panel-scroll">
                   <div className="workspace-panel-header">
@@ -1509,9 +1510,9 @@ export function BrandTemplatePage() {
                   </div>
                 </section>
               ) : null}
-            </div>
+              </div>
 
-            <div className="brand-template-preview-stage">
+              <div className="brand-template-preview-stage">
               <div
                 ref={previewRef}
                 className={`brand-template-preview-frame relative overflow-hidden transition-transform duration-200 ${
@@ -1678,6 +1679,7 @@ export function BrandTemplatePage() {
                       src={template.music.assetPath ? `app-file://${template.music.assetPath}` : undefined}
                       preload="auto"
                     />
+              </div>
               </div>
             </div>
           </div>
