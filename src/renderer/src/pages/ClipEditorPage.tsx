@@ -183,6 +183,8 @@ type CaptionCueBuildOptions = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 const getFontFamilyValue = (fontFamily: string) => `"${fontFamily}", "Hedvig Letters Sans", system-ui, sans-serif`
+const isLegacyDefaultLogoPosition = (x: unknown, y: unknown) =>
+  Number(x) === 85 && Number(y) === 85
 
 const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
 
@@ -573,7 +575,8 @@ export function ClipEditorPage() {
         const useLogoPositionOverride =
           clipOverridesCurrent &&
           savedEdits?.logo_position_x != null &&
-          savedEdits?.logo_position_y != null
+          savedEdits?.logo_position_y != null &&
+          !isLegacyDefaultLogoPosition(savedEdits?.logo_position_x, savedEdits?.logo_position_y)
         const useFrameOverride =
           clipOverridesCurrent &&
           (savedEdits?.aspect_ratio != null || savedEdits?.crop_mode != null)
