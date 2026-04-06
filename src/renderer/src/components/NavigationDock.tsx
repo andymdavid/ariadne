@@ -375,7 +375,7 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
   return (
     <>
       {/* Status Mode Display (replaces command suggestions) */}
-      {isCommandMode && !showSlashCommands && displayMessages.length > 0 && (
+      {isCommandMode && !isProcessing && !showSlashCommands && displayMessages.length > 0 && (
         <div className="status-display-dropdown">
           <div className="status-dropdown-header">
             <span className="status-dropdown-title">Session Status</span>
