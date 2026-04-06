@@ -1,5 +1,17 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { BrandTemplate, BrandTemplatePreset, ClipTrimState, ProcessingErrorPayload, ProcessingProgress, ProcessingResultPayload, TrimBoundaryAnchor } from '@shared/types';
+import type {
+  BrandTemplate,
+  BrandTemplatePreset,
+  CalendarSlot,
+  ClipTrimState,
+  PostingPlan,
+  ProcessingErrorPayload,
+  ProcessingProgress,
+  ProcessingResultPayload,
+  PublishingAccount,
+  ScheduledPublication,
+  TrimBoundaryAnchor
+} from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,
@@ -154,6 +166,25 @@ const electronAPI = {
   updateApiConfig: (config: any) => ipcRenderer.invoke('update-api-config', config),
   updateUserPreferences: (preferences: any) =>
     ipcRenderer.invoke('update-user-preferences', preferences),
+  getPublishingAccounts: () =>
+    ipcRenderer.invoke('get-publishing-accounts') as Promise<PublishingAccount[]>,
+  savePublishingAccount: (account: Partial<PublishingAccount>) =>
+    ipcRenderer.invoke('save-publishing-account', account) as Promise<PublishingAccount>,
+  getPostingPlan: (publishingAccountId: string) =>
+    ipcRenderer.invoke('get-posting-plan', publishingAccountId) as Promise<PostingPlan | undefined>,
+  savePostingPlan: (plan: PostingPlan) =>
+    ipcRenderer.invoke('save-posting-plan', plan) as Promise<PostingPlan>,
+  generateCalendarSlots: (postingPlanId: string, daysForward?: number) =>
+    ipcRenderer.invoke('generate-calendar-slots', postingPlanId, daysForward) as Promise<CalendarSlot[]>,
+  getCalendarOverview: (publishingAccountId?: string) =>
+    ipcRenderer.invoke('get-calendar-overview', publishingAccountId) as Promise<{
+      account: PublishingAccount | null
+      plan: PostingPlan | null
+      slots: CalendarSlot[]
+      publications: ScheduledPublication[]
+    }>,
+  getScheduledPublications: (publishingAccountId: string) =>
+    ipcRenderer.invoke('get-scheduled-publications', publishingAccountId) as Promise<ScheduledPublication[]>,
   getBrandTemplate: () => ipcRenderer.invoke('get-brand-template'),
   updateBrandTemplate: (template: Partial<BrandTemplate>) =>
     ipcRenderer.invoke('update-brand-template', template),

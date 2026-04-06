@@ -1,4 +1,13 @@
-import type { BrandTemplate, BrandTemplatePreset, ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
+import type {
+  BrandTemplate,
+  BrandTemplatePreset,
+  CalendarSlot,
+  ClipTrimState,
+  PostingPlan,
+  PublishingAccount,
+  ScheduledPublication,
+  TrimBoundaryAnchor
+} from '@shared/types'
 import type {
   GetActivePipelineJobResponseDTO,
   GetPipelineRunComparisonResponseDTO,
@@ -82,6 +91,18 @@ declare global {
       getConfig: () => Promise<any>;
       updateApiConfig: (config: any) => Promise<boolean>;
       updateUserPreferences: (preferences: any) => Promise<boolean>;
+      getPublishingAccounts: () => Promise<PublishingAccount[]>;
+      savePublishingAccount: (account: Partial<PublishingAccount>) => Promise<PublishingAccount>;
+      getPostingPlan: (publishingAccountId: string) => Promise<PostingPlan | undefined>;
+      savePostingPlan: (plan: PostingPlan) => Promise<PostingPlan>;
+      generateCalendarSlots: (postingPlanId: string, daysForward?: number) => Promise<CalendarSlot[]>;
+      getCalendarOverview: (publishingAccountId?: string) => Promise<{
+        account: PublishingAccount | null;
+        plan: PostingPlan | null;
+        slots: CalendarSlot[];
+        publications: ScheduledPublication[];
+      }>;
+      getScheduledPublications: (publishingAccountId: string) => Promise<ScheduledPublication[]>;
       getBrandTemplate: () => Promise<BrandTemplate>;
       updateBrandTemplate: (template: Partial<BrandTemplate>) => Promise<BrandTemplate>;
       getBrandTemplatePresets: () => Promise<{

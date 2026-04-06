@@ -158,9 +158,13 @@ export class SlotGenerationService {
       throw new Error(`Posting plan ${planId} not found`)
     }
 
-    const slots = this.generateUpcomingSlots(plan, daysForward, fromDate)
-    database.replaceCalendarSlots(plan.id, slots)
-    return slots
+    const existingSlots = database.listCalendarSlotsForPlan(plan.id)
+    const existingTimes = new Set(existingSlots.map((slot) => slot.scheduledForUtc))
+    const generatedSlots = this.generateUpcomingSlots(plan, daysForward, fromDate)
+    const missingSlots = generatedSlots.filter((slot) => !existingTimes.has(slot.scheduledForUtc))
+
+    database.replaceCalendarSlots(plan.id, missingSlots)
+    return database.listCalendarSlotsForPlan(plan.id)
   }
 }
 

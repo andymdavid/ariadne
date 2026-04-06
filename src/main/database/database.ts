@@ -3119,6 +3119,19 @@ class DatabaseManager {
     return (stmt.all(exportJobId) as any[]).map((row) => this.mapExportOutput(row))
   }
 
+  getLatestCompletedExportForClip(clipId: string): ExportOutputRecord | undefined {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM exports
+      WHERE clip_id = ?
+        AND status = 'completed'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `)
+    const row = stmt.get(clipId)
+    return row ? this.mapExportOutput(row) : undefined
+  }
+
   getDurableExportView(exportJobId: string) {
     const job = this.getExportJobRecord(exportJobId)
     const outputs = this.getExportOutputs(exportJobId)

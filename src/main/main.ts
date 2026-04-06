@@ -11,7 +11,9 @@ import { clipService } from './services/clipService';
 import { exportService } from './services/exportService';
 import { mediaWorkerSupervisor } from './services/mediaWorkerSupervisor';
 import { workflowReadModel } from './services/workflowReadModel';
-import type { BrandTemplate, TrimBoundaryAnchor } from '@shared/types';
+import { postingPlanService } from './services/postingPlanService';
+import { schedulingService } from './services/schedulingService';
+import type { BrandTemplate, PostingPlan, PublishingAccount, TrimBoundaryAnchor } from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,
@@ -663,8 +665,20 @@ ipcMain.handle('get-clip-trim-state', (event, clipId: string) => {
   return database.getClipTrimState(clipId);
 });
 
-ipcMain.handle('update-clip-status', (event, clipId: string, status: string) => {
-  return database.updateClipStatus(clipId, status);
+ipcMain.handle('update-clip-status', async (_event, clipId: string, status: string) => {
+  const result = database.updateClipStatus(clipId, status);
+
+  if (status === 'approved') {
+    const scheduling = schedulingService.autoScheduleApprovedClip(clipId)
+    return {
+      result,
+      scheduling
+    }
+  }
+
+  return {
+    result
+  };
 });
 
 ipcMain.handle('update-clip-boundaries', (event, clipId: string, startTime: number, endTime: number) => {
@@ -771,6 +785,55 @@ ipcMain.handle('update-user-preferences', (event, preferences: any) => {
 ipcMain.handle('validate-config', () => {
   return configService.validateConfig();
 });
+
+ipcMain.handle('get-publishing-accounts', () => {
+  return database.listPublishingAccounts('youtube')
+})
+
+ipcMain.handle('save-publishing-account', (_event, account: Partial<PublishingAccount>) => {
+  const now = new Date().toISOString()
+  const resolved: PublishingAccount = {
+    id: account.id ?? randomUUID(),
+    platform: 'youtube',
+    channelId: account.channelId ?? '',
+    channelName: account.channelName ?? 'YouTube channel',
+    channelHandle: account.channelHandle ?? null,
+    timezone: account.timezone ?? 'UTC',
+    authStatus: account.authStatus ?? 'connected',
+    accessTokenRef: account.accessTokenRef ?? null,
+    refreshTokenRef: account.refreshTokenRef ?? null,
+    tokenExpiresAt: account.tokenExpiresAt ?? null,
+    metadata: account.metadata ?? {},
+    createdAt: account.createdAt ?? now,
+    updatedAt: now
+  }
+
+  return schedulingService.savePublishingAccount(resolved)
+})
+
+ipcMain.handle('get-posting-plan', (_event, publishingAccountId: string) => {
+  return database.getDefaultPostingPlanForAccount(publishingAccountId)
+})
+
+ipcMain.handle('save-posting-plan', (_event, plan: PostingPlan) => {
+  const resolvedPlan: PostingPlan = {
+    ...plan,
+    updatedAt: new Date().toISOString()
+  }
+  return postingPlanService.savePostingPlan(resolvedPlan)
+})
+
+ipcMain.handle('generate-calendar-slots', (_event, postingPlanId: string, daysForward = 21) => {
+  return schedulingService.ensurePlanSlots(postingPlanId, daysForward)
+})
+
+ipcMain.handle('get-calendar-overview', (_event, publishingAccountId?: string) => {
+  return schedulingService.getCalendarOverview(publishingAccountId)
+})
+
+ipcMain.handle('get-scheduled-publications', (_event, publishingAccountId: string) => {
+  return database.listScheduledPublicationsForAccount(publishingAccountId)
+})
 
 ipcMain.handle('get-brand-template', () => {
   return configService.getBrandTemplate()
