@@ -212,3 +212,137 @@ export interface BrandTemplatePreset {
   createdAt: string;
   updatedAt: string;
 }
+
+export type PublishingPlatform = 'youtube';
+
+export type PublishingAccountAuthStatus =
+  | 'connected'
+  | 'expired'
+  | 'revoked'
+  | 'error';
+
+export type SlotStrategy = 'fixed' | 'regional_weighted' | 'adaptive';
+
+export type CalendarSlotStatus =
+  | 'empty'
+  | 'reserved'
+  | 'scheduled'
+  | 'blocked'
+  | 'published';
+
+export type ScheduledPublicationStatus =
+  | 'draft'
+  | 'waiting_for_export'
+  | 'waiting_for_metadata'
+  | 'waiting_for_thumbnail'
+  | 'ready_to_push'
+  | 'scheduling_on_platform'
+  | 'scheduled_on_platform'
+  | 'published'
+  | 'failed'
+  | 'cancelled'
+  | 'outdated';
+
+export type TargetRegion =
+  | 'aus_nz'
+  | 'europe'
+  | 'united_states'
+  | 'global_fallback';
+
+export interface PublishingAccount {
+  id: string;
+  platform: PublishingPlatform;
+  channelId: string;
+  channelName: string;
+  channelHandle?: string | null;
+  timezone: string;
+  authStatus: PublishingAccountAuthStatus;
+  accessTokenRef?: string | null;
+  refreshTokenRef?: string | null;
+  tokenExpiresAt?: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PostingPlan {
+  id: string;
+  publishingAccountId: string;
+  isDefault: boolean;
+  postsPerDay: number;
+  activeDays: number[];
+  primaryTimezone: string;
+  targetRegions: TargetRegion[];
+  publishingWindowStart: string;
+  publishingWindowEnd: string;
+  slotStrategy: SlotStrategy;
+  recyclingEnabled: boolean;
+  minimumRecycleGapDays: number;
+  maxRecyclesPerClip: number;
+  freshInventoryThreshold: number;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CalendarSlot {
+  id: string;
+  postingPlanId: string;
+  scheduledForUtc: string;
+  scheduledTimezone: string;
+  slotLabel: string;
+  slotRegion?: TargetRegion | null;
+  status: CalendarSlotStatus;
+  scheduledPublicationId?: string | null;
+  blockedReason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduledPublication {
+  id: string;
+  clipId: string;
+  publishingAccountId: string;
+  calendarSlotId?: string | null;
+  exportArtifactId?: string | null;
+  contentPackageId?: string | null;
+  selectedTitleId?: string | null;
+  selectedDescriptionId?: string | null;
+  selectedThumbnailId?: string | null;
+  platform: PublishingPlatform;
+  scheduledForUtc: string;
+  scheduledTimezone: string;
+  status: ScheduledPublicationStatus;
+  isRecycled: boolean;
+  sourcePublicationId?: string | null;
+  youtubeVideoId?: string | null;
+  youtubeVideoUrl?: string | null;
+  youtubeUploadStatus?: string | null;
+  platformConfirmedPublishAtUtc?: string | null;
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
+  retryCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicationHistoryEvent {
+  id: string;
+  scheduledPublicationId: string;
+  eventType: string;
+  message?: string | null;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ClipPublishPreferences {
+  clipId: string;
+  recycleEnabled: boolean;
+  priorityScore: number;
+  excludeUntilUtc?: string | null;
+  lastPublishedAt?: string | null;
+  lastRecycledAt?: string | null;
+  recycleCount: number;
+  performanceScore: number;
+  updatedAt: string;
+}

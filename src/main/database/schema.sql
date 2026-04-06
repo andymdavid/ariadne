@@ -203,6 +203,117 @@ CREATE TABLE IF NOT EXISTS export_jobs (
     FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS publishing_accounts (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    channel_name TEXT NOT NULL,
+    channel_handle TEXT,
+    timezone TEXT NOT NULL,
+    auth_status TEXT NOT NULL,
+    access_token_ref TEXT,
+    refresh_token_ref TEXT,
+    token_expires_at TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS posting_plans (
+    id TEXT PRIMARY KEY,
+    publishing_account_id TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 1,
+    posts_per_day INTEGER NOT NULL,
+    active_days_json TEXT NOT NULL,
+    primary_timezone TEXT NOT NULL,
+    target_regions_json TEXT NOT NULL,
+    publishing_window_start TEXT NOT NULL,
+    publishing_window_end TEXT NOT NULL,
+    slot_strategy TEXT NOT NULL,
+    recycling_enabled INTEGER NOT NULL DEFAULT 0,
+    minimum_recycle_gap_days INTEGER NOT NULL DEFAULT 30,
+    max_recycles_per_clip INTEGER NOT NULL DEFAULT 3,
+    fresh_inventory_threshold INTEGER NOT NULL DEFAULT 10,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (publishing_account_id) REFERENCES publishing_accounts (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS calendar_slots (
+    id TEXT PRIMARY KEY,
+    posting_plan_id TEXT NOT NULL,
+    scheduled_for_utc TEXT NOT NULL,
+    scheduled_timezone TEXT NOT NULL,
+    slot_label TEXT NOT NULL,
+    slot_region TEXT,
+    status TEXT NOT NULL,
+    scheduled_publication_id TEXT,
+    blocked_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (posting_plan_id) REFERENCES posting_plans (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS scheduled_publications (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    publishing_account_id TEXT NOT NULL,
+    calendar_slot_id TEXT,
+    export_artifact_id TEXT,
+    content_package_id TEXT,
+    selected_title_id TEXT,
+    selected_description_id TEXT,
+    selected_thumbnail_id TEXT,
+    platform TEXT NOT NULL,
+    scheduled_for_utc TEXT NOT NULL,
+    scheduled_timezone TEXT NOT NULL,
+    status TEXT NOT NULL,
+    is_recycled INTEGER NOT NULL DEFAULT 0,
+    source_publication_id TEXT,
+    youtube_video_id TEXT,
+    youtube_video_url TEXT,
+    youtube_upload_status TEXT,
+    platform_confirmed_publish_at_utc TEXT,
+    last_error_code TEXT,
+    last_error_message TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE,
+    FOREIGN KEY (publishing_account_id) REFERENCES publishing_accounts (id) ON DELETE CASCADE,
+    FOREIGN KEY (calendar_slot_id) REFERENCES calendar_slots (id) ON DELETE SET NULL,
+    FOREIGN KEY (export_artifact_id) REFERENCES artifacts (id) ON DELETE SET NULL,
+    FOREIGN KEY (content_package_id) REFERENCES content_packages (id) ON DELETE SET NULL,
+    FOREIGN KEY (selected_title_id) REFERENCES clip_titles (id) ON DELETE SET NULL,
+    FOREIGN KEY (selected_description_id) REFERENCES clip_descriptions (id) ON DELETE SET NULL,
+    FOREIGN KEY (selected_thumbnail_id) REFERENCES clip_thumbnails (id) ON DELETE SET NULL,
+    FOREIGN KEY (source_publication_id) REFERENCES scheduled_publications (id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS publication_history (
+    id TEXT PRIMARY KEY,
+    scheduled_publication_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    message TEXT,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (scheduled_publication_id) REFERENCES scheduled_publications (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS clip_publish_preferences (
+    clip_id TEXT PRIMARY KEY,
+    recycle_enabled INTEGER NOT NULL DEFAULT 1,
+    priority_score REAL NOT NULL DEFAULT 0,
+    exclude_until_utc TEXT,
+    last_published_at TEXT,
+    last_recycled_at TEXT,
+    recycle_count INTEGER NOT NULL DEFAULT 0,
+    performance_score REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS failure_events (
     id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL,
@@ -285,6 +396,14 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_clip ON artifacts (clip_id, artifact_ty
 CREATE INDEX IF NOT EXISTS idx_artifacts_path ON artifacts (file_path);
 CREATE INDEX IF NOT EXISTS idx_export_jobs_episode ON export_jobs (episode_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs (status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_publishing_accounts_platform ON publishing_accounts (platform, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posting_plans_account_default ON posting_plans (publishing_account_id, is_default, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_calendar_slots_plan_time ON calendar_slots (posting_plan_id, scheduled_for_utc ASC);
+CREATE INDEX IF NOT EXISTS idx_calendar_slots_status ON calendar_slots (status, scheduled_for_utc ASC);
+CREATE INDEX IF NOT EXISTS idx_scheduled_publications_clip ON scheduled_publications (clip_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scheduled_publications_account_time ON scheduled_publications (publishing_account_id, scheduled_for_utc ASC);
+CREATE INDEX IF NOT EXISTS idx_scheduled_publications_status ON scheduled_publications (status, scheduled_for_utc ASC);
+CREATE INDEX IF NOT EXISTS idx_publication_history_publication ON publication_history (scheduled_publication_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_failure_events_job ON failure_events (job_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_failure_events_step ON failure_events (step_run_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_failure_events_scope ON failure_events (scope, created_at DESC);

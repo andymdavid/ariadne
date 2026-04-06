@@ -2,7 +2,21 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, existsSync, mkdirSync, statSync } from 'fs'
-import type { ClipTrimState, TrimBoundaryAnchor } from '@shared/types'
+import type {
+  CalendarSlot,
+  CalendarSlotStatus,
+  ClipPublishPreferences,
+  ClipTrimState,
+  PostingPlan,
+  PublicationHistoryEvent,
+  PublishingAccount,
+  PublishingAccountAuthStatus,
+  ScheduledPublication,
+  ScheduledPublicationStatus,
+  SlotStrategy,
+  TargetRegion,
+  TrimBoundaryAnchor
+} from '@shared/types'
 
 type WorkflowJobStatus =
   | 'pending'
@@ -169,6 +183,104 @@ interface PipelineRunEvaluationRecord {
   summaryJson: string
   notes: string | null
   createdAt: string
+}
+
+interface PublishingAccountRecord {
+  id: string
+  platform: 'youtube'
+  channelId: string
+  channelName: string
+  channelHandle: string | null
+  timezone: string
+  authStatus: PublishingAccountAuthStatus
+  accessTokenRef: string | null
+  refreshTokenRef: string | null
+  tokenExpiresAt: string | null
+  metadataJson: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface PostingPlanRecord {
+  id: string
+  publishingAccountId: string
+  isDefault: boolean
+  postsPerDay: number
+  activeDaysJson: string
+  primaryTimezone: string
+  targetRegionsJson: string
+  publishingWindowStart: string
+  publishingWindowEnd: string
+  slotStrategy: SlotStrategy
+  recyclingEnabled: boolean
+  minimumRecycleGapDays: number
+  maxRecyclesPerClip: number
+  freshInventoryThreshold: number
+  metadataJson: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface CalendarSlotRecord {
+  id: string
+  postingPlanId: string
+  scheduledForUtc: string
+  scheduledTimezone: string
+  slotLabel: string
+  slotRegion: TargetRegion | null
+  status: CalendarSlotStatus
+  scheduledPublicationId: string | null
+  blockedReason: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+interface ScheduledPublicationRecord {
+  id: string
+  clipId: string
+  publishingAccountId: string
+  calendarSlotId: string | null
+  exportArtifactId: string | null
+  contentPackageId: string | null
+  selectedTitleId: string | null
+  selectedDescriptionId: string | null
+  selectedThumbnailId: string | null
+  platform: 'youtube'
+  scheduledForUtc: string
+  scheduledTimezone: string
+  status: ScheduledPublicationStatus
+  isRecycled: boolean
+  sourcePublicationId: string | null
+  youtubeVideoId: string | null
+  youtubeVideoUrl: string | null
+  youtubeUploadStatus: string | null
+  platformConfirmedPublishAtUtc: string | null
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
+  retryCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+interface PublicationHistoryRecord {
+  id: string
+  scheduledPublicationId: string
+  eventType: string
+  message: string | null
+  detailJson: string
+  createdAt: string
+}
+
+interface ClipPublishPreferencesRecord {
+  clipId: string
+  recycleEnabled: boolean
+  priorityScore: number
+  excludeUntilUtc: string | null
+  lastPublishedAt: string | null
+  lastRecycledAt: string | null
+  recycleCount: number
+  performanceScore: number
+  updatedAt: string
 }
 
 class DatabaseManager {
@@ -345,6 +457,238 @@ class DatabaseManager {
       summaryJson: row.summary_json,
       notes: row.notes ?? null,
       createdAt: row.created_at
+    }
+  }
+
+  private mapPublishingAccount(row: any): PublishingAccountRecord {
+    return {
+      id: row.id,
+      platform: row.platform,
+      channelId: row.channel_id,
+      channelName: row.channel_name,
+      channelHandle: row.channel_handle ?? null,
+      timezone: row.timezone,
+      authStatus: row.auth_status,
+      accessTokenRef: row.access_token_ref ?? null,
+      refreshTokenRef: row.refresh_token_ref ?? null,
+      tokenExpiresAt: row.token_expires_at ?? null,
+      metadataJson: row.metadata_json ?? '{}',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapPostingPlan(row: any): PostingPlanRecord {
+    return {
+      id: row.id,
+      publishingAccountId: row.publishing_account_id,
+      isDefault: Boolean(row.is_default),
+      postsPerDay: row.posts_per_day,
+      activeDaysJson: row.active_days_json,
+      primaryTimezone: row.primary_timezone,
+      targetRegionsJson: row.target_regions_json,
+      publishingWindowStart: row.publishing_window_start,
+      publishingWindowEnd: row.publishing_window_end,
+      slotStrategy: row.slot_strategy,
+      recyclingEnabled: Boolean(row.recycling_enabled),
+      minimumRecycleGapDays: row.minimum_recycle_gap_days,
+      maxRecyclesPerClip: row.max_recycles_per_clip,
+      freshInventoryThreshold: row.fresh_inventory_threshold,
+      metadataJson: row.metadata_json ?? '{}',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapCalendarSlot(row: any): CalendarSlotRecord {
+    return {
+      id: row.id,
+      postingPlanId: row.posting_plan_id,
+      scheduledForUtc: row.scheduled_for_utc,
+      scheduledTimezone: row.scheduled_timezone,
+      slotLabel: row.slot_label,
+      slotRegion: row.slot_region ?? null,
+      status: row.status,
+      scheduledPublicationId: row.scheduled_publication_id ?? null,
+      blockedReason: row.blocked_reason ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapScheduledPublication(row: any): ScheduledPublicationRecord {
+    return {
+      id: row.id,
+      clipId: row.clip_id,
+      publishingAccountId: row.publishing_account_id,
+      calendarSlotId: row.calendar_slot_id ?? null,
+      exportArtifactId: row.export_artifact_id ?? null,
+      contentPackageId: row.content_package_id ?? null,
+      selectedTitleId: row.selected_title_id ?? null,
+      selectedDescriptionId: row.selected_description_id ?? null,
+      selectedThumbnailId: row.selected_thumbnail_id ?? null,
+      platform: row.platform,
+      scheduledForUtc: row.scheduled_for_utc,
+      scheduledTimezone: row.scheduled_timezone,
+      status: row.status,
+      isRecycled: Boolean(row.is_recycled),
+      sourcePublicationId: row.source_publication_id ?? null,
+      youtubeVideoId: row.youtube_video_id ?? null,
+      youtubeVideoUrl: row.youtube_video_url ?? null,
+      youtubeUploadStatus: row.youtube_upload_status ?? null,
+      platformConfirmedPublishAtUtc: row.platform_confirmed_publish_at_utc ?? null,
+      lastErrorCode: row.last_error_code ?? null,
+      lastErrorMessage: row.last_error_message ?? null,
+      retryCount: row.retry_count,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapPublicationHistory(row: any): PublicationHistoryRecord {
+    return {
+      id: row.id,
+      scheduledPublicationId: row.scheduled_publication_id,
+      eventType: row.event_type,
+      message: row.message ?? null,
+      detailJson: row.detail_json ?? '{}',
+      createdAt: row.created_at
+    }
+  }
+
+  private mapClipPublishPreferences(row: any): ClipPublishPreferencesRecord {
+    return {
+      clipId: row.clip_id,
+      recycleEnabled: Boolean(row.recycle_enabled),
+      priorityScore: row.priority_score,
+      excludeUntilUtc: row.exclude_until_utc ?? null,
+      lastPublishedAt: row.last_published_at ?? null,
+      lastRecycledAt: row.last_recycled_at ?? null,
+      recycleCount: row.recycle_count,
+      performanceScore: row.performance_score,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private parseJsonValue<T>(value: string | null | undefined, fallback: T): T {
+    if (!value) {
+      return fallback
+    }
+
+    try {
+      return JSON.parse(value) as T
+    } catch {
+      return fallback
+    }
+  }
+
+  private toPublishingAccount(record: PublishingAccountRecord): PublishingAccount {
+    return {
+      id: record.id,
+      platform: record.platform,
+      channelId: record.channelId,
+      channelName: record.channelName,
+      channelHandle: record.channelHandle,
+      timezone: record.timezone,
+      authStatus: record.authStatus,
+      accessTokenRef: record.accessTokenRef,
+      refreshTokenRef: record.refreshTokenRef,
+      tokenExpiresAt: record.tokenExpiresAt,
+      metadata: this.parseJsonValue(record.metadataJson, {}),
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt
+    }
+  }
+
+  private toPostingPlan(record: PostingPlanRecord): PostingPlan {
+    return {
+      id: record.id,
+      publishingAccountId: record.publishingAccountId,
+      isDefault: record.isDefault,
+      postsPerDay: record.postsPerDay,
+      activeDays: this.parseJsonValue(record.activeDaysJson, []),
+      primaryTimezone: record.primaryTimezone,
+      targetRegions: this.parseJsonValue(record.targetRegionsJson, []),
+      publishingWindowStart: record.publishingWindowStart,
+      publishingWindowEnd: record.publishingWindowEnd,
+      slotStrategy: record.slotStrategy,
+      recyclingEnabled: record.recyclingEnabled,
+      minimumRecycleGapDays: record.minimumRecycleGapDays,
+      maxRecyclesPerClip: record.maxRecyclesPerClip,
+      freshInventoryThreshold: record.freshInventoryThreshold,
+      metadata: this.parseJsonValue(record.metadataJson, {}),
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt
+    }
+  }
+
+  private toCalendarSlot(record: CalendarSlotRecord): CalendarSlot {
+    return {
+      id: record.id,
+      postingPlanId: record.postingPlanId,
+      scheduledForUtc: record.scheduledForUtc,
+      scheduledTimezone: record.scheduledTimezone,
+      slotLabel: record.slotLabel,
+      slotRegion: record.slotRegion,
+      status: record.status,
+      scheduledPublicationId: record.scheduledPublicationId,
+      blockedReason: record.blockedReason,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt
+    }
+  }
+
+  private toScheduledPublication(record: ScheduledPublicationRecord): ScheduledPublication {
+    return {
+      id: record.id,
+      clipId: record.clipId,
+      publishingAccountId: record.publishingAccountId,
+      calendarSlotId: record.calendarSlotId,
+      exportArtifactId: record.exportArtifactId,
+      contentPackageId: record.contentPackageId,
+      selectedTitleId: record.selectedTitleId,
+      selectedDescriptionId: record.selectedDescriptionId,
+      selectedThumbnailId: record.selectedThumbnailId,
+      platform: record.platform,
+      scheduledForUtc: record.scheduledForUtc,
+      scheduledTimezone: record.scheduledTimezone,
+      status: record.status,
+      isRecycled: record.isRecycled,
+      sourcePublicationId: record.sourcePublicationId,
+      youtubeVideoId: record.youtubeVideoId,
+      youtubeVideoUrl: record.youtubeVideoUrl,
+      youtubeUploadStatus: record.youtubeUploadStatus,
+      platformConfirmedPublishAtUtc: record.platformConfirmedPublishAtUtc,
+      lastErrorCode: record.lastErrorCode,
+      lastErrorMessage: record.lastErrorMessage,
+      retryCount: record.retryCount,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt
+    }
+  }
+
+  private toPublicationHistoryEvent(record: PublicationHistoryRecord): PublicationHistoryEvent {
+    return {
+      id: record.id,
+      scheduledPublicationId: record.scheduledPublicationId,
+      eventType: record.eventType,
+      message: record.message,
+      detail: this.parseJsonValue(record.detailJson, {}),
+      createdAt: record.createdAt
+    }
+  }
+
+  private toClipPublishPreferences(record: ClipPublishPreferencesRecord): ClipPublishPreferences {
+    return {
+      clipId: record.clipId,
+      recycleEnabled: record.recycleEnabled,
+      priorityScore: record.priorityScore,
+      excludeUntilUtc: record.excludeUntilUtc,
+      lastPublishedAt: record.lastPublishedAt,
+      lastRecycledAt: record.lastRecycledAt,
+      recycleCount: record.recycleCount,
+      performanceScore: record.performanceScore,
+      updatedAt: record.updatedAt
     }
   }
 
@@ -1057,6 +1401,131 @@ class DatabaseManager {
       } catch (error) {
         console.log('Pipeline run evaluations migration skipped (may already exist)')
         this.db.pragma('user_version = 22')
+      }
+    }
+
+    if (preVersion <= 22) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS publishing_accounts (
+            id TEXT PRIMARY KEY,
+            platform TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            channel_name TEXT NOT NULL,
+            channel_handle TEXT,
+            timezone TEXT NOT NULL,
+            auth_status TEXT NOT NULL,
+            access_token_ref TEXT,
+            refresh_token_ref TEXT,
+            token_expires_at TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE TABLE IF NOT EXISTS posting_plans (
+            id TEXT PRIMARY KEY,
+            publishing_account_id TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 1,
+            posts_per_day INTEGER NOT NULL,
+            active_days_json TEXT NOT NULL,
+            primary_timezone TEXT NOT NULL,
+            target_regions_json TEXT NOT NULL,
+            publishing_window_start TEXT NOT NULL,
+            publishing_window_end TEXT NOT NULL,
+            slot_strategy TEXT NOT NULL,
+            recycling_enabled INTEGER NOT NULL DEFAULT 0,
+            minimum_recycle_gap_days INTEGER NOT NULL DEFAULT 30,
+            max_recycles_per_clip INTEGER NOT NULL DEFAULT 3,
+            fresh_inventory_threshold INTEGER NOT NULL DEFAULT 10,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (publishing_account_id) REFERENCES publishing_accounts (id) ON DELETE CASCADE
+          );
+          CREATE TABLE IF NOT EXISTS calendar_slots (
+            id TEXT PRIMARY KEY,
+            posting_plan_id TEXT NOT NULL,
+            scheduled_for_utc TEXT NOT NULL,
+            scheduled_timezone TEXT NOT NULL,
+            slot_label TEXT NOT NULL,
+            slot_region TEXT,
+            status TEXT NOT NULL,
+            scheduled_publication_id TEXT,
+            blocked_reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (posting_plan_id) REFERENCES posting_plans (id) ON DELETE CASCADE
+          );
+          CREATE TABLE IF NOT EXISTS scheduled_publications (
+            id TEXT PRIMARY KEY,
+            clip_id TEXT NOT NULL,
+            publishing_account_id TEXT NOT NULL,
+            calendar_slot_id TEXT,
+            export_artifact_id TEXT,
+            content_package_id TEXT,
+            selected_title_id TEXT,
+            selected_description_id TEXT,
+            selected_thumbnail_id TEXT,
+            platform TEXT NOT NULL,
+            scheduled_for_utc TEXT NOT NULL,
+            scheduled_timezone TEXT NOT NULL,
+            status TEXT NOT NULL,
+            is_recycled INTEGER NOT NULL DEFAULT 0,
+            source_publication_id TEXT,
+            youtube_video_id TEXT,
+            youtube_video_url TEXT,
+            youtube_upload_status TEXT,
+            platform_confirmed_publish_at_utc TEXT,
+            last_error_code TEXT,
+            last_error_message TEXT,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE,
+            FOREIGN KEY (publishing_account_id) REFERENCES publishing_accounts (id) ON DELETE CASCADE,
+            FOREIGN KEY (calendar_slot_id) REFERENCES calendar_slots (id) ON DELETE SET NULL,
+            FOREIGN KEY (export_artifact_id) REFERENCES artifacts (id) ON DELETE SET NULL,
+            FOREIGN KEY (content_package_id) REFERENCES content_packages (id) ON DELETE SET NULL,
+            FOREIGN KEY (selected_title_id) REFERENCES clip_titles (id) ON DELETE SET NULL,
+            FOREIGN KEY (selected_description_id) REFERENCES clip_descriptions (id) ON DELETE SET NULL,
+            FOREIGN KEY (selected_thumbnail_id) REFERENCES clip_thumbnails (id) ON DELETE SET NULL,
+            FOREIGN KEY (source_publication_id) REFERENCES scheduled_publications (id) ON DELETE SET NULL
+          );
+          CREATE TABLE IF NOT EXISTS publication_history (
+            id TEXT PRIMARY KEY,
+            scheduled_publication_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            message TEXT,
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (scheduled_publication_id) REFERENCES scheduled_publications (id) ON DELETE CASCADE
+          );
+          CREATE TABLE IF NOT EXISTS clip_publish_preferences (
+            clip_id TEXT PRIMARY KEY,
+            recycle_enabled INTEGER NOT NULL DEFAULT 1,
+            priority_score REAL NOT NULL DEFAULT 0,
+            exclude_until_utc TEXT,
+            last_published_at TEXT,
+            last_recycled_at TEXT,
+            recycle_count INTEGER NOT NULL DEFAULT 0,
+            performance_score REAL NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_publishing_accounts_platform ON publishing_accounts (platform, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_posting_plans_account_default ON posting_plans (publishing_account_id, is_default, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_calendar_slots_plan_time ON calendar_slots (posting_plan_id, scheduled_for_utc ASC);
+          CREATE INDEX IF NOT EXISTS idx_calendar_slots_status ON calendar_slots (status, scheduled_for_utc ASC);
+          CREATE INDEX IF NOT EXISTS idx_scheduled_publications_clip ON scheduled_publications (clip_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_scheduled_publications_account_time ON scheduled_publications (publishing_account_id, scheduled_for_utc ASC);
+          CREATE INDEX IF NOT EXISTS idx_scheduled_publications_status ON scheduled_publications (status, scheduled_for_utc ASC);
+          CREATE INDEX IF NOT EXISTS idx_publication_history_publication ON publication_history (scheduled_publication_id, created_at DESC);
+        `)
+        console.log('✅ Added publishing scheduling tables (v23)')
+        this.db.pragma('user_version = 23')
+      } catch (error) {
+        console.log('Publishing scheduling migration skipped (may already exist)')
+        this.db.pragma('user_version = 23')
       }
     }
   }
@@ -2657,6 +3126,442 @@ class DatabaseManager {
       job,
       outputs
     }
+  }
+
+  upsertPublishingAccount(account: PublishingAccount) {
+    const stmt = this.db.prepare(`
+      INSERT INTO publishing_accounts (
+        id, platform, channel_id, channel_name, channel_handle, timezone, auth_status,
+        access_token_ref, refresh_token_ref, token_expires_at, metadata_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        platform = excluded.platform,
+        channel_id = excluded.channel_id,
+        channel_name = excluded.channel_name,
+        channel_handle = excluded.channel_handle,
+        timezone = excluded.timezone,
+        auth_status = excluded.auth_status,
+        access_token_ref = excluded.access_token_ref,
+        refresh_token_ref = excluded.refresh_token_ref,
+        token_expires_at = excluded.token_expires_at,
+        metadata_json = excluded.metadata_json,
+        updated_at = excluded.updated_at
+    `)
+
+    return stmt.run(
+      account.id,
+      account.platform,
+      account.channelId,
+      account.channelName,
+      account.channelHandle ?? null,
+      account.timezone,
+      account.authStatus,
+      account.accessTokenRef ?? null,
+      account.refreshTokenRef ?? null,
+      account.tokenExpiresAt ?? null,
+      JSON.stringify(account.metadata ?? {}),
+      account.createdAt,
+      account.updatedAt
+    )
+  }
+
+  getPublishingAccount(accountId: string): PublishingAccount | undefined {
+    const stmt = this.db.prepare('SELECT * FROM publishing_accounts WHERE id = ? LIMIT 1')
+    const row = stmt.get(accountId)
+    return row ? this.toPublishingAccount(this.mapPublishingAccount(row)) : undefined
+  }
+
+  listPublishingAccounts(platform?: 'youtube'): PublishingAccount[] {
+    const stmt = platform
+      ? this.db.prepare('SELECT * FROM publishing_accounts WHERE platform = ? ORDER BY updated_at DESC')
+      : this.db.prepare('SELECT * FROM publishing_accounts ORDER BY updated_at DESC')
+    const rows = platform ? stmt.all(platform) : stmt.all()
+    return (rows as any[]).map((row) => this.toPublishingAccount(this.mapPublishingAccount(row)))
+  }
+
+  upsertPostingPlan(plan: PostingPlan) {
+    const stmt = this.db.prepare(`
+      INSERT INTO posting_plans (
+        id, publishing_account_id, is_default, posts_per_day, active_days_json, primary_timezone,
+        target_regions_json, publishing_window_start, publishing_window_end, slot_strategy,
+        recycling_enabled, minimum_recycle_gap_days, max_recycles_per_clip,
+        fresh_inventory_threshold, metadata_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        publishing_account_id = excluded.publishing_account_id,
+        is_default = excluded.is_default,
+        posts_per_day = excluded.posts_per_day,
+        active_days_json = excluded.active_days_json,
+        primary_timezone = excluded.primary_timezone,
+        target_regions_json = excluded.target_regions_json,
+        publishing_window_start = excluded.publishing_window_start,
+        publishing_window_end = excluded.publishing_window_end,
+        slot_strategy = excluded.slot_strategy,
+        recycling_enabled = excluded.recycling_enabled,
+        minimum_recycle_gap_days = excluded.minimum_recycle_gap_days,
+        max_recycles_per_clip = excluded.max_recycles_per_clip,
+        fresh_inventory_threshold = excluded.fresh_inventory_threshold,
+        metadata_json = excluded.metadata_json,
+        updated_at = excluded.updated_at
+    `)
+
+    return stmt.run(
+      plan.id,
+      plan.publishingAccountId,
+      plan.isDefault ? 1 : 0,
+      plan.postsPerDay,
+      JSON.stringify(plan.activeDays),
+      plan.primaryTimezone,
+      JSON.stringify(plan.targetRegions),
+      plan.publishingWindowStart,
+      plan.publishingWindowEnd,
+      plan.slotStrategy,
+      plan.recyclingEnabled ? 1 : 0,
+      plan.minimumRecycleGapDays,
+      plan.maxRecyclesPerClip,
+      plan.freshInventoryThreshold,
+      JSON.stringify(plan.metadata ?? {}),
+      plan.createdAt,
+      plan.updatedAt
+    )
+  }
+
+  getPostingPlan(planId: string): PostingPlan | undefined {
+    const stmt = this.db.prepare('SELECT * FROM posting_plans WHERE id = ? LIMIT 1')
+    const row = stmt.get(planId)
+    return row ? this.toPostingPlan(this.mapPostingPlan(row)) : undefined
+  }
+
+  getDefaultPostingPlanForAccount(publishingAccountId: string): PostingPlan | undefined {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM posting_plans
+      WHERE publishing_account_id = ?
+      ORDER BY is_default DESC, updated_at DESC
+      LIMIT 1
+    `)
+    const row = stmt.get(publishingAccountId)
+    return row ? this.toPostingPlan(this.mapPostingPlan(row)) : undefined
+  }
+
+  listPostingPlansForAccount(publishingAccountId: string): PostingPlan[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM posting_plans
+      WHERE publishing_account_id = ?
+      ORDER BY is_default DESC, updated_at DESC
+    `)
+    return (stmt.all(publishingAccountId) as any[]).map((row) => this.toPostingPlan(this.mapPostingPlan(row)))
+  }
+
+  replaceCalendarSlots(postingPlanId: string, slots: CalendarSlot[]) {
+    const deleteStmt = this.db.prepare('DELETE FROM calendar_slots WHERE posting_plan_id = ? AND status = ?')
+    const insertStmt = this.db.prepare(`
+      INSERT INTO calendar_slots (
+        id, posting_plan_id, scheduled_for_utc, scheduled_timezone, slot_label,
+        slot_region, status, scheduled_publication_id, blocked_reason, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const transaction = this.db.transaction((nextSlots: CalendarSlot[]) => {
+      deleteStmt.run(postingPlanId, 'empty')
+      for (const slot of nextSlots) {
+        insertStmt.run(
+          slot.id,
+          slot.postingPlanId,
+          slot.scheduledForUtc,
+          slot.scheduledTimezone,
+          slot.slotLabel,
+          slot.slotRegion ?? null,
+          slot.status,
+          slot.scheduledPublicationId ?? null,
+          slot.blockedReason ?? null,
+          slot.createdAt,
+          slot.updatedAt
+        )
+      }
+    })
+
+    transaction(slots)
+  }
+
+  upsertCalendarSlot(slot: CalendarSlot) {
+    const stmt = this.db.prepare(`
+      INSERT INTO calendar_slots (
+        id, posting_plan_id, scheduled_for_utc, scheduled_timezone, slot_label,
+        slot_region, status, scheduled_publication_id, blocked_reason, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        posting_plan_id = excluded.posting_plan_id,
+        scheduled_for_utc = excluded.scheduled_for_utc,
+        scheduled_timezone = excluded.scheduled_timezone,
+        slot_label = excluded.slot_label,
+        slot_region = excluded.slot_region,
+        status = excluded.status,
+        scheduled_publication_id = excluded.scheduled_publication_id,
+        blocked_reason = excluded.blocked_reason,
+        updated_at = excluded.updated_at
+    `)
+
+    return stmt.run(
+      slot.id,
+      slot.postingPlanId,
+      slot.scheduledForUtc,
+      slot.scheduledTimezone,
+      slot.slotLabel,
+      slot.slotRegion ?? null,
+      slot.status,
+      slot.scheduledPublicationId ?? null,
+      slot.blockedReason ?? null,
+      slot.createdAt,
+      slot.updatedAt
+    )
+  }
+
+  listCalendarSlotsForPlan(postingPlanId: string, fromUtc?: string, toUtc?: string): CalendarSlot[] {
+    let stmt: Database.Statement
+    let rows: unknown[]
+
+    if (fromUtc && toUtc) {
+      stmt = this.db.prepare(`
+        SELECT *
+        FROM calendar_slots
+        WHERE posting_plan_id = ?
+          AND scheduled_for_utc >= ?
+          AND scheduled_for_utc <= ?
+        ORDER BY scheduled_for_utc ASC
+      `)
+      rows = stmt.all(postingPlanId, fromUtc, toUtc) as unknown[]
+    } else {
+      stmt = this.db.prepare(`
+        SELECT *
+        FROM calendar_slots
+        WHERE posting_plan_id = ?
+        ORDER BY scheduled_for_utc ASC
+      `)
+      rows = stmt.all(postingPlanId) as unknown[]
+    }
+
+    return (rows as any[]).map((row) => this.toCalendarSlot(this.mapCalendarSlot(row)))
+  }
+
+  getNextAvailableCalendarSlot(postingPlanId: string, fromUtc: string): CalendarSlot | undefined {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM calendar_slots
+      WHERE posting_plan_id = ?
+        AND status = 'empty'
+        AND scheduled_for_utc >= ?
+      ORDER BY scheduled_for_utc ASC
+      LIMIT 1
+    `)
+    const row = stmt.get(postingPlanId, fromUtc)
+    return row ? this.toCalendarSlot(this.mapCalendarSlot(row)) : undefined
+  }
+
+  createScheduledPublication(publication: ScheduledPublication) {
+    const stmt = this.db.prepare(`
+      INSERT INTO scheduled_publications (
+        id, clip_id, publishing_account_id, calendar_slot_id, export_artifact_id,
+        content_package_id, selected_title_id, selected_description_id, selected_thumbnail_id,
+        platform, scheduled_for_utc, scheduled_timezone, status, is_recycled,
+        source_publication_id, youtube_video_id, youtube_video_url, youtube_upload_status,
+        platform_confirmed_publish_at_utc, last_error_code, last_error_message, retry_count,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      publication.id,
+      publication.clipId,
+      publication.publishingAccountId,
+      publication.calendarSlotId ?? null,
+      publication.exportArtifactId ?? null,
+      publication.contentPackageId ?? null,
+      publication.selectedTitleId ?? null,
+      publication.selectedDescriptionId ?? null,
+      publication.selectedThumbnailId ?? null,
+      publication.platform,
+      publication.scheduledForUtc,
+      publication.scheduledTimezone,
+      publication.status,
+      publication.isRecycled ? 1 : 0,
+      publication.sourcePublicationId ?? null,
+      publication.youtubeVideoId ?? null,
+      publication.youtubeVideoUrl ?? null,
+      publication.youtubeUploadStatus ?? null,
+      publication.platformConfirmedPublishAtUtc ?? null,
+      publication.lastErrorCode ?? null,
+      publication.lastErrorMessage ?? null,
+      publication.retryCount,
+      publication.createdAt,
+      publication.updatedAt
+    )
+  }
+
+  updateScheduledPublication(publicationId: string, patch: Partial<ScheduledPublication>) {
+    const stmt = this.db.prepare(`
+      UPDATE scheduled_publications
+      SET clip_id = COALESCE(?, clip_id),
+          publishing_account_id = COALESCE(?, publishing_account_id),
+          calendar_slot_id = COALESCE(?, calendar_slot_id),
+          export_artifact_id = COALESCE(?, export_artifact_id),
+          content_package_id = COALESCE(?, content_package_id),
+          selected_title_id = COALESCE(?, selected_title_id),
+          selected_description_id = COALESCE(?, selected_description_id),
+          selected_thumbnail_id = COALESCE(?, selected_thumbnail_id),
+          platform = COALESCE(?, platform),
+          scheduled_for_utc = COALESCE(?, scheduled_for_utc),
+          scheduled_timezone = COALESCE(?, scheduled_timezone),
+          status = COALESCE(?, status),
+          is_recycled = COALESCE(?, is_recycled),
+          source_publication_id = COALESCE(?, source_publication_id),
+          youtube_video_id = COALESCE(?, youtube_video_id),
+          youtube_video_url = COALESCE(?, youtube_video_url),
+          youtube_upload_status = COALESCE(?, youtube_upload_status),
+          platform_confirmed_publish_at_utc = COALESCE(?, platform_confirmed_publish_at_utc),
+          last_error_code = COALESCE(?, last_error_code),
+          last_error_message = COALESCE(?, last_error_message),
+          retry_count = COALESCE(?, retry_count),
+          updated_at = COALESCE(?, updated_at)
+      WHERE id = ?
+    `)
+
+    return stmt.run(
+      patch.clipId ?? null,
+      patch.publishingAccountId ?? null,
+      patch.calendarSlotId ?? null,
+      patch.exportArtifactId ?? null,
+      patch.contentPackageId ?? null,
+      patch.selectedTitleId ?? null,
+      patch.selectedDescriptionId ?? null,
+      patch.selectedThumbnailId ?? null,
+      patch.platform ?? null,
+      patch.scheduledForUtc ?? null,
+      patch.scheduledTimezone ?? null,
+      patch.status ?? null,
+      typeof patch.isRecycled === 'boolean' ? (patch.isRecycled ? 1 : 0) : null,
+      patch.sourcePublicationId ?? null,
+      patch.youtubeVideoId ?? null,
+      patch.youtubeVideoUrl ?? null,
+      patch.youtubeUploadStatus ?? null,
+      patch.platformConfirmedPublishAtUtc ?? null,
+      patch.lastErrorCode ?? null,
+      patch.lastErrorMessage ?? null,
+      patch.retryCount ?? null,
+      patch.updatedAt ?? null,
+      publicationId
+    )
+  }
+
+  getScheduledPublication(publicationId: string): ScheduledPublication | undefined {
+    const stmt = this.db.prepare('SELECT * FROM scheduled_publications WHERE id = ? LIMIT 1')
+    const row = stmt.get(publicationId)
+    return row ? this.toScheduledPublication(this.mapScheduledPublication(row)) : undefined
+  }
+
+  listScheduledPublicationsForAccount(
+    publishingAccountId: string,
+    statuses?: ScheduledPublicationStatus[]
+  ): ScheduledPublication[] {
+    if (statuses && statuses.length > 0) {
+      const placeholders = statuses.map(() => '?').join(', ')
+      const stmt = this.db.prepare(`
+        SELECT *
+        FROM scheduled_publications
+        WHERE publishing_account_id = ?
+          AND status IN (${placeholders})
+        ORDER BY scheduled_for_utc ASC
+      `)
+      return (stmt.all(publishingAccountId, ...statuses) as any[]).map((row) =>
+        this.toScheduledPublication(this.mapScheduledPublication(row))
+      )
+    }
+
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM scheduled_publications
+      WHERE publishing_account_id = ?
+      ORDER BY scheduled_for_utc ASC
+    `)
+    return (stmt.all(publishingAccountId) as any[]).map((row) =>
+      this.toScheduledPublication(this.mapScheduledPublication(row))
+    )
+  }
+
+  listScheduledPublicationsForClip(clipId: string): ScheduledPublication[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM scheduled_publications
+      WHERE clip_id = ?
+      ORDER BY scheduled_for_utc DESC
+    `)
+    return (stmt.all(clipId) as any[]).map((row) => this.toScheduledPublication(this.mapScheduledPublication(row)))
+  }
+
+  createPublicationHistoryEvent(event: PublicationHistoryEvent) {
+    const stmt = this.db.prepare(`
+      INSERT INTO publication_history (
+        id, scheduled_publication_id, event_type, message, detail_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      event.id,
+      event.scheduledPublicationId,
+      event.eventType,
+      event.message ?? null,
+      JSON.stringify(event.detail ?? {}),
+      event.createdAt
+    )
+  }
+
+  listPublicationHistory(scheduledPublicationId: string): PublicationHistoryEvent[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM publication_history
+      WHERE scheduled_publication_id = ?
+      ORDER BY created_at DESC
+    `)
+    return (stmt.all(scheduledPublicationId) as any[]).map((row) =>
+      this.toPublicationHistoryEvent(this.mapPublicationHistory(row))
+    )
+  }
+
+  upsertClipPublishPreferences(preferences: ClipPublishPreferences) {
+    const stmt = this.db.prepare(`
+      INSERT INTO clip_publish_preferences (
+        clip_id, recycle_enabled, priority_score, exclude_until_utc,
+        last_published_at, last_recycled_at, recycle_count, performance_score, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(clip_id) DO UPDATE SET
+        recycle_enabled = excluded.recycle_enabled,
+        priority_score = excluded.priority_score,
+        exclude_until_utc = excluded.exclude_until_utc,
+        last_published_at = excluded.last_published_at,
+        last_recycled_at = excluded.last_recycled_at,
+        recycle_count = excluded.recycle_count,
+        performance_score = excluded.performance_score,
+        updated_at = excluded.updated_at
+    `)
+
+    return stmt.run(
+      preferences.clipId,
+      preferences.recycleEnabled ? 1 : 0,
+      preferences.priorityScore,
+      preferences.excludeUntilUtc ?? null,
+      preferences.lastPublishedAt ?? null,
+      preferences.lastRecycledAt ?? null,
+      preferences.recycleCount,
+      preferences.performanceScore,
+      preferences.updatedAt
+    )
+  }
+
+  getClipPublishPreferences(clipId: string): ClipPublishPreferences | undefined {
+    const stmt = this.db.prepare('SELECT * FROM clip_publish_preferences WHERE clip_id = ? LIMIT 1')
+    const row = stmt.get(clipId)
+    return row ? this.toClipPublishPreferences(this.mapClipPublishPreferences(row)) : undefined
   }
 
   createFailureEvent(record: FailureEventRecord) {
