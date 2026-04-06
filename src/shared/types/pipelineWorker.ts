@@ -58,10 +58,17 @@ export interface PipelineWorkerPotentialClip {
 }
 
 export interface PipelineWorkerCandidate {
+  id: string
   startTime: number
   endTime: number
   duration: number
   text: string
+  segmentStartIndex: number
+  segmentEndIndex: number
+  openingLine: string
+  closingLine: string
+  naturalStart: boolean
+  naturalEnd: boolean
   heuristicScore: number
 }
 

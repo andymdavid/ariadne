@@ -4,11 +4,18 @@ export interface AudioChunk {
   duration: number
 }
 
+export interface TranscriptWord {
+  word: string
+  start: number
+  end: number
+}
+
 export interface TranscriptSegmentInput {
   id: number
   start: number
   end: number
   text: string
+  words?: TranscriptWord[]
 }
 
 export interface ClipCandidate {
@@ -24,6 +31,14 @@ export interface ClipCandidate {
   naturalStart: boolean
   naturalEnd: boolean
   heuristicScore: number
+}
+
+export interface SentenceBoundary {
+  segmentIndex: number
+  charIndex: number      // Character index within segment text where sentence ends
+  time: number           // End time of the terminal word
+  sentenceText: string   // The sentence text up to this boundary
+  punctuation: '.' | '!' | '?'
 }
 
 export interface RankedClipSelection {

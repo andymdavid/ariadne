@@ -69,7 +69,7 @@ class LocalWhisperService {
         audioFilePath,
         '--output_dir', tempDir,
         '--output_format', 'json',
-        '--model', options.model || 'base', // base is much faster than turbo
+        '--model', options.model || 'medium', // medium offers better punctuation accuracy (~80% vs ~70% for base)
         '--fp16', 'False', // Better compatibility
         '--verbose', 'False'
       ]

@@ -795,9 +795,9 @@ class ProcessingPipeline {
       brandVoiceExampleCount: brandVoice.examples.length,
       brandVoicePreferences: brandVoice.preferences,
       localWhisperModel: 'base',
-      candidateGeneratorVersion: 'clip_candidate_service_v1',
+      candidateGeneratorVersion: 'clip_candidate_service_v6',
       rankingPromptVersion: 'candidate_ranking_v1',
-      rankingImplementationVersion: 'ai_service_v1',
+      rankingImplementationVersion: 'ai_service_v4',
       contentPromptVersion: 'content_package_v1'
     }
   }
