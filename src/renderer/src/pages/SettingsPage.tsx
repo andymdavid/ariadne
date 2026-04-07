@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { MainContentPanel } from '../components/MainContentPanel'
+import type { PostingPlan, PublishingAccount, TargetRegion } from '@shared/types'
 
 interface ConfigState {
   openRouterKey: string
@@ -78,9 +79,13 @@ export function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
+  const [publishingAccount, setPublishingAccount] = useState<Partial<PublishingAccount> | null>(null)
+  const [postingPlan, setPostingPlan] = useState<PostingPlan | null>(null)
+  const [isSavingPublishing, setIsSavingPublishing] = useState(false)
 
   useEffect(() => {
     void loadConfig()
+    void loadPublishing()
   }, [])
 
   const loadConfig = async () => {
@@ -99,6 +104,31 @@ export function SettingsPage() {
       }
     } catch (error) {
       console.error('Failed to load config:', error)
+    }
+  }
+
+  const loadPublishing = async () => {
+    try {
+      const accounts = (await window.electronAPI?.getPublishingAccounts?.()) ?? []
+      const account = accounts[0]
+      if (account) {
+        setPublishingAccount(account)
+        const plan = await window.electronAPI?.getPostingPlan?.(account.id)
+        if (plan) {
+          setPostingPlan(plan)
+        }
+      } else {
+        setPublishingAccount({
+          platform: 'youtube',
+          channelName: '',
+          channelHandle: '',
+          timezone: 'Australia/Perth',
+          authStatus: 'connected',
+          metadata: {}
+        })
+      }
+    } catch (error) {
+      console.error('Failed to load publishing config:', error)
     }
   }
 
@@ -151,6 +181,80 @@ export function SettingsPage() {
 
   const handleModelChange = (model: ConfigState['model']) => {
     setConfig((prev) => ({ ...prev, model }))
+  }
+
+  const toggleTargetRegion = (region: TargetRegion) => {
+    setPostingPlan((prev) => {
+      if (!prev) return prev
+      const hasRegion = prev.targetRegions.includes(region)
+      return {
+        ...prev,
+        targetRegions: hasRegion
+          ? prev.targetRegions.filter((candidate) => candidate !== region)
+          : [...prev.targetRegions, region]
+      }
+    })
+  }
+
+  const handleSavePublishing = async () => {
+    if (!publishingAccount?.channelName?.trim()) {
+      setSaveMessage('Channel name is required for publishing setup')
+      return
+    }
+
+    setIsSavingPublishing(true)
+    try {
+      const savedAccount = await window.electronAPI?.savePublishingAccount?.({
+        ...publishingAccount,
+        channelName: publishingAccount.channelName.trim(),
+        channelId: publishingAccount.channelId || publishingAccount.channelHandle || publishingAccount.channelName
+      })
+
+      if (!savedAccount) {
+        throw new Error('Failed to save publishing account')
+      }
+
+      const nextPlan: PostingPlan =
+        postingPlan ?? {
+          id: crypto.randomUUID(),
+          publishingAccountId: savedAccount.id,
+          isDefault: true,
+          postsPerDay: 5,
+          activeDays: [1, 2, 3, 4, 5, 6, 0],
+          primaryTimezone: savedAccount.timezone,
+          targetRegions: ['aus_nz', 'europe', 'united_states'],
+          publishingWindowStart: '08:00',
+          publishingWindowEnd: '22:00',
+          slotStrategy: 'regional_weighted',
+          recyclingEnabled: true,
+          minimumRecycleGapDays: 30,
+          maxRecyclesPerClip: 3,
+          freshInventoryThreshold: 12,
+          metadata: {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+
+      const savedPlan = await window.electronAPI?.savePostingPlan?.({
+        ...nextPlan,
+        publishingAccountId: savedAccount.id,
+        primaryTimezone: publishingAccount.timezone || savedAccount.timezone
+      })
+
+      if (savedPlan) {
+        setPublishingAccount(savedAccount)
+        setPostingPlan(savedPlan)
+        await window.electronAPI?.generateCalendarSlots?.(savedPlan.id, 21)
+      }
+
+      setSaveMessage('Publishing setup saved successfully!')
+      setTimeout(() => setSaveMessage(''), 3000)
+    } catch (error) {
+      console.error('Failed to save publishing setup:', error)
+      setSaveMessage('Failed to save publishing setup')
+    } finally {
+      setIsSavingPublishing(false)
+    }
   }
 
   const saveToneClass = saveMessage.includes('success') ? 'text-accent-success' : 'text-accent-danger'
@@ -308,6 +412,190 @@ export function SettingsPage() {
               </section>
 
               <div className="flex flex-col gap-6">
+                <section className="app-section-shell">
+                  <div className="app-section-header">
+                    <div>
+                      <h2 className="app-section-title">Publishing Setup</h2>
+                    </div>
+                  </div>
+
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-secondary">
+                          YouTube channel name
+                        </label>
+                        <input
+                          type="text"
+                          value={publishingAccount?.channelName ?? ''}
+                          onChange={(e) =>
+                            setPublishingAccount((prev) => ({
+                              ...(prev ?? { platform: 'youtube', authStatus: 'connected', metadata: {} }),
+                              channelName: e.target.value
+                            }))
+                          }
+                          placeholder="Main channel"
+                          className="input w-full"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-secondary">
+                          Channel handle
+                        </label>
+                        <input
+                          type="text"
+                          value={publishingAccount?.channelHandle ?? ''}
+                          onChange={(e) =>
+                            setPublishingAccount((prev) => ({
+                              ...(prev ?? { platform: 'youtube', authStatus: 'connected', metadata: {} }),
+                              channelHandle: e.target.value
+                            }))
+                          }
+                          placeholder="@channel"
+                          className="input w-full"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-secondary">
+                          Primary timezone
+                        </label>
+                        <input
+                          type="text"
+                          value={publishingAccount?.timezone ?? ''}
+                          onChange={(e) =>
+                            setPublishingAccount((prev) => ({
+                              ...(prev ?? { platform: 'youtube', authStatus: 'connected', metadata: {} }),
+                              timezone: e.target.value
+                            }))
+                          }
+                          placeholder="Australia/Perth"
+                          className="input w-full"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-secondary">
+                          Posts per day
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={postingPlan?.postsPerDay ?? 5}
+                          onChange={(e) =>
+                            setPostingPlan((prev) =>
+                              prev
+                                ? { ...prev, postsPerDay: Number.parseInt(e.target.value || '5', 10) }
+                                : prev
+                            )
+                          }
+                          className="input w-full"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-secondary">
+                          Slot strategy
+                        </label>
+                        <select
+                          value={postingPlan?.slotStrategy ?? 'regional_weighted'}
+                          onChange={(e) =>
+                            setPostingPlan((prev) =>
+                              prev
+                                ? { ...prev, slotStrategy: e.target.value as PostingPlan['slotStrategy'] }
+                                : prev
+                            )
+                          }
+                          className="input w-full"
+                        >
+                          <option value="fixed">Fixed</option>
+                          <option value="regional_weighted">Regional weighted</option>
+                          <option value="adaptive">Adaptive</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-secondary">
+                          Publishing window start
+                        </label>
+                        <input
+                          type="time"
+                          value={postingPlan?.publishingWindowStart ?? '08:00'}
+                          onChange={(e) =>
+                            setPostingPlan((prev) =>
+                              prev ? { ...prev, publishingWindowStart: e.target.value } : prev
+                            )
+                          }
+                          className="input w-full"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-secondary">
+                          Publishing window end
+                        </label>
+                        <input
+                          type="time"
+                          value={postingPlan?.publishingWindowEnd ?? '22:00'}
+                          onChange={(e) =>
+                            setPostingPlan((prev) =>
+                              prev ? { ...prev, publishingWindowEnd: e.target.value } : prev
+                            )
+                          }
+                          className="input w-full"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-text-secondary">
+                        Target regions
+                      </label>
+                      <div className="settings-pill-row">
+                        {[
+                          { value: 'aus_nz' as const, label: 'AUS/NZ' },
+                          { value: 'europe' as const, label: 'EUR' },
+                          { value: 'united_states' as const, label: 'USA' },
+                          { value: 'global_fallback' as const, label: 'Global' }
+                        ].map((region) => (
+                          <button
+                            key={region.value}
+                            type="button"
+                            onClick={() => toggleTargetRegion(region.value)}
+                            className={`settings-pill ${
+                              postingPlan?.targetRegions.includes(region.value) ? 'is-active' : ''
+                            }`}
+                          >
+                            {region.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="app-surface-muted p-4 text-xs text-text-muted">
+                      Approval-triggered scheduling uses this default plan to reserve the next available slot and
+                      prepare YouTube publication records.
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void handleSavePublishing()}
+                        disabled={isSavingPublishing}
+                        className="app-action-primary"
+                      >
+                        {isSavingPublishing ? 'Saving...' : 'Save Publishing Setup'}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
                 <section className="app-section-shell">
                   <div className="app-section-header">
                     <div>

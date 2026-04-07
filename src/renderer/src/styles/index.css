@@ -413,6 +413,122 @@
     padding: 14px 16px;
   }
 
+  .settings-pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .settings-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 3px;
+    border: 1px solid #1d1d1d;
+    background: #111111;
+    color: rgba(240, 246, 252, 0.62);
+    font-size: 13px;
+    line-height: 1;
+    font-weight: 500;
+    transition:
+      background 0.18s ease,
+      border-color 0.18s ease,
+      color 0.18s ease;
+  }
+
+  .settings-pill:hover,
+  .settings-pill.is-active {
+    background: #171717;
+    border-color: #262626;
+    color: #f3f5f7;
+  }
+
+  .calendar-slot-list,
+  .calendar-publication-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .calendar-slot-row,
+  .calendar-publication-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid #1d1d1d;
+    border-radius: 3px;
+    background: #111111;
+    padding: 14px 16px;
+  }
+
+  .calendar-slot-main {
+    min-width: 0;
+  }
+
+  .calendar-slot-time,
+  .calendar-publication-clip {
+    font-size: 14px;
+    line-height: 1.2;
+    font-weight: 600;
+    color: #f3f5f7;
+  }
+
+  .calendar-slot-meta,
+  .calendar-publication-meta {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: rgba(240, 246, 252, 0.48);
+  }
+
+  .calendar-slot-status-group {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .calendar-slot-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 3px;
+    border: 1px solid #1d1d1d;
+    background: #151515;
+    color: rgba(240, 246, 252, 0.68);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 500;
+    text-transform: capitalize;
+  }
+
+  .calendar-slot-status.is-empty {
+    background: #111111;
+  }
+
+  .calendar-slot-status.is-reserved,
+  .calendar-slot-status.is-publication-ready_to_push {
+    background: #161616;
+    color: #f3f5f7;
+  }
+
+  .calendar-slot-status.is-scheduled,
+  .calendar-slot-status.is-publication-scheduled_on_platform {
+    background: #171717;
+    color: #f3f5f7;
+  }
+
+  .calendar-slot-status.is-blocked,
+  .calendar-slot-status.is-publication-failed,
+  .calendar-slot-status.is-publication-cancelled {
+    color: rgba(240, 246, 252, 0.5);
+  }
+
   .app-icon-button {
     display: inline-flex;
     align-items: center;
