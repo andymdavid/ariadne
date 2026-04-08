@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { IoArrowBack } from 'react-icons/io5'
+import { IoArrowBack, IoCreateOutline } from 'react-icons/io5'
 import { ClipCarousel } from '../components/ClipCarousel'
 import { MainContentPanel } from '../components/MainContentPanel'
 import { PipelineRunInspector } from '../components/PipelineRunInspector'
@@ -288,6 +288,14 @@ export function ReviewPage() {
         >
           <IoArrowBack size={15} />
           <span>Back</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate(`/content/${resolvedEpisodeId ?? episodeId}`)}
+          className="shell-inline-button absolute left-32 top-8 z-20"
+        >
+          <IoCreateOutline size={15} />
+          <span>Generate Content</span>
         </button>
         <div className="shell-inline-note absolute left-8 top-24 z-20 max-w-xs">
           Use the inspection panel on the right to review pipeline runs, saved evaluations, and workflow diagnostics for this episode.
