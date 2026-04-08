@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { app } from 'electron'
 import { join } from 'path'
 import { database } from '../database/database'
+import { schedulingService } from './schedulingService'
 import type {
   CancelExportWorkerCommand,
   ExportWorkerCommand,
@@ -202,6 +203,7 @@ class ExportWorkerSupervisor {
         progress: Math.round(((event.clipIndex + 1) / event.totalClips) * 100),
         updatedAt: now
       })
+      schedulingService.reconcileScheduledPublicationsForClip(event.clipId)
       database.updateWorkflowJob(event.workflowJobId, {
         progress: Math.round(((event.clipIndex + 1) / event.totalClips) * 100),
         updatedAt: now

@@ -94,6 +94,47 @@ export class SchedulingService {
     return 'ready_to_push'
   }
 
+  private buildResolvedPublication(
+    publication: ScheduledPublication,
+    overrides: Partial<ScheduledPublication> = {}
+  ): ScheduledPublication {
+    const selectedTitleId =
+      overrides.selectedTitleId === undefined
+        ? pickSelectedId(database.getClipTitles(publication.clipId) as Array<{ id: string; is_selected?: number }>)
+        : overrides.selectedTitleId
+    const selectedDescriptionId =
+      overrides.selectedDescriptionId === undefined
+        ? pickSelectedId(
+            database.getClipDescriptions(publication.clipId) as Array<{ id: string; is_selected?: number }>
+          )
+        : overrides.selectedDescriptionId
+    const selectedThumbnailId =
+      overrides.selectedThumbnailId === undefined
+        ? pickSelectedId(database.getClipThumbnails(publication.clipId) as Array<{ id: string; is_selected?: number }>)
+        : overrides.selectedThumbnailId
+    const latestExport = database.getLatestCompletedExportForClip(publication.clipId)
+    const exportArtifactId =
+      overrides.exportArtifactId === undefined ? latestExport?.artifactId ?? null : overrides.exportArtifactId
+
+    return {
+      ...publication,
+      ...overrides,
+      exportArtifactId,
+      selectedTitleId,
+      selectedDescriptionId,
+      selectedThumbnailId,
+      status:
+        overrides.status ??
+        this.determinePublicationStatus({
+          exportArtifactId,
+          selectedTitleId,
+          selectedDescriptionId,
+          selectedThumbnailId
+        }),
+      updatedAt: overrides.updatedAt ?? nowIso()
+    }
+  }
+
   private reserveSlot(slot: CalendarSlot, publicationId: string) {
     database.upsertCalendarSlot({
       ...slot,
@@ -203,6 +244,36 @@ export class SchedulingService {
       account,
       plan
     }
+  }
+
+  reconcileScheduledPublication(publicationId: string) {
+    const publication = database.getScheduledPublication(publicationId)
+    if (!publication) {
+      return undefined
+    }
+
+    if (['published', 'cancelled'].includes(publication.status)) {
+      return publication
+    }
+
+    const nextPublication = this.buildResolvedPublication(publication)
+    database.updateScheduledPublication(publication.id, {
+      exportArtifactId: nextPublication.exportArtifactId,
+      selectedTitleId: nextPublication.selectedTitleId,
+      selectedDescriptionId: nextPublication.selectedDescriptionId,
+      selectedThumbnailId: nextPublication.selectedThumbnailId,
+      status: nextPublication.status,
+      updatedAt: nextPublication.updatedAt
+    })
+
+    return database.getScheduledPublication(publication.id)
+  }
+
+  reconcileScheduledPublicationsForClip(clipId: string) {
+    return database
+      .listScheduledPublicationsForClip(clipId)
+      .map((publication) => this.reconcileScheduledPublication(publication.id))
+      .filter(Boolean)
   }
 }
 

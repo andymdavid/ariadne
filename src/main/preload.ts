@@ -185,6 +185,8 @@ const electronAPI = {
     }>,
   getScheduledPublications: (publishingAccountId: string) =>
     ipcRenderer.invoke('get-scheduled-publications', publishingAccountId) as Promise<ScheduledPublication[]>,
+  refreshClipScheduling: (clipId: string) =>
+    ipcRenderer.invoke('refresh-clip-scheduling', clipId) as Promise<ScheduledPublication[]>,
   getBrandTemplate: () => ipcRenderer.invoke('get-brand-template'),
   updateBrandTemplate: (template: Partial<BrandTemplate>) =>
     ipcRenderer.invoke('update-brand-template', template),

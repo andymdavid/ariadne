@@ -835,6 +835,10 @@ ipcMain.handle('get-scheduled-publications', (_event, publishingAccountId: strin
   return database.listScheduledPublicationsForAccount(publishingAccountId)
 })
 
+ipcMain.handle('refresh-clip-scheduling', (_event, clipId: string) => {
+  return schedulingService.reconcileScheduledPublicationsForClip(clipId)
+})
+
 ipcMain.handle('get-brand-template', () => {
   return configService.getBrandTemplate()
 })
@@ -991,11 +995,15 @@ ipcMain.handle('get-clip-descriptions', (event, clipId: string) => {
 });
 
 ipcMain.handle('select-clip-title', (event, titleId: string, clipId: string) => {
-  return database.selectClipTitle(titleId, clipId)
+  const result = database.selectClipTitle(titleId, clipId)
+  schedulingService.reconcileScheduledPublicationsForClip(clipId)
+  return result
 });
 
 ipcMain.handle('select-clip-description', (event, descriptionId: string, clipId: string) => {
-  return database.selectClipDescription(descriptionId, clipId)
+  const result = database.selectClipDescription(descriptionId, clipId)
+  schedulingService.reconcileScheduledPublicationsForClip(clipId)
+  return result
 });
 
 // Clip edits handlers (for Editor screen)
