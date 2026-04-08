@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { IoArrowBack, IoCheckmark, IoClose, IoCreateOutline, IoPlay, IoPause, IoShareOutline } from 'react-icons/io5'
-import type { Clip } from '@shared/types'
+import type { Clip, ScheduledPublication } from '@shared/types'
 
 type ClipCardData = Clip & {
   title: string
   transcriptLines: Array<{ id: string; start: number; end: number; text: string }>
+  publicationStatus?: string | null
 }
 
 type RawClip = Record<string, any>
@@ -174,6 +175,14 @@ export function ClipWorkspacePage() {
           window.electronAPI?.getEpisodeClips?.(episodeId)
         ])
 
+        const overview = await window.electronAPI?.getCalendarOverview?.()
+        const publicationStatusByClipId = new Map<string, string>()
+        ;(overview?.publications ?? []).forEach((publication: ScheduledPublication) => {
+          if (!['cancelled', 'published'].includes(publication.status)) {
+            publicationStatusByClipId.set(publication.clipId, publication.status)
+          }
+        })
+
         setMediaUrl(mediaSource?.mediaUrl ?? null)
 
         const normalizedClips = ((rawClips || []) as RawClip[]).map((clip) => mapClip(clip, episodeId))
@@ -193,6 +202,7 @@ export function ClipWorkspacePage() {
             return {
               ...clip,
               title: selectedTitle,
+              publicationStatus: publicationStatusByClipId.get(clip.id) ?? null,
               transcriptLines: (transcriptSegments || []).map((segment: any) => ({
                 id: segment.id,
                 start: Number(segment.start_time ?? segment.start ?? 0),
@@ -227,9 +237,20 @@ export function ClipWorkspacePage() {
 
   const updateClipStatus = async (targetClipId: string, status: Clip['status']) => {
     try {
-      await window.electronAPI?.updateClipStatus?.(targetClipId, status)
+      const response = await window.electronAPI?.updateClipStatus?.(targetClipId, status)
       setClips((currentClips) =>
-        currentClips.map((clip) => (clip.id === targetClipId ? { ...clip, status } : clip))
+        currentClips.map((clip) =>
+          clip.id === targetClipId
+            ? {
+                ...clip,
+                status,
+                publicationStatus:
+                  status === 'approved'
+                    ? (response as any)?.scheduling?.publication?.status ?? clip.publicationStatus
+                    : clip.publicationStatus
+              }
+            : clip
+        )
       )
     } catch (statusError) {
       console.error(`Failed to update clip status to ${status}:`, statusError)
@@ -306,6 +327,12 @@ export function ClipWorkspacePage() {
                 {clip.status !== 'pending' && (
                   <div className={`status-badge ${clip.status}`}>
                     {clip.status === 'approved' ? '✓' : '✗'}
+                  </div>
+                )}
+
+                {clip.publicationStatus && (
+                  <div className={`status-badge publication publication-${clip.publicationStatus}`}>
+                    {clip.publicationStatus.split('_').join(' ')}
                   </div>
                 )}
 

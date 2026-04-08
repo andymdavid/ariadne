@@ -5,7 +5,7 @@ import { ClipCarousel } from '../components/ClipCarousel'
 import { MainContentPanel } from '../components/MainContentPanel'
 import { PipelineRunInspector } from '../components/PipelineRunInspector'
 import { useClipsData, useProjectStore } from '../stores/projectStore'
-import type { Clip as ProjectClip } from '@shared/types'
+import type { Clip as ProjectClip, ScheduledPublication } from '@shared/types'
 
 export function ReviewPage() {
   const navigate = useNavigate()
@@ -15,6 +15,7 @@ export function ReviewPage() {
   const [selectedClip, setSelectedClip] = useState<ProjectClip | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [publicationStatusByClipId, setPublicationStatusByClipId] = useState<Record<string, string>>({})
   
   // Use project store for persisted clips data
   const { clips: projectClips } = useClipsData()
@@ -62,6 +63,7 @@ export function ReviewPage() {
       }
 
       loadClips()
+      void loadSchedulingStatuses()
     }
 
     initializeReviewPage()
@@ -73,6 +75,21 @@ export function ReviewPage() {
       loadClips()
     }
   }, [projectClips])
+
+  const loadSchedulingStatuses = async () => {
+    try {
+      const overview = await window.electronAPI?.getCalendarOverview?.()
+      const nextStatuses: Record<string, string> = {}
+      ;(overview?.publications ?? []).forEach((publication: ScheduledPublication) => {
+        if (!['cancelled', 'published'].includes(publication.status)) {
+          nextStatuses[publication.clipId] = publication.status
+        }
+      })
+      setPublicationStatusByClipId(nextStatuses)
+    } catch (statusError) {
+      console.error('Failed to load scheduling statuses:', statusError)
+    }
+  }
 
   // Listen for clip extraction progress
   useEffect(() => {
@@ -165,7 +182,7 @@ export function ReviewPage() {
   const handleApprove = async (clipId: string) => {
     try {
       // Update database
-      await window.electronAPI?.updateClipStatus(clipId, 'approved')
+      const response = await window.electronAPI?.updateClipStatus(clipId, 'approved')
       
       // Update local state
       setClips(clips.map(clip => 
@@ -174,6 +191,15 @@ export function ReviewPage() {
       
       // Update project store
       updateProjectClipStatus(clipId, 'approved')
+
+      if ((response as any)?.scheduling?.publication?.status) {
+        setPublicationStatusByClipId((current) => ({
+          ...current,
+          [clipId]: (response as any).scheduling.publication.status
+        }))
+      } else {
+        await loadSchedulingStatuses()
+      }
       
       console.log(`Approved clip: ${clipId}`)
     } catch (err) {
@@ -269,6 +295,7 @@ export function ReviewPage() {
         <ClipCarousel
           clips={clips}
           selectedClip={selectedClip}
+          publicationStatusByClipId={publicationStatusByClipId}
           onSelectClip={handleSelectClip}
           onNavigateClip={handleNavigateToClip}
           onPlayClip={handlePlayClip}

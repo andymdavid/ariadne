@@ -244,10 +244,13 @@ const electronAPI = {
   // Content package operations
   getClipTitles: (clipId: string) => ipcRenderer.invoke('get-clip-titles', clipId),
   getClipDescriptions: (clipId: string) => ipcRenderer.invoke('get-clip-descriptions', clipId),
+  getClipThumbnails: (clipId: string) => ipcRenderer.invoke('get-clip-thumbnails', clipId),
   selectClipTitle: (titleId: string, clipId: string) =>
     ipcRenderer.invoke('select-clip-title', titleId, clipId),
   selectClipDescription: (descriptionId: string, clipId: string) =>
     ipcRenderer.invoke('select-clip-description', descriptionId, clipId),
+  selectClipThumbnail: (thumbnailId: string, clipId: string) =>
+    ipcRenderer.invoke('select-clip-thumbnail', thumbnailId, clipId),
 
   // Clip edits operations (for Editor screen)
   getClipEdits: (clipId: string) => ipcRenderer.invoke('get-clip-edits', clipId),

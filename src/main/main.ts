@@ -994,6 +994,10 @@ ipcMain.handle('get-clip-descriptions', (event, clipId: string) => {
   return database.getClipDescriptions(clipId)
 });
 
+ipcMain.handle('get-clip-thumbnails', (_event, clipId: string) => {
+  return database.getClipThumbnails(clipId)
+})
+
 ipcMain.handle('select-clip-title', (event, titleId: string, clipId: string) => {
   const result = database.selectClipTitle(titleId, clipId)
   schedulingService.reconcileScheduledPublicationsForClip(clipId)
@@ -1005,6 +1009,12 @@ ipcMain.handle('select-clip-description', (event, descriptionId: string, clipId:
   schedulingService.reconcileScheduledPublicationsForClip(clipId)
   return result
 });
+
+ipcMain.handle('select-clip-thumbnail', (_event, thumbnailId: string, clipId: string) => {
+  const result = database.selectClipThumbnail(thumbnailId, clipId)
+  schedulingService.reconcileScheduledPublicationsForClip(clipId)
+  return result
+})
 
 // Clip edits handlers (for Editor screen)
 ipcMain.handle('get-clip-edits', (event, clipId: string) => {

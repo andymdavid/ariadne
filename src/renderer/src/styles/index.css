@@ -4513,6 +4513,37 @@
   border: 1px solid #262626;
 }
 
+.status-badge.publication {
+  top: 40px;
+  right: 12px;
+  width: auto;
+  max-width: 148px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 3px;
+  color: rgba(240, 246, 252, 0.74);
+  background: #151515;
+  border: 1px solid #262626;
+  box-shadow: none;
+  text-transform: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-badge.publication-ready_to_push,
+.status-badge.publication-scheduling_on_platform,
+.status-badge.publication-scheduled_on_platform {
+  background: #171717;
+  color: #f3f5f7;
+}
+
+.status-badge.publication-waiting_for_export,
+.status-badge.publication-waiting_for_metadata,
+.status-badge.publication-waiting_for_thumbnail {
+  color: rgba(240, 246, 252, 0.6);
+}
+
 /* Card Header */
 .clip-card-header {
   display: flex;

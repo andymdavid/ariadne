@@ -4,6 +4,7 @@ import type { Clip } from '@shared/types'
 interface ClipCarouselProps {
   clips: Clip[]
   selectedClip: Clip | null
+  publicationStatusByClipId?: Record<string, string>
   onSelectClip: (clip: Clip) => void
   onNavigateClip?: (clip: Clip) => void
   onPlayClip: (clip: Clip) => void
@@ -17,6 +18,7 @@ interface ClipCarouselProps {
 export function ClipCarousel({
   clips,
   selectedClip,
+  publicationStatusByClipId = {},
   onSelectClip,
   onNavigateClip,
   onPlayClip,
@@ -152,6 +154,12 @@ export function ClipCarousel({
               {clip.status !== 'pending' && (
                 <div className={`status-badge ${clip.status}`}>
                   {clip.status === 'approved' ? '✓' : '✗'}
+                </div>
+              )}
+
+              {publicationStatusByClipId[clip.id] && (
+                <div className={`status-badge publication publication-${publicationStatusByClipId[clip.id]}`}>
+                  {publicationStatusByClipId[clip.id].split('_').join(' ')}
                 </div>
               )}
 
