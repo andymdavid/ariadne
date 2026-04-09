@@ -5,6 +5,7 @@ import {
   IoCheckmarkCircleOutline,
   IoCreateOutline,
   IoDocumentTextOutline,
+  IoRefreshOutline,
   IoImageOutline,
   IoShareOutline
 } from 'react-icons/io5'
@@ -198,6 +199,18 @@ export function ContentPage() {
       await syncClipAfterSelection(clipId)
     } catch (selectionError) {
       console.error('Failed to select clip thumbnail:', selectionError)
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  const handleGenerateThumbnails = async (clipId: string) => {
+    try {
+      setBusyKey(`generate-thumbnail-${clipId}`)
+      await window.electronAPI?.generateClipThumbnails?.(clipId, 4)
+      await syncClipAfterSelection(clipId)
+    } catch (generationError) {
+      console.error('Failed to generate clip thumbnails:', generationError)
     } finally {
       setBusyKey(null)
     }
@@ -420,9 +433,20 @@ export function ContentPage() {
                   </section>
 
                   <section>
-                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text-primary">
-                      <IoImageOutline size={16} />
-                      <span>Thumbnail options</span>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
+                        <IoImageOutline size={16} />
+                        <span>Thumbnail options</span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busyKey === `generate-thumbnail-${selectedClip.id}`}
+                        onClick={() => handleGenerateThumbnails(selectedClip.id)}
+                        className="btn-secondary"
+                      >
+                        <IoRefreshOutline size={15} />
+                        <span>{selectedClip.thumbnailOptions.length > 0 ? 'Refresh thumbnails' : 'Generate thumbnails'}</span>
+                      </button>
                     </div>
                     {selectedClip.thumbnailOptions.length === 0 ? (
                       <div className="app-surface-muted p-4 text-sm text-text-muted">

@@ -141,6 +141,7 @@ declare global {
       getClipTitles: (clipId: string) => Promise<any[]>;
       getClipDescriptions: (clipId: string) => Promise<any[]>;
       getClipThumbnails: (clipId: string) => Promise<any[]>;
+      generateClipThumbnails: (clipId: string, count?: number) => Promise<any[]>;
       selectClipTitle: (titleId: string, clipId: string) => Promise<any>;
       selectClipDescription: (descriptionId: string, clipId: string) => Promise<any>;
       selectClipThumbnail: (thumbnailId: string, clipId: string) => Promise<any>;

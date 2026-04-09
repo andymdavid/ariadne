@@ -9,6 +9,7 @@ import { processingPipeline } from './services/processingPipeline';
 import { configService } from './services/configService';
 import { clipService } from './services/clipService';
 import { exportService } from './services/exportService';
+import { ffmpegService } from './services/ffmpegService';
 import { mediaWorkerSupervisor } from './services/mediaWorkerSupervisor';
 import { workflowReadModel } from './services/workflowReadModel';
 import { postingPlanService } from './services/postingPlanService';
@@ -995,6 +996,53 @@ ipcMain.handle('get-clip-descriptions', (event, clipId: string) => {
 });
 
 ipcMain.handle('get-clip-thumbnails', (_event, clipId: string) => {
+  return database.getClipThumbnails(clipId)
+})
+
+ipcMain.handle('generate-clip-thumbnails', async (_event, clipId: string, count = 4) => {
+  const clip = database.getClip(clipId) as any
+  if (!clip) {
+    throw new Error('Clip not found')
+  }
+
+  let episode = database.getEpisode(clip.episode_id || clip.episodeId) as any
+  if (!episode) {
+    episode = database.getEpisodeByProjectId(clip.episode_id || clip.episodeId) as any
+  }
+
+  if (!episode?.file_path) {
+    throw new Error('Episode media source not found')
+  }
+
+  const fsPromises = require('fs/promises')
+  const thumbnailsDir = join(app.getPath('userData'), 'thumbnails', clipId)
+  await fsPromises.mkdir(thumbnailsDir, { recursive: true })
+
+  const startTime = Number(clip.start_time ?? clip.startTime ?? 0)
+  const endTime = Number(clip.end_time ?? clip.endTime ?? startTime)
+  const duration = Math.max(0.5, endTime - startTime)
+  const samples = Math.max(1, Math.min(6, Math.round(count || 4)))
+  const captureTimes = Array.from({ length: samples }, (_, index) => {
+    const ratio = (index + 1) / (samples + 1)
+    return Number((startTime + duration * ratio).toFixed(3))
+  })
+
+  database.deleteClipThumbnails(clipId)
+
+  for (const captureTime of captureTimes) {
+    const safeTimestamp = captureTime.toFixed(3).replace('.', '_')
+    const outputPath = join(thumbnailsDir, `thumb_${safeTimestamp}.jpg`)
+    await ffmpegService.extractFrame(episode.file_path, captureTime, outputPath)
+    allowedMediaPaths.add(outputPath)
+    database.insertClipThumbnail(clipId, outputPath, captureTime)
+  }
+
+  const thumbnails = database.getClipThumbnails(clipId) as Array<{ id: string }>
+  if (thumbnails[0]?.id) {
+    database.selectClipThumbnail(thumbnails[0].id, clipId)
+  }
+
+  await schedulingService.reconcileScheduledPublicationsForClip(clipId)
   return database.getClipThumbnails(clipId)
 })
 

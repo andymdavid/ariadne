@@ -245,6 +245,7 @@ const electronAPI = {
   getClipTitles: (clipId: string) => ipcRenderer.invoke('get-clip-titles', clipId),
   getClipDescriptions: (clipId: string) => ipcRenderer.invoke('get-clip-descriptions', clipId),
   getClipThumbnails: (clipId: string) => ipcRenderer.invoke('get-clip-thumbnails', clipId),
+  generateClipThumbnails: (clipId: string, count?: number) => ipcRenderer.invoke('generate-clip-thumbnails', clipId, count),
   selectClipTitle: (titleId: string, clipId: string) =>
     ipcRenderer.invoke('select-clip-title', titleId, clipId),
   selectClipDescription: (descriptionId: string, clipId: string) =>

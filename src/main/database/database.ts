@@ -2470,6 +2470,11 @@ class DatabaseManager {
     return selectStmt.run(thumbnailId)
   }
 
+  deleteClipThumbnails(clipId: string) {
+    const stmt = this.db.prepare('DELETE FROM clip_thumbnails WHERE clip_id = ?')
+    return stmt.run(clipId)
+  }
+
   createWorkflowJob(record: WorkflowJobRecord) {
     const stmt = this.db.prepare(`
       INSERT INTO workflow_jobs (

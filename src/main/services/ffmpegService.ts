@@ -223,6 +223,28 @@ class FFmpegService {
       })
     })
   }
+
+  async extractFrame(
+    inputPath: string,
+    timeSeconds: number,
+    outputPath: string
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const outputDir = dirname(outputPath)
+      if (!existsSync(outputDir)) {
+        mkdirSync(outputDir, { recursive: true })
+      }
+
+      ffmpeg(inputPath)
+        .seekInput(Math.max(0, timeSeconds))
+        .frames(1)
+        .outputOptions(['-q:v 2'])
+        .output(outputPath)
+        .on('end', () => resolve(outputPath))
+        .on('error', (error) => reject(new Error(`Frame extraction failed: ${error.message}`)))
+        .run()
+    })
+  }
   
   /**
    * Create video clip from source
