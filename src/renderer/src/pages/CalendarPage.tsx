@@ -20,6 +20,7 @@ export function CalendarPage() {
   const [publications, setPublications] = useState<ScheduledPublication[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [pushingKey, setPushingKey] = useState<string | null>(null)
 
   useEffect(() => {
     void loadOverview()
@@ -50,6 +51,36 @@ export function CalendarPage() {
     () => new Map(publications.map((publication) => [publication.calendarSlotId, publication])),
     [publications]
   )
+  const readyToPushCount = useMemo(
+    () => publications.filter((publication) => publication.status === 'ready_to_push').length,
+    [publications]
+  )
+
+  const handlePushPublication = async (publicationId: string) => {
+    try {
+      setPushingKey(publicationId)
+      await window.electronAPI?.pushScheduledPublication?.(publicationId)
+      await loadOverview()
+    } catch (pushError) {
+      console.error('Failed to push scheduled publication:', pushError)
+      setError('Failed to push publication to YouTube')
+    } finally {
+      setPushingKey(null)
+    }
+  }
+
+  const handlePushReady = async () => {
+    try {
+      setPushingKey('all')
+      await window.electronAPI?.pushReadyPublications?.(account?.id)
+      await loadOverview()
+    } catch (pushError) {
+      console.error('Failed to push ready publications:', pushError)
+      setError('Failed to push ready publications to YouTube')
+    } finally {
+      setPushingKey(null)
+    }
+  }
 
   return (
     <MainContentPanel>
@@ -67,6 +98,16 @@ export function CalendarPage() {
 
               <div className="app-page-header-actions">
                 {account ? <div className="app-chip">{account.channelName}</div> : null}
+                {account ? (
+                  <button
+                    type="button"
+                    onClick={() => void handlePushReady()}
+                    className="app-action-primary"
+                    disabled={readyToPushCount === 0 || pushingKey === 'all'}
+                  >
+                    Push ready to YouTube
+                  </button>
+                ) : null}
                 <button type="button" onClick={() => void loadOverview()} className="app-action-secondary">
                   Refresh
                 </button>
@@ -97,7 +138,7 @@ export function CalendarPage() {
               </section>
             ) : (
               <>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
                   <div className="app-stat-card">
                     <div className="app-stat-label">Channel</div>
                     <div className="app-stat-value">{account.channelName}</div>
@@ -121,6 +162,10 @@ export function CalendarPage() {
                         ).length
                       }
                     </div>
+                  </div>
+                  <div className="app-stat-card">
+                    <div className="app-stat-label">Ready to Push</div>
+                    <div className="app-stat-value">{readyToPushCount}</div>
                   </div>
                 </div>
 
@@ -153,9 +198,21 @@ export function CalendarPage() {
                             <div className="calendar-slot-status-group">
                               <span className={`calendar-slot-status is-${slot.status}`}>{slot.status}</span>
                               {publication ? (
-                                <span className={`calendar-slot-status is-publication-${publication.status}`}>
-                                  {publication.status}
-                                </span>
+                                <>
+                                  <span className={`calendar-slot-status is-publication-${publication.status}`}>
+                                    {publication.status}
+                                  </span>
+                                  {publication.status === 'ready_to_push' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handlePushPublication(publication.id)}
+                                      className="app-action-secondary"
+                                      disabled={pushingKey === publication.id}
+                                    >
+                                      Push
+                                    </button>
+                                  ) : null}
+                                </>
                               ) : null}
                             </div>
                           </div>
@@ -211,9 +268,21 @@ export function CalendarPage() {
                               <div className="calendar-publication-meta">
                                 {formatSlotDate(publication.scheduledForUtc, publication.scheduledTimezone)}
                               </div>
-                              <span className={`calendar-slot-status is-publication-${publication.status}`}>
-                                {publication.status}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className={`calendar-slot-status is-publication-${publication.status}`}>
+                                  {publication.status}
+                                </span>
+                                {publication.status === 'ready_to_push' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handlePushPublication(publication.id)}
+                                    className="app-action-secondary"
+                                    disabled={pushingKey === publication.id}
+                                  >
+                                    Push
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
                           ))
                         )}

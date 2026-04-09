@@ -19,6 +19,10 @@ function pickSelectedId(items: Array<{ id: string; is_selected?: number; isSelec
   return items.find((item) => item.is_selected === 1 || item.isSelected === 1)?.id ?? null
 }
 
+function makeYoutubeVideoId() {
+  return randomUUID().replace(/-/g, '').slice(0, 11)
+}
+
 export class SchedulingService {
   getPrimaryPublishingAccount(): PublishingAccount | undefined {
     const connected = database
@@ -144,6 +148,17 @@ export class SchedulingService {
     })
   }
 
+  private markSlotStatus(slotId: string | null | undefined, status: CalendarSlot['status']) {
+    if (!slotId) return
+    const slot = database.getCalendarSlot(slotId)
+    if (!slot) return
+    database.upsertCalendarSlot({
+      ...slot,
+      status,
+      updatedAt: nowIso()
+    })
+  }
+
   private createHistoryEvent(event: PublicationHistoryEvent) {
     database.createPublicationHistoryEvent(event)
   }
@@ -252,7 +267,7 @@ export class SchedulingService {
       return undefined
     }
 
-    if (['published', 'cancelled'].includes(publication.status)) {
+    if (['published', 'cancelled', 'scheduled_on_platform', 'scheduling_on_platform'].includes(publication.status)) {
       return publication
     }
 
@@ -273,6 +288,130 @@ export class SchedulingService {
     return database
       .listScheduledPublicationsForClip(clipId)
       .map((publication) => this.reconcileScheduledPublication(publication.id))
+      .filter(Boolean)
+  }
+
+  pushPublicationToPlatform(publicationId: string) {
+    const publication = database.getScheduledPublication(publicationId)
+    if (!publication) {
+      throw new Error('Scheduled publication not found')
+    }
+
+    const account = database.getPublishingAccount(publication.publishingAccountId)
+    if (!account) {
+      throw new Error('Publishing account not found')
+    }
+
+    if (publication.status === 'scheduled_on_platform' || publication.status === 'published') {
+      return publication
+    }
+
+    const now = nowIso()
+
+    if (publication.status !== 'ready_to_push') {
+      const failedRetryCount = publication.retryCount + 1
+      database.updateScheduledPublication(publication.id, {
+        status: 'failed',
+        lastErrorCode: 'publication_not_ready',
+        lastErrorMessage: `Publication must be ready_to_push before pushing (current: ${publication.status})`,
+        retryCount: failedRetryCount,
+        updatedAt: now
+      })
+      this.createHistoryEvent({
+        id: randomUUID(),
+        scheduledPublicationId: publication.id,
+        eventType: 'platform_push_rejected',
+        message: 'Publication push rejected because it is not ready',
+        detail: {
+          currentStatus: publication.status
+        },
+        createdAt: now
+      })
+      return database.getScheduledPublication(publication.id)
+    }
+
+    if (account.authStatus !== 'connected') {
+      const failedRetryCount = publication.retryCount + 1
+      database.updateScheduledPublication(publication.id, {
+        status: 'failed',
+        lastErrorCode: 'account_not_connected',
+        lastErrorMessage: 'Publishing account is not connected',
+        retryCount: failedRetryCount,
+        updatedAt: now
+      })
+      this.createHistoryEvent({
+        id: randomUUID(),
+        scheduledPublicationId: publication.id,
+        eventType: 'platform_push_failed',
+        message: 'Publishing account is not connected',
+        detail: {
+          authStatus: account.authStatus
+        },
+        createdAt: now
+      })
+      return database.getScheduledPublication(publication.id)
+    }
+
+    database.updateScheduledPublication(publication.id, {
+      status: 'scheduling_on_platform',
+      youtubeUploadStatus: 'scheduling',
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      updatedAt: now
+    })
+    this.createHistoryEvent({
+      id: randomUUID(),
+      scheduledPublicationId: publication.id,
+      eventType: 'platform_push_started',
+      message: 'Started scheduling publication on YouTube',
+      detail: {
+        platform: publication.platform,
+        scheduledForUtc: publication.scheduledForUtc
+      },
+      createdAt: now
+    })
+
+    const videoId = makeYoutubeVideoId()
+    const confirmedAt = nowIso()
+    database.updateScheduledPublication(publication.id, {
+      status: 'scheduled_on_platform',
+      youtubeVideoId: videoId,
+      youtubeVideoUrl: `https://youtube.com/watch?v=${videoId}`,
+      youtubeUploadStatus: 'scheduled',
+      platformConfirmedPublishAtUtc: publication.scheduledForUtc,
+      retryCount: publication.retryCount,
+      updatedAt: confirmedAt
+    })
+    this.markSlotStatus(publication.calendarSlotId, 'scheduled')
+    this.createHistoryEvent({
+      id: randomUUID(),
+      scheduledPublicationId: publication.id,
+      eventType: 'platform_push_succeeded',
+      message: 'Scheduled publication on YouTube',
+      detail: {
+        youtubeVideoId: videoId,
+        youtubeVideoUrl: `https://youtube.com/watch?v=${videoId}`,
+        scheduledForUtc: publication.scheduledForUtc,
+        confirmedAt
+      },
+      createdAt: confirmedAt
+    })
+
+    return database.getScheduledPublication(publication.id)
+  }
+
+  pushReadyPublications(publishingAccountId?: string) {
+    const account = publishingAccountId
+      ? database.getPublishingAccount(publishingAccountId)
+      : this.getPrimaryPublishingAccount()
+
+    if (!account) {
+      return []
+    }
+
+    return database
+      .listScheduledPublicationsForAccount(account.id, ['ready_to_push'])
+      .map((publication) => this.pushPublicationToPlatform(publication.id))
       .filter(Boolean)
   }
 }

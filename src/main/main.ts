@@ -840,6 +840,14 @@ ipcMain.handle('refresh-clip-scheduling', (_event, clipId: string) => {
   return schedulingService.reconcileScheduledPublicationsForClip(clipId)
 })
 
+ipcMain.handle('push-scheduled-publication', (_event, publicationId: string) => {
+  return schedulingService.pushPublicationToPlatform(publicationId)
+})
+
+ipcMain.handle('push-ready-publications', (_event, publishingAccountId?: string) => {
+  return schedulingService.pushReadyPublications(publishingAccountId)
+})
+
 ipcMain.handle('get-brand-template', () => {
   return configService.getBrandTemplate()
 })

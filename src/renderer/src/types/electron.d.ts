@@ -104,6 +104,8 @@ declare global {
       }>;
       getScheduledPublications: (publishingAccountId: string) => Promise<ScheduledPublication[]>;
       refreshClipScheduling: (clipId: string) => Promise<ScheduledPublication[]>;
+      pushScheduledPublication: (publicationId: string) => Promise<ScheduledPublication>;
+      pushReadyPublications: (publishingAccountId?: string) => Promise<ScheduledPublication[]>;
       getBrandTemplate: () => Promise<BrandTemplate>;
       updateBrandTemplate: (template: Partial<BrandTemplate>) => Promise<BrandTemplate>;
       getBrandTemplatePresets: () => Promise<{

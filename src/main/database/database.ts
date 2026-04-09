@@ -3377,6 +3377,17 @@ class DatabaseManager {
     return row ? this.toCalendarSlot(this.mapCalendarSlot(row)) : undefined
   }
 
+  getCalendarSlot(slotId: string): CalendarSlot | undefined {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM calendar_slots
+      WHERE id = ?
+      LIMIT 1
+    `)
+    const row = stmt.get(slotId)
+    return row ? this.toCalendarSlot(this.mapCalendarSlot(row)) : undefined
+  }
+
   createScheduledPublication(publication: ScheduledPublication) {
     const stmt = this.db.prepare(`
       INSERT INTO scheduled_publications (
