@@ -5,6 +5,7 @@ import type {
   CalendarSlot,
   ClipTrimState,
   PostingPlan,
+  PublicationHistoryEvent,
   ProcessingErrorPayload,
   ProcessingProgress,
   ProcessingResultPayload,
@@ -191,6 +192,8 @@ const electronAPI = {
     ipcRenderer.invoke('push-scheduled-publication', publicationId) as Promise<ScheduledPublication>,
   pushReadyPublications: (publishingAccountId?: string) =>
     ipcRenderer.invoke('push-ready-publications', publishingAccountId) as Promise<ScheduledPublication[]>,
+  getPublicationHistory: (publicationId: string) =>
+    ipcRenderer.invoke('get-publication-history', publicationId) as Promise<PublicationHistoryEvent[]>,
   getBrandTemplate: () => ipcRenderer.invoke('get-brand-template'),
   updateBrandTemplate: (template: Partial<BrandTemplate>) =>
     ipcRenderer.invoke('update-brand-template', template),

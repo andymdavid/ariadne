@@ -848,6 +848,10 @@ ipcMain.handle('push-ready-publications', (_event, publishingAccountId?: string)
   return schedulingService.pushReadyPublications(publishingAccountId)
 })
 
+ipcMain.handle('get-publication-history', (_event, publicationId: string) => {
+  return database.listPublicationHistory(publicationId)
+})
+
 ipcMain.handle('get-brand-template', () => {
   return configService.getBrandTemplate()
 })

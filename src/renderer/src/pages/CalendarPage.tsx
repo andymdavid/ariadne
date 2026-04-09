@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MainContentPanel } from '../components/MainContentPanel'
-import type { CalendarSlot, PostingPlan, PublishingAccount, ScheduledPublication } from '@shared/types'
+import type {
+  CalendarSlot,
+  PostingPlan,
+  PublicationHistoryEvent,
+  PublishingAccount,
+  ScheduledPublication
+} from '@shared/types'
 
 function formatSlotDate(value: string, timeZone: string) {
   return new Intl.DateTimeFormat('en-AU', {
@@ -21,6 +27,11 @@ export function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pushingKey, setPushingKey] = useState<string | null>(null)
+  const [selectedPublicationId, setSelectedPublicationId] = useState<string | null>(null)
+  const [selectedPublicationHistory, setSelectedPublicationHistory] = useState<PublicationHistoryEvent[]>([])
+  const [selectedTitle, setSelectedTitle] = useState<string | null>(null)
+  const [selectedDescription, setSelectedDescription] = useState<string | null>(null)
+  const [selectedThumbnailPath, setSelectedThumbnailPath] = useState<string | null>(null)
 
   useEffect(() => {
     void loadOverview()
@@ -55,12 +66,65 @@ export function CalendarPage() {
     () => publications.filter((publication) => publication.status === 'ready_to_push').length,
     [publications]
   )
+  const selectedPublication = useMemo(
+    () => publications.find((publication) => publication.id === selectedPublicationId) ?? publications[0] ?? null,
+    [publications, selectedPublicationId]
+  )
+
+  useEffect(() => {
+    if (!selectedPublicationId && publications[0]?.id) {
+      setSelectedPublicationId(publications[0].id)
+    }
+  }, [publications, selectedPublicationId])
+
+  useEffect(() => {
+    const loadPublicationDetails = async () => {
+      if (!selectedPublication) {
+        setSelectedPublicationHistory([])
+        setSelectedTitle(null)
+        setSelectedDescription(null)
+        setSelectedThumbnailPath(null)
+        return
+      }
+
+      try {
+        const [history, titles, descriptions, thumbnails] = await Promise.all([
+          window.electronAPI?.getPublicationHistory?.(selectedPublication.id).catch(() => []),
+          window.electronAPI?.getClipTitles?.(selectedPublication.clipId).catch(() => []),
+          window.electronAPI?.getClipDescriptions?.(selectedPublication.clipId).catch(() => []),
+          window.electronAPI?.getClipThumbnails?.(selectedPublication.clipId).catch(() => [])
+        ])
+
+        setSelectedPublicationHistory(history || [])
+        setSelectedTitle(
+          (titles || []).find((item: any) => item.id === selectedPublication.selectedTitleId)?.title ??
+            (titles || []).find((item: any) => item.is_selected === 1)?.title ??
+            null
+        )
+        setSelectedDescription(
+          (descriptions || []).find((item: any) => item.id === selectedPublication.selectedDescriptionId)?.description ??
+            (descriptions || []).find((item: any) => item.is_selected === 1)?.description ??
+            null
+        )
+        setSelectedThumbnailPath(
+          (thumbnails || []).find((item: any) => item.id === selectedPublication.selectedThumbnailId)?.file_path ??
+            (thumbnails || []).find((item: any) => item.is_selected === 1)?.file_path ??
+            null
+        )
+      } catch (detailError) {
+        console.error('Failed to load publication details:', detailError)
+      }
+    }
+
+    void loadPublicationDetails()
+  }, [selectedPublication])
 
   const handlePushPublication = async (publicationId: string) => {
     try {
       setPushingKey(publicationId)
       await window.electronAPI?.pushScheduledPublication?.(publicationId)
       await loadOverview()
+      setSelectedPublicationId(publicationId)
     } catch (pushError) {
       console.error('Failed to push scheduled publication:', pushError)
       setError('Failed to push publication to YouTube')
@@ -199,9 +263,13 @@ export function CalendarPage() {
                               <span className={`calendar-slot-status is-${slot.status}`}>{slot.status}</span>
                               {publication ? (
                                 <>
-                                  <span className={`calendar-slot-status is-publication-${publication.status}`}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedPublicationId(publication.id)}
+                                    className={`calendar-slot-status is-publication-${publication.status}`}
+                                  >
                                     {publication.status}
-                                  </span>
+                                  </button>
                                   {publication.status === 'ready_to_push' ? (
                                     <button
                                       type="button"
@@ -263,7 +331,12 @@ export function CalendarPage() {
                           </div>
                         ) : (
                           publications.slice(0, 10).map((publication) => (
-                            <div key={publication.id} className="calendar-publication-row">
+                            <button
+                              key={publication.id}
+                              type="button"
+                              onClick={() => setSelectedPublicationId(publication.id)}
+                              className="calendar-publication-row w-full text-left"
+                            >
                               <div className="calendar-publication-clip">{publication.clipId.slice(0, 8)}</div>
                               <div className="calendar-publication-meta">
                                 {formatSlotDate(publication.scheduledForUtc, publication.scheduledTimezone)}
@@ -275,7 +348,10 @@ export function CalendarPage() {
                                 {publication.status === 'ready_to_push' ? (
                                   <button
                                     type="button"
-                                    onClick={() => void handlePushPublication(publication.id)}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      void handlePushPublication(publication.id)
+                                    }}
                                     className="app-action-secondary"
                                     disabled={pushingKey === publication.id}
                                   >
@@ -283,10 +359,111 @@ export function CalendarPage() {
                                   </button>
                                 ) : null}
                               </div>
-                            </div>
+                            </button>
                           ))
                         )}
                       </div>
+                    </section>
+
+                    <section className="app-section-shell">
+                      <div className="app-section-header">
+                        <div>
+                          <h2 className="app-section-title">Publication detail</h2>
+                        </div>
+                      </div>
+
+                      {!selectedPublication ? (
+                        <div className="app-empty-copy max-w-none">
+                          Select a scheduled publication to inspect its package, platform state, and history.
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="space-y-2 text-sm text-text-secondary">
+                            <div className="app-list-row">
+                              <span>Status</span>
+                              <span className={`calendar-slot-status is-publication-${selectedPublication.status}`}>
+                                {selectedPublication.status}
+                              </span>
+                            </div>
+                            <div className="app-list-row">
+                              <span>Scheduled</span>
+                              <span className="text-text-primary">
+                                {formatSlotDate(selectedPublication.scheduledForUtc, selectedPublication.scheduledTimezone)}
+                              </span>
+                            </div>
+                            <div className="app-list-row">
+                              <span>Platform upload</span>
+                              <span className="text-text-primary">
+                                {selectedPublication.youtubeUploadStatus ?? 'not pushed'}
+                              </span>
+                            </div>
+                            {selectedPublication.youtubeVideoUrl ? (
+                              <div className="app-list-row">
+                                <span>YouTube URL</span>
+                                <a
+                                  href={selectedPublication.youtubeVideoUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-text-primary underline underline-offset-2"
+                                >
+                                  Open link
+                                </a>
+                              </div>
+                            ) : null}
+                            {selectedPublication.lastErrorMessage ? (
+                              <div className="app-surface-muted p-3 text-sm text-text-secondary">
+                                {selectedPublication.lastErrorMessage}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {selectedThumbnailPath ? (
+                            <div className="overflow-hidden rounded-[3px] bg-black">
+                              <img
+                                src={`app-file://${selectedThumbnailPath}`}
+                                alt="Selected thumbnail"
+                                className="aspect-[9/16] w-full object-cover"
+                              />
+                            </div>
+                          ) : null}
+
+                          {selectedTitle ? (
+                            <div>
+                              <div className="mb-1 text-xs uppercase tracking-[0.18em] text-text-muted">Selected title</div>
+                              <div className="text-sm font-medium leading-6 text-text-primary">{selectedTitle}</div>
+                            </div>
+                          ) : null}
+
+                          {selectedDescription ? (
+                            <div>
+                              <div className="mb-1 text-xs uppercase tracking-[0.18em] text-text-muted">Selected description</div>
+                              <div className="text-sm leading-6 text-text-secondary">{selectedDescription}</div>
+                            </div>
+                          ) : null}
+
+                          <div>
+                            <div className="mb-2 text-xs uppercase tracking-[0.18em] text-text-muted">History</div>
+                            <div className="space-y-2">
+                              {selectedPublicationHistory.length === 0 ? (
+                                <div className="app-empty-copy max-w-none">No publication events yet.</div>
+                              ) : (
+                                selectedPublicationHistory.map((event) => (
+                                  <div key={event.id} className="app-surface-muted p-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div className="text-sm font-medium text-text-primary">
+                                        {event.message || event.eventType}
+                                      </div>
+                                      <div className="text-xs text-text-muted">
+                                        {formatSlotDate(event.createdAt, selectedPublication.scheduledTimezone)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </section>
                   </div>
                 </div>
