@@ -95,6 +95,7 @@ declare global {
       savePublishingAccount: (account: Partial<PublishingAccount>) => Promise<PublishingAccount>;
       connectYoutubeAccount: (accountId: string) => Promise<PublishingAccount>;
       disconnectYoutubeAccount: (accountId: string) => Promise<PublishingAccount>;
+      refreshYoutubeAccount: (accountId: string) => Promise<PublishingAccount>;
       getPostingPlan: (publishingAccountId: string) => Promise<PostingPlan | undefined>;
       savePostingPlan: (plan: PostingPlan) => Promise<PostingPlan>;
       generateCalendarSlots: (postingPlanId: string, daysForward?: number) => Promise<CalendarSlot[]>;
@@ -108,6 +109,7 @@ declare global {
       refreshClipScheduling: (clipId: string) => Promise<ScheduledPublication[]>;
       pushScheduledPublication: (publicationId: string) => Promise<ScheduledPublication>;
       pushReadyPublications: (publishingAccountId?: string) => Promise<ScheduledPublication[]>;
+      retryScheduledPublication: (publicationId: string) => Promise<ScheduledPublication>;
       getPublicationHistory: (publicationId: string) => Promise<PublicationHistoryEvent[]>;
       getBrandTemplate: () => Promise<BrandTemplate>;
       updateBrandTemplate: (template: Partial<BrandTemplate>) => Promise<BrandTemplate>;

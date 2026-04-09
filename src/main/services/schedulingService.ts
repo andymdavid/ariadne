@@ -288,6 +288,51 @@ export class SchedulingService {
       .filter(Boolean)
   }
 
+  async retryPublication(publicationId: string) {
+    const publication = database.getScheduledPublication(publicationId)
+    if (!publication) {
+      throw new Error('Scheduled publication not found')
+    }
+
+    const reconciled = this.buildResolvedPublication(publication, {
+      status: undefined,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      youtubeUploadStatus: null,
+      updatedAt: nowIso()
+    })
+
+    database.updateScheduledPublication(publication.id, {
+      exportArtifactId: reconciled.exportArtifactId,
+      selectedTitleId: reconciled.selectedTitleId,
+      selectedDescriptionId: reconciled.selectedDescriptionId,
+      selectedThumbnailId: reconciled.selectedThumbnailId,
+      status: reconciled.status,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      youtubeUploadStatus: null,
+      updatedAt: reconciled.updatedAt
+    })
+
+    this.createHistoryEvent({
+      id: randomUUID(),
+      scheduledPublicationId: publication.id,
+      eventType: 'publication_retry_requested',
+      message: 'Retrying scheduled publication',
+      detail: {
+        previousStatus: publication.status,
+        nextStatus: reconciled.status
+      },
+      createdAt: reconciled.updatedAt
+    })
+
+    if (reconciled.status === 'ready_to_push') {
+      return this.pushPublicationToPlatform(publication.id)
+    }
+
+    return database.getScheduledPublication(publication.id)
+  }
+
   async pushPublicationToPlatform(publicationId: string) {
     const publication = database.getScheduledPublication(publicationId)
     if (!publication) {

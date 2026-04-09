@@ -87,6 +87,7 @@ export function SettingsPage() {
   const [postingPlan, setPostingPlan] = useState<PostingPlan | null>(null)
   const [isSavingPublishing, setIsSavingPublishing] = useState(false)
   const [isConnectingYoutube, setIsConnectingYoutube] = useState(false)
+  const [isRefreshingYoutube, setIsRefreshingYoutube] = useState(false)
 
   useEffect(() => {
     void loadConfig()
@@ -343,6 +344,29 @@ export function SettingsPage() {
     }
   }
 
+  const handleRefreshYoutube = async () => {
+    if (!publishingAccount?.id) {
+      return
+    }
+
+    setSaveMessage('')
+    setIsRefreshingYoutube(true)
+    try {
+      const refreshedAccount = await window.electronAPI?.refreshYoutubeAccount?.(publishingAccount.id)
+      if (!refreshedAccount) {
+        throw new Error('Failed to refresh YouTube account')
+      }
+      setPublishingAccount(refreshedAccount)
+      setSaveMessage('YouTube connection refreshed')
+      setTimeout(() => setSaveMessage(''), 3000)
+    } catch (error) {
+      console.error('Failed to refresh YouTube account:', error)
+      setSaveMessage(error instanceof Error ? error.message : 'Failed to refresh YouTube account')
+    } finally {
+      setIsRefreshingYoutube(false)
+    }
+  }
+
   const saveToneClass = saveMessage.includes('success') ? 'text-accent-success' : 'text-accent-danger'
   const publishingMetadata = getPublishingMetadata(publishingAccount)
   const isYoutubeConnected = publishingAccount?.authStatus === 'connected'
@@ -560,14 +584,24 @@ export function SettingsPage() {
                         </div>
 
                         {isYoutubeConnected ? (
-                          <button
-                            type="button"
-                            onClick={() => void handleDisconnectYoutube()}
-                            disabled={isConnectingYoutube}
-                            className="app-action-secondary"
-                          >
-                            {isConnectingYoutube ? 'Disconnecting...' : 'Disconnect'}
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void handleRefreshYoutube()}
+                              disabled={isRefreshingYoutube}
+                              className="app-action-secondary"
+                            >
+                              {isRefreshingYoutube ? 'Refreshing...' : 'Refresh status'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDisconnectYoutube()}
+                              disabled={isConnectingYoutube}
+                              className="app-action-secondary"
+                            >
+                              {isConnectingYoutube ? 'Disconnecting...' : 'Disconnect'}
+                            </button>
+                          </>
                         ) : (
                           <button
                             type="button"

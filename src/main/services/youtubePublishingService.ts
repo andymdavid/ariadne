@@ -120,6 +120,32 @@ async function fetchYoutubeChannel(accessToken: string) {
   }
 }
 
+function normalizeAuthFailureMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message.includes('invalid_grant')) {
+    return {
+      authStatus: 'expired' as const,
+      message: 'YouTube refresh token is no longer valid. Reconnect the account.'
+    }
+  }
+  if (message.includes('invalid_client') || message.includes('unauthorized_client')) {
+    return {
+      authStatus: 'error' as const,
+      message: 'YouTube OAuth client credentials are invalid.'
+    }
+  }
+  if (message.includes('access_denied') || message.includes('revoked')) {
+    return {
+      authStatus: 'revoked' as const,
+      message: 'YouTube account access was revoked. Reconnect the account.'
+    }
+  }
+  return {
+    authStatus: 'error' as const,
+    message
+  }
+}
+
 export class YoutubePublishingService {
   private async exchangeToken(params: Record<string, string>) {
     const response = await fetch(OAUTH_TOKEN_URL, {
@@ -264,6 +290,44 @@ export class YoutubePublishingService {
     return database.getPublishingAccount(account.id) ?? nextAccount
   }
 
+  async refreshAccount(accountId: string) {
+    const account = database.getPublishingAccount(accountId)
+    if (!account) {
+      throw new Error('Publishing account not found')
+    }
+
+    try {
+      const accessToken = await this.getValidAccessToken(account)
+      const channel = await fetchYoutubeChannel(accessToken)
+      const refreshedAt = nowIso()
+      const refreshedAccount: PublishingAccount = {
+        ...account,
+        channelId: channel.channelId,
+        channelName: channel.channelName,
+        channelHandle: channel.channelHandle,
+        authStatus: 'connected',
+        metadata: {
+          ...asRecord(account.metadata),
+          youtubeLastValidatedAt: refreshedAt
+        },
+        updatedAt: refreshedAt
+      }
+
+      database.upsertPublishingAccount(refreshedAccount)
+      return database.getPublishingAccount(account.id) ?? refreshedAccount
+    } catch (error) {
+      const normalized = normalizeAuthFailureMessage(error)
+      const failedAt = nowIso()
+      const failedAccount: PublishingAccount = {
+        ...account,
+        authStatus: normalized.authStatus,
+        updatedAt: failedAt
+      }
+      database.upsertPublishingAccount(failedAccount)
+      throw new Error(normalized.message)
+    }
+  }
+
   async getValidAccessToken(account: PublishingAccount) {
     if (isTokenFresh(account)) {
       return account.accessTokenRef as string
@@ -280,12 +344,24 @@ export class YoutubePublishingService {
     }
 
     const credentials = getOAuthCredentials(account)
-    const tokenPayload = await this.exchangeToken({
-      client_id: credentials.clientId,
-      ...(credentials.clientSecret ? { client_secret: credentials.clientSecret } : {}),
-      refresh_token: account.refreshTokenRef,
-      grant_type: 'refresh_token'
-    })
+    let tokenPayload
+    try {
+      tokenPayload = await this.exchangeToken({
+        client_id: credentials.clientId,
+        ...(credentials.clientSecret ? { client_secret: credentials.clientSecret } : {}),
+        refresh_token: account.refreshTokenRef,
+        grant_type: 'refresh_token'
+      })
+    } catch (error) {
+      const normalized = normalizeAuthFailureMessage(error)
+      const failedAccount: PublishingAccount = {
+        ...account,
+        authStatus: normalized.authStatus,
+        updatedAt: nowIso()
+      }
+      database.upsertPublishingAccount(failedAccount)
+      throw new Error(normalized.message)
+    }
 
     const refreshedAt = nowIso()
     const refreshedAccount: PublishingAccount = {

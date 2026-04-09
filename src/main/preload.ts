@@ -175,6 +175,8 @@ const electronAPI = {
     ipcRenderer.invoke('connect-youtube-account', accountId) as Promise<PublishingAccount>,
   disconnectYoutubeAccount: (accountId: string) =>
     ipcRenderer.invoke('disconnect-youtube-account', accountId) as Promise<PublishingAccount>,
+  refreshYoutubeAccount: (accountId: string) =>
+    ipcRenderer.invoke('refresh-youtube-account', accountId) as Promise<PublishingAccount>,
   getPostingPlan: (publishingAccountId: string) =>
     ipcRenderer.invoke('get-posting-plan', publishingAccountId) as Promise<PostingPlan | undefined>,
   savePostingPlan: (plan: PostingPlan) =>
@@ -196,6 +198,8 @@ const electronAPI = {
     ipcRenderer.invoke('push-scheduled-publication', publicationId) as Promise<ScheduledPublication>,
   pushReadyPublications: (publishingAccountId?: string) =>
     ipcRenderer.invoke('push-ready-publications', publishingAccountId) as Promise<ScheduledPublication[]>,
+  retryScheduledPublication: (publicationId: string) =>
+    ipcRenderer.invoke('retry-scheduled-publication', publicationId) as Promise<ScheduledPublication>,
   getPublicationHistory: (publicationId: string) =>
     ipcRenderer.invoke('get-publication-history', publicationId) as Promise<PublicationHistoryEvent[]>,
   getBrandTemplate: () => ipcRenderer.invoke('get-brand-template'),

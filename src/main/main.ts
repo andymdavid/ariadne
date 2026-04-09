@@ -821,6 +821,10 @@ ipcMain.handle('disconnect-youtube-account', (_event, accountId: string) => {
   return youtubePublishingService.disconnectAccount(accountId)
 })
 
+ipcMain.handle('refresh-youtube-account', (_event, accountId: string) => {
+  return youtubePublishingService.refreshAccount(accountId)
+})
+
 ipcMain.handle('get-posting-plan', (_event, publishingAccountId: string) => {
   return database.getDefaultPostingPlanForAccount(publishingAccountId)
 })
@@ -855,6 +859,10 @@ ipcMain.handle('push-scheduled-publication', (_event, publicationId: string) => 
 
 ipcMain.handle('push-ready-publications', (_event, publishingAccountId?: string) => {
   return schedulingService.pushReadyPublications(publishingAccountId)
+})
+
+ipcMain.handle('retry-scheduled-publication', (_event, publicationId: string) => {
+  return schedulingService.retryPublication(publicationId)
 })
 
 ipcMain.handle('get-publication-history', (_event, publicationId: string) => {

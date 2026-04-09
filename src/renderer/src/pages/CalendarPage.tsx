@@ -27,6 +27,8 @@ export function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pushingKey, setPushingKey] = useState<string | null>(null)
+  const [retryingKey, setRetryingKey] = useState<string | null>(null)
+  const [refreshingAccount, setRefreshingAccount] = useState(false)
   const [selectedPublicationId, setSelectedPublicationId] = useState<string | null>(null)
   const [selectedPublicationHistory, setSelectedPublicationHistory] = useState<PublicationHistoryEvent[]>([])
   const [selectedTitle, setSelectedTitle] = useState<string | null>(null)
@@ -146,6 +148,40 @@ export function CalendarPage() {
     }
   }
 
+  const handleRetryPublication = async (publicationId: string) => {
+    try {
+      setRetryingKey(publicationId)
+      await window.electronAPI?.retryScheduledPublication?.(publicationId)
+      await loadOverview()
+      setSelectedPublicationId(publicationId)
+    } catch (retryError) {
+      console.error('Failed to retry scheduled publication:', retryError)
+      setError('Failed to retry publication')
+    } finally {
+      setRetryingKey(null)
+    }
+  }
+
+  const handleRefreshAccount = async () => {
+    if (!account?.id) {
+      return
+    }
+
+    try {
+      setRefreshingAccount(true)
+      const refreshed = await window.electronAPI?.refreshYoutubeAccount?.(account.id)
+      if (refreshed) {
+        setAccount(refreshed)
+      }
+      await loadOverview()
+    } catch (refreshError) {
+      console.error('Failed to refresh YouTube account status:', refreshError)
+      setError(refreshError instanceof Error ? refreshError.message : 'Failed to refresh YouTube account')
+    } finally {
+      setRefreshingAccount(false)
+    }
+  }
+
   return (
     <MainContentPanel>
       <div className="app-page">
@@ -162,6 +198,7 @@ export function CalendarPage() {
 
               <div className="app-page-header-actions">
                 {account ? <div className="app-chip">{account.channelName}</div> : null}
+                {account ? <div className="app-chip">{account.authStatus}</div> : null}
                 {account ? (
                   <button
                     type="button"
@@ -170,6 +207,16 @@ export function CalendarPage() {
                     disabled={readyToPushCount === 0 || pushingKey === 'all'}
                   >
                     Push ready to YouTube
+                  </button>
+                ) : null}
+                {account ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleRefreshAccount()}
+                    className="app-action-secondary"
+                    disabled={refreshingAccount}
+                  >
+                    {refreshingAccount ? 'Refreshing...' : 'Refresh account'}
                   </button>
                 ) : null}
                 <button type="button" onClick={() => void loadOverview()} className="app-action-secondary">
@@ -314,6 +361,10 @@ export function CalendarPage() {
                           <span>Recycle cooldown</span>
                           <span className="text-text-primary">{plan.minimumRecycleGapDays} days</span>
                         </div>
+                        <div className="app-list-row">
+                          <span>Account auth</span>
+                          <span className="text-text-primary">{account.authStatus}</span>
+                        </div>
                       </div>
                     </section>
 
@@ -356,6 +407,18 @@ export function CalendarPage() {
                                     disabled={pushingKey === publication.id}
                                   >
                                     Push
+                                  </button>
+                                ) : publication.status === 'failed' ? (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      void handleRetryPublication(publication.id)
+                                    }}
+                                    className="app-action-secondary"
+                                    disabled={retryingKey === publication.id}
+                                  >
+                                    {retryingKey === publication.id ? 'Retrying...' : 'Retry'}
                                   </button>
                                 ) : null}
                               </div>
@@ -439,6 +502,28 @@ export function CalendarPage() {
                               <div className="mb-1 text-xs uppercase tracking-[0.18em] text-text-muted">Selected description</div>
                               <div className="text-sm leading-6 text-text-secondary">{selectedDescription}</div>
                             </div>
+                          ) : null}
+
+                          {selectedPublication.status === 'ready_to_push' ? (
+                            <button
+                              type="button"
+                              onClick={() => void handlePushPublication(selectedPublication.id)}
+                              className="app-action-primary"
+                              disabled={pushingKey === selectedPublication.id}
+                            >
+                              {pushingKey === selectedPublication.id ? 'Pushing...' : 'Push to YouTube'}
+                            </button>
+                          ) : null}
+
+                          {selectedPublication.status === 'failed' ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleRetryPublication(selectedPublication.id)}
+                              className="app-action-secondary"
+                              disabled={retryingKey === selectedPublication.id}
+                            >
+                              {retryingKey === selectedPublication.id ? 'Retrying...' : 'Retry publication'}
+                            </button>
                           ) : null}
 
                           <div>
