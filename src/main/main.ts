@@ -14,6 +14,7 @@ import { mediaWorkerSupervisor } from './services/mediaWorkerSupervisor';
 import { workflowReadModel } from './services/workflowReadModel';
 import { postingPlanService } from './services/postingPlanService';
 import { schedulingService } from './services/schedulingService';
+import { youtubePublishingService } from './services/youtubePublishingService';
 import type { BrandTemplate, PostingPlan, PublishingAccount, TrimBoundaryAnchor } from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
@@ -800,7 +801,7 @@ ipcMain.handle('save-publishing-account', (_event, account: Partial<PublishingAc
     channelName: account.channelName ?? 'YouTube channel',
     channelHandle: account.channelHandle ?? null,
     timezone: account.timezone ?? 'UTC',
-    authStatus: account.authStatus ?? 'connected',
+    authStatus: account.authStatus ?? 'not_connected',
     accessTokenRef: account.accessTokenRef ?? null,
     refreshTokenRef: account.refreshTokenRef ?? null,
     tokenExpiresAt: account.tokenExpiresAt ?? null,
@@ -810,6 +811,14 @@ ipcMain.handle('save-publishing-account', (_event, account: Partial<PublishingAc
   }
 
   return schedulingService.savePublishingAccount(resolved)
+})
+
+ipcMain.handle('connect-youtube-account', (_event, accountId: string) => {
+  return youtubePublishingService.connectAccount(accountId)
+})
+
+ipcMain.handle('disconnect-youtube-account', (_event, accountId: string) => {
+  return youtubePublishingService.disconnectAccount(accountId)
 })
 
 ipcMain.handle('get-posting-plan', (_event, publishingAccountId: string) => {

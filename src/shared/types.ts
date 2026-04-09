@@ -216,6 +216,7 @@ export interface BrandTemplatePreset {
 export type PublishingPlatform = 'youtube';
 
 export type PublishingAccountAuthStatus =
+  | 'not_connected'
   | 'connected'
   | 'expired'
   | 'revoked'

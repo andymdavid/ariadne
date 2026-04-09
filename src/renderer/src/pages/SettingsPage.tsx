@@ -3,6 +3,10 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { MainContentPanel } from '../components/MainContentPanel'
 import type { PostingPlan, PublishingAccount, TargetRegion } from '@shared/types'
 
+function getPublishingMetadata(account: Partial<PublishingAccount> | null | undefined) {
+  return (account?.metadata ?? {}) as Record<string, unknown>
+}
+
 interface ConfigState {
   openRouterKey: string
   model:
@@ -82,6 +86,7 @@ export function SettingsPage() {
   const [publishingAccount, setPublishingAccount] = useState<Partial<PublishingAccount> | null>(null)
   const [postingPlan, setPostingPlan] = useState<PostingPlan | null>(null)
   const [isSavingPublishing, setIsSavingPublishing] = useState(false)
+  const [isConnectingYoutube, setIsConnectingYoutube] = useState(false)
 
   useEffect(() => {
     void loadConfig()
@@ -123,7 +128,7 @@ export function SettingsPage() {
           channelName: '',
           channelHandle: '',
           timezone: 'Australia/Perth',
-          authStatus: 'connected',
+          authStatus: 'not_connected',
           metadata: {}
         })
       }
@@ -257,7 +262,90 @@ export function SettingsPage() {
     }
   }
 
+  const setPublishingMetadataField = (key: string, value: string) => {
+    setPublishingAccount((prev) => ({
+      ...(prev ?? {
+        platform: 'youtube',
+        authStatus: 'not_connected',
+        metadata: {}
+      }),
+      metadata: {
+        ...getPublishingMetadata(prev),
+        [key]: value
+      }
+    }))
+  }
+
+  const handleConnectYoutube = async () => {
+    setSaveMessage('')
+    setIsConnectingYoutube(true)
+
+    try {
+      const metadata = getPublishingMetadata(publishingAccount)
+      const clientId = String(metadata.youtubeOAuthClientId ?? '').trim()
+      if (!clientId) {
+        setSaveMessage('YouTube OAuth client ID is required before connecting')
+        return
+      }
+
+      const savedAccount = await window.electronAPI?.savePublishingAccount?.({
+        ...publishingAccount,
+        platform: 'youtube',
+        authStatus: publishingAccount?.authStatus ?? 'not_connected',
+        channelName: publishingAccount?.channelName?.trim() || 'YouTube channel',
+        channelId:
+          publishingAccount?.channelId ||
+          publishingAccount?.channelHandle ||
+          publishingAccount?.channelName ||
+          ''
+      })
+
+      if (!savedAccount) {
+        throw new Error('Failed to save publishing account before connecting')
+      }
+
+      const connectedAccount = await window.electronAPI?.connectYoutubeAccount?.(savedAccount.id)
+      if (!connectedAccount) {
+        throw new Error('Failed to connect YouTube account')
+      }
+
+      setPublishingAccount(connectedAccount)
+      setSaveMessage('YouTube account connected successfully!')
+      setTimeout(() => setSaveMessage(''), 3000)
+    } catch (error) {
+      console.error('Failed to connect YouTube account:', error)
+      setSaveMessage('Failed to connect YouTube account')
+    } finally {
+      setIsConnectingYoutube(false)
+    }
+  }
+
+  const handleDisconnectYoutube = async () => {
+    if (!publishingAccount?.id) {
+      return
+    }
+
+    setSaveMessage('')
+    setIsConnectingYoutube(true)
+    try {
+      const disconnectedAccount = await window.electronAPI?.disconnectYoutubeAccount?.(publishingAccount.id)
+      if (!disconnectedAccount) {
+        throw new Error('Failed to disconnect YouTube account')
+      }
+      setPublishingAccount(disconnectedAccount)
+      setSaveMessage('YouTube account disconnected')
+      setTimeout(() => setSaveMessage(''), 3000)
+    } catch (error) {
+      console.error('Failed to disconnect YouTube account:', error)
+      setSaveMessage('Failed to disconnect YouTube account')
+    } finally {
+      setIsConnectingYoutube(false)
+    }
+  }
+
   const saveToneClass = saveMessage.includes('success') ? 'text-accent-success' : 'text-accent-danger'
+  const publishingMetadata = getPublishingMetadata(publishingAccount)
+  const isYoutubeConnected = publishingAccount?.authStatus === 'connected'
 
   return (
     <MainContentPanel>
@@ -423,6 +511,79 @@ export function SettingsPage() {
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <div>
                         <label className="mb-2 block text-sm font-medium text-text-secondary">
+                          YouTube OAuth client ID
+                        </label>
+                        <input
+                          type="text"
+                          value={String(publishingMetadata.youtubeOAuthClientId ?? '')}
+                          onChange={(e) => setPublishingMetadataField('youtubeOAuthClientId', e.target.value)}
+                          placeholder="Google OAuth desktop client ID"
+                          className="input w-full"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-secondary">
+                          YouTube OAuth client secret
+                        </label>
+                        <input
+                          type="password"
+                          value={String(publishingMetadata.youtubeOAuthClientSecret ?? '')}
+                          onChange={(e) => setPublishingMetadataField('youtubeOAuthClientSecret', e.target.value)}
+                          placeholder="Optional for desktop OAuth"
+                          className="input w-full"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="app-list-row">
+                      <div>
+                        <div className="text-sm font-medium text-text-primary">YouTube connection</div>
+                        <div className="mt-1 text-xs text-text-muted">
+                          {isYoutubeConnected
+                            ? `Connected${publishingAccount?.channelName ? ` to ${publishingAccount.channelName}` : ''}`
+                            : 'Connect once so Ariadne can schedule uploads directly on YouTube.'}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <div className="app-chip">
+                          {publishingAccount?.authStatus === 'connected'
+                            ? 'Connected'
+                            : publishingAccount?.authStatus === 'expired'
+                              ? 'Expired'
+                              : publishingAccount?.authStatus === 'revoked'
+                                ? 'Revoked'
+                                : publishingAccount?.authStatus === 'error'
+                                  ? 'Error'
+                                  : 'Not connected'}
+                        </div>
+
+                        {isYoutubeConnected ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleDisconnectYoutube()}
+                            disabled={isConnectingYoutube}
+                            className="app-action-secondary"
+                          >
+                            {isConnectingYoutube ? 'Disconnecting...' : 'Disconnect'}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void handleConnectYoutube()}
+                            disabled={isConnectingYoutube}
+                            className="app-action-primary"
+                          >
+                            {isConnectingYoutube ? 'Connecting...' : 'Connect YouTube'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-secondary">
                           YouTube channel name
                         </label>
                         <input
@@ -430,7 +591,7 @@ export function SettingsPage() {
                           value={publishingAccount?.channelName ?? ''}
                           onChange={(e) =>
                             setPublishingAccount((prev) => ({
-                              ...(prev ?? { platform: 'youtube', authStatus: 'connected', metadata: {} }),
+                              ...(prev ?? { platform: 'youtube', authStatus: 'not_connected', metadata: {} }),
                               channelName: e.target.value
                             }))
                           }
@@ -448,7 +609,7 @@ export function SettingsPage() {
                           value={publishingAccount?.channelHandle ?? ''}
                           onChange={(e) =>
                             setPublishingAccount((prev) => ({
-                              ...(prev ?? { platform: 'youtube', authStatus: 'connected', metadata: {} }),
+                              ...(prev ?? { platform: 'youtube', authStatus: 'not_connected', metadata: {} }),
                               channelHandle: e.target.value
                             }))
                           }
@@ -468,7 +629,7 @@ export function SettingsPage() {
                           value={publishingAccount?.timezone ?? ''}
                           onChange={(e) =>
                             setPublishingAccount((prev) => ({
-                              ...(prev ?? { platform: 'youtube', authStatus: 'connected', metadata: {} }),
+                              ...(prev ?? { platform: 'youtube', authStatus: 'not_connected', metadata: {} }),
                               timezone: e.target.value
                             }))
                           }

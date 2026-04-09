@@ -93,6 +93,8 @@ declare global {
       updateUserPreferences: (preferences: any) => Promise<boolean>;
       getPublishingAccounts: () => Promise<PublishingAccount[]>;
       savePublishingAccount: (account: Partial<PublishingAccount>) => Promise<PublishingAccount>;
+      connectYoutubeAccount: (accountId: string) => Promise<PublishingAccount>;
+      disconnectYoutubeAccount: (accountId: string) => Promise<PublishingAccount>;
       getPostingPlan: (publishingAccountId: string) => Promise<PostingPlan | undefined>;
       savePostingPlan: (plan: PostingPlan) => Promise<PostingPlan>;
       generateCalendarSlots: (postingPlanId: string, daysForward?: number) => Promise<CalendarSlot[]>;

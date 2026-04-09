@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { database } from '../database/database'
 import { postingPlanService } from './postingPlanService'
 import { slotGenerationService } from './slotGenerationService'
+import { youtubePublishingService } from './youtubePublishingService'
 import type {
   CalendarSlot,
   PostingPlan,
@@ -17,10 +18,6 @@ function nowIso() {
 
 function pickSelectedId(items: Array<{ id: string; is_selected?: number; isSelected?: number }>) {
   return items.find((item) => item.is_selected === 1 || item.isSelected === 1)?.id ?? null
-}
-
-function makeYoutubeVideoId() {
-  return randomUUID().replace(/-/g, '').slice(0, 11)
 }
 
 export class SchedulingService {
@@ -291,7 +288,7 @@ export class SchedulingService {
       .filter(Boolean)
   }
 
-  pushPublicationToPlatform(publicationId: string) {
+  async pushPublicationToPlatform(publicationId: string) {
     const publication = database.getScheduledPublication(publicationId)
     if (!publication) {
       throw new Error('Scheduled publication not found')
@@ -371,36 +368,61 @@ export class SchedulingService {
       createdAt: now
     })
 
-    const videoId = makeYoutubeVideoId()
-    const confirmedAt = nowIso()
-    database.updateScheduledPublication(publication.id, {
-      status: 'scheduled_on_platform',
-      youtubeVideoId: videoId,
-      youtubeVideoUrl: `https://youtube.com/watch?v=${videoId}`,
-      youtubeUploadStatus: 'scheduled',
-      platformConfirmedPublishAtUtc: publication.scheduledForUtc,
-      retryCount: publication.retryCount,
-      updatedAt: confirmedAt
-    })
-    this.markSlotStatus(publication.calendarSlotId, 'scheduled')
-    this.createHistoryEvent({
-      id: randomUUID(),
-      scheduledPublicationId: publication.id,
-      eventType: 'platform_push_succeeded',
-      message: 'Scheduled publication on YouTube',
-      detail: {
-        youtubeVideoId: videoId,
-        youtubeVideoUrl: `https://youtube.com/watch?v=${videoId}`,
-        scheduledForUtc: publication.scheduledForUtc,
-        confirmedAt
-      },
-      createdAt: confirmedAt
-    })
+    try {
+      const result = await youtubePublishingService.schedulePublication(publication.id)
+      const confirmedAt = nowIso()
+      database.updateScheduledPublication(publication.id, {
+        status: 'scheduled_on_platform',
+        youtubeVideoId: result.youtubeVideoId,
+        youtubeVideoUrl: result.youtubeVideoUrl,
+        youtubeUploadStatus: result.youtubeUploadStatus,
+        platformConfirmedPublishAtUtc: result.platformConfirmedPublishAtUtc,
+        retryCount: publication.retryCount,
+        updatedAt: confirmedAt
+      })
+      this.markSlotStatus(publication.calendarSlotId, 'scheduled')
+      this.createHistoryEvent({
+        id: randomUUID(),
+        scheduledPublicationId: publication.id,
+        eventType: 'platform_push_succeeded',
+        message: 'Scheduled publication on YouTube',
+        detail: {
+          youtubeVideoId: result.youtubeVideoId,
+          youtubeVideoUrl: result.youtubeVideoUrl,
+          scheduledForUtc: publication.scheduledForUtc,
+          confirmedAt
+        },
+        createdAt: confirmedAt
+      })
+    } catch (error) {
+      const failedAt = nowIso()
+      const failedRetryCount = publication.retryCount + 1
+      const message = error instanceof Error ? error.message : 'Unknown YouTube scheduling failure'
+      database.updateScheduledPublication(publication.id, {
+        status: 'failed',
+        youtubeUploadStatus: 'failed',
+        lastErrorCode: 'youtube_schedule_failed',
+        lastErrorMessage: message,
+        retryCount: failedRetryCount,
+        updatedAt: failedAt
+      })
+      this.createHistoryEvent({
+        id: randomUUID(),
+        scheduledPublicationId: publication.id,
+        eventType: 'platform_push_failed',
+        message: 'Failed to schedule publication on YouTube',
+        detail: {
+          scheduledForUtc: publication.scheduledForUtc,
+          error: message
+        },
+        createdAt: failedAt
+      })
+    }
 
     return database.getScheduledPublication(publication.id)
   }
 
-  pushReadyPublications(publishingAccountId?: string) {
+  async pushReadyPublications(publishingAccountId?: string) {
     const account = publishingAccountId
       ? database.getPublishingAccount(publishingAccountId)
       : this.getPrimaryPublishingAccount()
@@ -409,10 +431,13 @@ export class SchedulingService {
       return []
     }
 
-    return database
-      .listScheduledPublicationsForAccount(account.id, ['ready_to_push'])
-      .map((publication) => this.pushPublicationToPlatform(publication.id))
-      .filter(Boolean)
+    const results = await Promise.all(
+      database
+        .listScheduledPublicationsForAccount(account.id, ['ready_to_push'])
+        .map((publication) => this.pushPublicationToPlatform(publication.id))
+    )
+
+    return results.filter(Boolean)
   }
 }
 

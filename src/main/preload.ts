@@ -171,6 +171,10 @@ const electronAPI = {
     ipcRenderer.invoke('get-publishing-accounts') as Promise<PublishingAccount[]>,
   savePublishingAccount: (account: Partial<PublishingAccount>) =>
     ipcRenderer.invoke('save-publishing-account', account) as Promise<PublishingAccount>,
+  connectYoutubeAccount: (accountId: string) =>
+    ipcRenderer.invoke('connect-youtube-account', accountId) as Promise<PublishingAccount>,
+  disconnectYoutubeAccount: (accountId: string) =>
+    ipcRenderer.invoke('disconnect-youtube-account', accountId) as Promise<PublishingAccount>,
   getPostingPlan: (publishingAccountId: string) =>
     ipcRenderer.invoke('get-posting-plan', publishingAccountId) as Promise<PostingPlan | undefined>,
   savePostingPlan: (plan: PostingPlan) =>
