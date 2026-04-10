@@ -925,7 +925,6 @@ class FFmpegService {
   ): Promise<string> {
     const { writeFileSync } = require('fs')
     const assPath = join(this.tempDir, `subtitles_${Date.now()}.ass`)
-
     // Convert hex color to ASS format (BGR with alpha)
     const hexToASSColor = (hex: string, opacity: number = 1): string => {
       const cleanHex = hex.replace('#', '')
@@ -950,6 +949,14 @@ class FFmpegService {
       alignment = 5 // Middle center (we'll use \pos tag in text)
       marginV = 0
     }
+
+    const referencePreviewWidth =
+      resolution.width === 1920 ? 640 : resolution.width === 1080 && resolution.height === 1080 ? 430 : 310
+    const uiToOutputScale = resolution.width / referencePreviewWidth
+    const scaledFontSize = Math.max(12, Math.round(style.size * uiToOutputScale))
+    const scaledOutlineWidth = style.outline ? Math.max(0, Number(style.outlineWidth || 0) * uiToOutputScale) : 0
+    const scaledSpacing = Number(style.letterSpacing || 0) * uiToOutputScale
+    const scaledMarginV = alignment === 5 ? 0 : Math.round(marginV * uiToOutputScale)
 
     const primaryColor = hexToASSColor(style.textColor || style.color, 1)
     const secondaryColor = hexToASSColor(style.highlightColor || style.color, 1)
@@ -976,8 +983,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${fontFamilyName},${style.size},${primaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${style.letterSpacing},0,${style.background ? '3' : '1'},${style.outline ? style.outlineWidth : 0},${style.shadow ? '2' : '0'},${alignment},10,10,${marginV},1
-Style: Active,${fontFamilyName},${style.size},${secondaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${style.letterSpacing},0,${style.background ? '3' : '1'},${style.outline ? style.outlineWidth : 0},${style.shadow ? '2' : '0'},${alignment},10,10,${marginV},1
+Style: Default,${fontFamilyName},${scaledFontSize},${primaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${scaledSpacing},0,${style.background ? '3' : '1'},${scaledOutlineWidth},${style.shadow ? '2' : '0'},${alignment},10,10,${scaledMarginV},1
+Style: Active,${fontFamilyName},${scaledFontSize},${secondaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${scaledSpacing},0,${style.background ? '3' : '1'},${scaledOutlineWidth},${style.shadow ? '2' : '0'},${alignment},10,10,${scaledMarginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
