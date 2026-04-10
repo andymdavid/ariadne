@@ -17,6 +17,7 @@ import type {
 } from '@shared/types/exportWorker'
 
 interface ClipEditsRow {
+  updated_at?: string | null
   captions_enabled?: number
   caption_segments?: string | null
   caption_font?: string | null
@@ -77,6 +78,19 @@ interface ExportTranscriptSegment {
   end?: number
   text?: string
   words?: ExportTranscriptWord[]
+}
+
+const isLegacyDefaultLogoPosition = (x: unknown, y: unknown) =>
+  Number(x) === 85 && Number(y) === 85
+
+const isUpdatedAfter = (candidate?: string | null, baseline?: string | null) => {
+  const candidateTime = candidate ? Date.parse(candidate) : Number.NaN
+  const baselineTime = baseline ? Date.parse(baseline) : Number.NaN
+
+  if (Number.isNaN(candidateTime)) return false
+  if (Number.isNaN(baselineTime)) return true
+
+  return candidateTime > baselineTime
 }
 
 export interface ExportOptions {
@@ -396,7 +410,14 @@ class ExportService {
       const clipEdits = database.getClipEdits(clip.id) as ClipEditsRow | undefined
       const transcriptSegments = database.getClipTranscriptSegments(clip.id) as ExportTranscriptSegment[]
       const outputPath = join(outputDirectory, this.buildOutputFilename(clip.id))
-      const captionSegments = this.buildCaptionSegments(clip.id, clipEdits, transcriptSegments, brandTemplate, options.includeCaptions)
+      const captionSegments = this.buildCaptionSegments(
+        clip.id,
+        Number(clip.start_time ?? 0),
+        clipEdits,
+        transcriptSegments,
+        brandTemplate,
+        options.includeCaptions
+      )
       const captionStyle = this.buildCaptionStyle(clipEdits, brandTemplate)
       const logoSettings = this.buildLogoSettings(clipEdits, brandTemplate)
       const musicSettings = this.buildMusicSettings(clipEdits, brandTemplate)
@@ -441,6 +462,7 @@ class ExportService {
 
   private buildCaptionSegments(
     clipId: string,
+    clipStartTime: number,
     clipEdits: ClipEditsRow | undefined,
     transcriptSegments: ExportTranscriptSegment[],
     brandTemplate: BrandTemplate,
@@ -463,11 +485,12 @@ class ExportService {
       console.error('[ExportService] Failed to parse caption segments:', error)
     }
 
-    return this.buildCaptionSegmentsFromTranscript(clipId, transcriptSegments, brandTemplate)
+    return this.buildCaptionSegmentsFromTranscript(clipId, clipStartTime, transcriptSegments, brandTemplate)
   }
 
   private buildCaptionSegmentsFromTranscript(
     clipId: string,
+    clipStartTime: number,
     transcriptSegments: ExportTranscriptSegment[],
     brandTemplate: BrandTemplate
   ): ExportCaptionSegment[] {
@@ -489,22 +512,29 @@ class ExportService {
         for (let index = 0; index < words.length; index += maxWordsPerCue) {
           const chunk = words.slice(index, index + maxWordsPerCue)
           if (!chunk.length) continue
+          const relativeStart = Math.max(0, chunk[0].start - clipStartTime)
+          const relativeEnd = Math.max(relativeStart, chunk[chunk.length - 1].end - clipStartTime)
           cues.push({
             text: chunk
               .map((word) => (brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word))
               .join(' ')
               .replace(/\s+([,.!?;:])/g, '$1')
               .trim(),
-            start: chunk[0].start,
-            end: chunk[chunk.length - 1].end
+            start: relativeStart,
+            end: relativeEnd,
+            words: chunk.map((word) => ({
+              word: brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word,
+              start: Math.max(0, word.start - clipStartTime),
+              end: Math.max(0, word.end - clipStartTime)
+            }))
           })
         }
         continue
       }
 
       const text = String(segment.text || '').trim()
-      const start = Number(segment.start_time ?? segment.start ?? 0)
-      const end = Number(segment.end_time ?? segment.end ?? start)
+      const start = Math.max(0, Number(segment.start_time ?? segment.start ?? 0) - clipStartTime)
+      const end = Math.max(start, Number(segment.end_time ?? segment.end ?? start) - clipStartTime)
       if (!text || end <= start) continue
 
       cues.push({
@@ -523,15 +553,20 @@ class ExportService {
     const captionsEnabled = clipEdits?.captions_enabled != null
       ? clipEdits.captions_enabled === 1
       : true
+    const clipOverridesCurrent = isUpdatedAfter(clipEdits?.updated_at, brandTemplate.updatedAt)
+    const useCaptionPositionOverride =
+      clipOverridesCurrent && clipEdits?.caption_position === 'custom'
 
     return {
       enabled: captionsEnabled,
       font: clipEdits?.caption_font || templateCaption.font || 'Inter',
       size: clipEdits?.caption_size || templateCaption.fontSize || 48,
       color: clipEdits?.caption_color || templateCaption.highlightColor || '#FFFFFF',
-      position: clipEdits?.caption_position || templateCaption.position || 'bottom',
-      customX: clipEdits?.caption_custom_x ?? templateCaption.customX ?? undefined,
-      customY: clipEdits?.caption_custom_y ?? templateCaption.customY ?? undefined,
+      textColor: templateCaption.textColor || '#B3B3B3',
+      highlightColor: templateCaption.highlightColor || '#FFFFFF',
+      position: useCaptionPositionOverride ? 'custom' : (templateCaption.position || 'bottom'),
+      customX: useCaptionPositionOverride ? (clipEdits?.caption_custom_x ?? undefined) : (templateCaption.customX ?? undefined),
+      customY: useCaptionPositionOverride ? (clipEdits?.caption_custom_y ?? undefined) : (templateCaption.customY ?? undefined),
       weight:
         clipEdits?.caption_weight ||
         (clipEdits?.caption_bold === 1 ? 700 : undefined) ||
@@ -546,22 +581,34 @@ class ExportService {
         clipEdits?.caption_background != null ? clipEdits.caption_background === 1 : templateCaption.backgroundEnabled === true,
       backgroundColor: clipEdits?.caption_background_color || templateCaption.backgroundColor || '#000000',
       backgroundOpacity: clipEdits?.caption_background_opacity ?? 1,
+      backgroundPaddingX: templateCaption.backgroundPaddingX ?? 24,
+      backgroundPaddingY: templateCaption.backgroundPaddingY ?? 12,
+      backgroundRadius: templateCaption.backgroundRadius ?? 16,
       textCase:
         clipEdits?.caption_text_case ||
         (templateCaption.uppercase ? 'uppercase' : 'normal'),
       wordsPerCaption: clipEdits?.caption_words_per_caption || 3,
       maxWidth: clipEdits?.caption_max_width ?? 90,
       lineHeight: clipEdits?.caption_line_height ?? 1.2,
-      letterSpacing: clipEdits?.caption_letter_spacing ?? 0
+      letterSpacing: clipEdits?.caption_letter_spacing ?? 0,
+      lineMode: templateCaption.lineMode ?? 'one-line',
+      shadowColor: templateCaption.shadowColor || '#000000',
+      shadowOffsetX: templateCaption.shadowOffsetX ?? 0,
+      shadowOffsetY: templateCaption.shadowOffsetY ?? 0,
+      shadowBlur: templateCaption.shadowBlur ?? 0
     }
   }
 
   private buildLogoSettings(clipEdits: ClipEditsRow | undefined, brandTemplate: BrandTemplate): ExportLogoSettings | undefined {
-    const enabled = clipEdits?.logo_enabled != null
-      ? Boolean(clipEdits.logo_enabled)
-      : brandTemplate.logo.enabled || Boolean(brandTemplate.logo.assetPath)
+    const clipOverridesCurrent = isUpdatedAfter(clipEdits?.updated_at, brandTemplate.updatedAt)
+    const useLogoPositionOverride =
+      clipOverridesCurrent &&
+      clipEdits?.logo_position_x != null &&
+      clipEdits?.logo_position_y != null &&
+      !isLegacyDefaultLogoPosition(clipEdits.logo_position_x, clipEdits.logo_position_y)
 
-    const logoPath = clipEdits?.logo_path ?? brandTemplate.logo.assetPath ?? null
+    const enabled = brandTemplate.logo.enabled || Boolean(brandTemplate.logo.assetPath)
+    const logoPath = brandTemplate.logo.assetPath ?? null
     if (!enabled || !logoPath) {
       return undefined
     }
@@ -569,10 +616,10 @@ class ExportService {
     return {
       enabled: true,
       logoPath,
-      positionX: clipEdits?.logo_position_x ?? brandTemplate.logo.positionX ?? 85,
-      positionY: clipEdits?.logo_position_y ?? brandTemplate.logo.positionY ?? 85,
-      scale: clipEdits?.logo_scale ?? brandTemplate.logo.scale ?? 0.15,
-      opacity: clipEdits?.logo_opacity ?? brandTemplate.logo.opacity ?? 0.8
+      positionX: useLogoPositionOverride ? Number(clipEdits?.logo_position_x) : (brandTemplate.logo.positionX ?? 85),
+      positionY: useLogoPositionOverride ? Number(clipEdits?.logo_position_y) : (brandTemplate.logo.positionY ?? 85),
+      scale: brandTemplate.logo.scale ?? 0.15,
+      opacity: brandTemplate.logo.opacity ?? 0.8
     }
   }
 
@@ -605,16 +652,21 @@ class ExportService {
     defaultAspectRatio: '9:16' | '1:1' | '16:9'
   ): ExportFrameSettings {
     const normalizedCropMode = clipEdits?.crop_mode === 'canvas' ? 'fit' : clipEdits?.crop_mode
+    const clipOverridesCurrent = isUpdatedAfter(clipEdits?.updated_at, brandTemplate.updatedAt)
+    const useFrameOverride =
+      clipOverridesCurrent &&
+      (clipEdits?.aspect_ratio != null || normalizedCropMode != null)
 
-    if (clipEdits) {
+    if (useFrameOverride) {
+      const edits = clipEdits as ClipEditsRow
       return {
-        aspectRatio: clipEdits.aspect_ratio || defaultAspectRatio,
+        aspectRatio: edits.aspect_ratio || defaultAspectRatio,
         cropMode: (normalizedCropMode || brandTemplate.frame.cropMode || 'center') as 'center' | 'fit' | 'blur',
-        cropPositionX: clipEdits.crop_position_x ?? 50,
-        cropPositionY: clipEdits.crop_position_y ?? 50,
-        zoomLevel: clipEdits.zoom_level ?? 1,
-        videoOffsetX: clipEdits.video_offset_x ?? 0,
-        videoOffsetY: clipEdits.video_offset_y ?? 0,
+        cropPositionX: edits.crop_position_x ?? 50,
+        cropPositionY: edits.crop_position_y ?? 50,
+        zoomLevel: edits.zoom_level ?? 1,
+        videoOffsetX: edits.video_offset_x ?? 0,
+        videoOffsetY: edits.video_offset_y ?? 0,
         videoWidth: clip.video_width ?? null,
         videoHeight: clip.video_height ?? null
       }

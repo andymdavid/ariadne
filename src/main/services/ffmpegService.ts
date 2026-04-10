@@ -450,12 +450,19 @@ class FFmpegService {
     duration: number,
     outputPath: string,
     options: {
-      captionSegments?: Array<{ text: string; start: number; end: number }>
+      captionSegments?: Array<{
+        text: string
+        start: number
+        end: number
+        words?: Array<{ word: string; start: number; end: number }>
+      }>
       captionStyle?: {
         enabled: boolean
         font: string
         size: number
         color: string
+        textColor?: string
+        highlightColor?: string
         position: string
         customX?: number
         customY?: number
@@ -469,11 +476,19 @@ class FFmpegService {
         background: boolean
         backgroundColor: string
         backgroundOpacity: number
+        backgroundPaddingX?: number
+        backgroundPaddingY?: number
+        backgroundRadius?: number
         textCase: string
         wordsPerCaption: number
         maxWidth: number
         lineHeight: number
         letterSpacing: number
+        lineMode?: 'one-line' | 'three-lines'
+        shadowColor?: string
+        shadowOffsetX?: number
+        shadowOffsetY?: number
+        shadowBlur?: number
       }
       logoSettings?: {
         enabled: boolean
@@ -644,9 +659,10 @@ class FFmpegService {
         const logoOpacity = options.logoSettings.opacity
         const logoX = `W*${options.logoSettings.positionX / 100}-w/2`
         const logoY = `H*${options.logoSettings.positionY / 100}-h/2`
+        const targetLogoWidth = Math.max(48, Math.round(resolution.width * logoScale))
 
         // Scale logo and set opacity
-        filters.push(`[${logoInputIndex}:v]scale=iw*${logoScale}:-1,format=rgba,colorchannelmixer=aa=${logoOpacity}[logo]`)
+        filters.push(`[${logoInputIndex}:v]scale=${targetLogoWidth}:-1,format=rgba,colorchannelmixer=aa=${logoOpacity}[logo]`)
         // Overlay logo on video
         filters.push(`${videoLabel}[logo]overlay=${logoX}:${logoY}${currentVideoOutput}`)
 
@@ -866,11 +882,18 @@ class FFmpegService {
    * Generate ASS subtitle file with full styling support
    */
   private async generateASSSubtitles(
-    segments: Array<{ text: string; start: number; end: number }>,
+    segments: Array<{
+      text: string
+      start: number
+      end: number
+      words?: Array<{ word: string; start: number; end: number }>
+    }>,
     style: {
       font: string
       size: number
       color: string
+      textColor?: string
+      highlightColor?: string
       position: string
       customX?: number
       customY?: number
@@ -883,12 +906,20 @@ class FFmpegService {
       background: boolean
       backgroundColor: string
       backgroundOpacity: number
+      backgroundPaddingX?: number
+      backgroundPaddingY?: number
+      backgroundRadius?: number
       textCase: string
       highlightStyle: string
       wordsPerCaption: number
       maxWidth: number
       lineHeight: number
       letterSpacing: number
+      lineMode?: 'one-line' | 'three-lines'
+      shadowColor?: string
+      shadowOffsetX?: number
+      shadowOffsetY?: number
+      shadowBlur?: number
     },
     resolution: { width: number; height: number }
   ): Promise<string> {
@@ -920,7 +951,8 @@ class FFmpegService {
       marginV = 0
     }
 
-    const primaryColor = hexToASSColor(style.color, 1)
+    const primaryColor = hexToASSColor(style.textColor || style.color, 1)
+    const secondaryColor = hexToASSColor(style.highlightColor || style.color, 1)
     const outlineColor = hexToASSColor(style.outlineColor, 1)
     const backgroundColor = style.background ? hexToASSColor(style.backgroundColor, style.backgroundOpacity) : '&H00000000'
 
@@ -945,6 +977,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,${fontFamilyName},${style.size},${primaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${style.letterSpacing},0,${style.background ? '3' : '1'},${style.outline ? style.outlineWidth : 0},${style.shadow ? '2' : '0'},${alignment},10,10,${marginV},1
+Style: Active,${fontFamilyName},${style.size},${secondaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${style.letterSpacing},0,${style.background ? '3' : '1'},${style.outline ? style.outlineWidth : 0},${style.shadow ? '2' : '0'},${alignment},10,10,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -975,61 +1008,33 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const segmentDuration = segment.end - segment.start
 
       // Determine how to split the text based on highlightStyle
-      if (style.highlightStyle === 'word') {
-        // Word-by-word mode: split into word groups based on wordsPerCaption
-        const words = transformText(segment.text).split(' ')
-        const wordsPerCaption = style.wordsPerCaption || 3
+      if (style.highlightStyle === 'word' && Array.isArray(segment.words) && segment.words.length > 0) {
+        const transformedWords = segment.words
+          .filter((word) => word.word?.trim())
+          .map((word) => ({
+            ...word,
+            word: transformText(word.word)
+          }))
 
-        // Calculate how many word groups we'll have
-        const wordGroups: string[] = []
-        for (let i = 0; i < words.length; i += wordsPerCaption) {
-          wordGroups.push(words.slice(i, i + wordsPerCaption).join(' '))
+        let overrideTags = ''
+        if (style.position === 'custom' && style.customX !== undefined && style.customY !== undefined) {
+          const x = Math.round((style.customX / 100) * resolution.width)
+          const y = Math.round((style.customY / 100) * resolution.height)
+          overrideTags = `{\\pos(${x},${y})\\an5}`
         }
 
-        // Calculate time per word group
-        const timePerGroup = segmentDuration / wordGroups.length
+        transformedWords.forEach((activeWord, activeIndex) => {
+          const styledText = transformedWords
+            .map((word, wordIndex) => {
+              const escapedWord = word.word.replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}')
+              return wordIndex === activeIndex
+                ? `{\\rActive}${escapedWord}{\\rDefault}`
+                : escapedWord
+            })
+            .join(' ')
 
-        // Create a subtitle for each word group
-        for (let groupIndex = 0; groupIndex < wordGroups.length; groupIndex++) {
-          const wordsInGroup = wordGroups[groupIndex].split(' ')
-
-          // Apply highlighting effect: first word bright (alpha 00), rest dimmed (alpha 66)
-          // Alpha in ASS: 00 = opaque, FF = transparent
-          // 0.6 opacity = 40% transparent = 0.4 * 255 = 102 = 0x66
-          let styledText = wordsInGroup.map((word, idx) => {
-            // Escape the word text
-            const escapedWord = word.replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}')
-
-            if (wordsPerCaption === 1) {
-              // If only showing 1 word at a time, always show it at full brightness
-              return escapedWord
-            } else {
-              // If showing multiple words, highlight the first one
-              if (idx === 0) {
-                return `{\\alpha&H00&}${escapedWord}` // Full opacity (bright)
-              } else {
-                return `{\\alpha&H66&}${escapedWord}` // 0.6 opacity (dimmed)
-              }
-            }
-          }).join(' ')
-
-          // Build ASS override tags (positioning)
-          let overrideTags = ''
-          if (style.position === 'custom' && style.customX !== undefined && style.customY !== undefined) {
-            const x = Math.round((style.customX / 100) * resolution.width)
-            const y = Math.round((style.customY / 100) * resolution.height)
-            overrideTags = `{\\pos(${x},${y})\\an5}` // \an5 = center alignment for \pos
-          }
-
-          // Calculate start and end time for this word group
-          const groupStartTime = segment.start + (groupIndex * timePerGroup)
-          const groupEndTime = segment.start + ((groupIndex + 1) * timePerGroup)
-
-          const startTime = formatTime(groupStartTime)
-          const endTime = formatTime(groupEndTime)
-
-          assContent += `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${overrideTags}${styledText}\n`
-        }
+          assContent += `Dialogue: 0,${formatTime(activeWord.start)},${formatTime(activeWord.end)},Default,,0,0,0,,${overrideTags}${styledText}\n`
+        })
       } else {
         // Phrase/full sentence mode: show entire segment at once
         let text = transformText(segment.text)

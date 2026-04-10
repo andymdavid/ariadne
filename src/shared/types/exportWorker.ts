@@ -2,6 +2,11 @@ export interface ExportCaptionSegment {
   text: string
   start: number
   end: number
+  words?: Array<{
+    word: string
+    start: number
+    end: number
+  }>
 }
 
 export interface ExportCaptionStyle {
@@ -9,6 +14,8 @@ export interface ExportCaptionStyle {
   font: string
   size: number
   color: string
+  textColor?: string
+  highlightColor?: string
   position: string
   customX?: number
   customY?: number
@@ -22,11 +29,19 @@ export interface ExportCaptionStyle {
   background: boolean
   backgroundColor: string
   backgroundOpacity: number
+  backgroundPaddingX?: number
+  backgroundPaddingY?: number
+  backgroundRadius?: number
   textCase: string
   wordsPerCaption: number
   maxWidth: number
   lineHeight: number
   letterSpacing: number
+  lineMode?: 'one-line' | 'three-lines'
+  shadowColor?: string
+  shadowOffsetX?: number
+  shadowOffsetY?: number
+  shadowBlur?: number
 }
 
 export interface ExportLogoSettings {
