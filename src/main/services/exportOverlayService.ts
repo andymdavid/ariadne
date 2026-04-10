@@ -1,6 +1,6 @@
-import { nativeImage } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
+import { execFileSync } from 'child_process'
 import type { ExportCaptionOverlayFrame, ExportCaptionSegment, ExportCaptionStyle } from '@shared/types/exportWorker'
 
 type Resolution = { width: number; height: number }
@@ -90,9 +90,34 @@ class ExportOverlayService {
     resolution: Resolution
   ) {
     const svg = this.buildCaptionSvg(words, activeIndex, style, resolution)
-    const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
-    const image = nativeImage.createFromDataURL(dataUrl)
-    writeFileSync(outputPath, image.toPNG())
+    try {
+      const electronModule = require('electron') as { nativeImage?: { createFromDataURL: (dataUrl: string) => { toPNG: () => Buffer } } }
+      if (electronModule?.nativeImage?.createFromDataURL) {
+        const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+        const image = electronModule.nativeImage.createFromDataURL(dataUrl)
+        writeFileSync(outputPath, image.toPNG())
+        return
+      }
+    } catch {
+      // Fall through to CLI rasterization in worker contexts.
+    }
+
+    const svgPath = outputPath.replace(/\.png$/i, '.svg')
+    writeFileSync(svgPath, svg, 'utf8')
+
+    try {
+      execFileSync('/usr/bin/sips', ['-s', 'format', 'png', svgPath, '--out', outputPath], {
+        stdio: 'ignore'
+      })
+    } finally {
+      try {
+        if (existsSync(svgPath)) {
+          unlinkSync(svgPath)
+        }
+      } catch {
+        // Best-effort cleanup only.
+      }
+    }
   }
 
   private buildCaptionSvg(
