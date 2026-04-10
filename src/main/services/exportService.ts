@@ -555,20 +555,9 @@ class ExportService {
           : frameSettings.aspectRatio === '1:1'
             ? { width: 1080, height: 1080 }
             : { width: 1080, height: 1920 }
-      const captionOverlayFrames =
-        captionStyle?.enabled && captionSegments.length > 0
-          ? await exportOverlayService.renderCaptionOverlayFrames(
-              clip.id,
-              captionSegments,
-              captionStyle,
-              resolution
-            )
-          : []
-
       console.log(`[ExportService] Prepared clip ${clip.id} with settings:`, {
         captionStyle: captionStyle?.enabled,
         captionSegments: captionSegments.length,
-        captionOverlayFrames: captionOverlayFrames.length,
         logo: logoSettings?.enabled,
         music: musicSettings?.enabled,
         frame: frameSettings
@@ -584,7 +573,6 @@ class ExportService {
         outputPath,
         resolution: frameSettings.aspectRatio,
         captionSegments,
-        captionOverlayFrames,
         captionStyle,
         logoSettings,
         musicSettings,

@@ -1,6 +1,6 @@
 import { nativeImage } from 'electron'
 import { join } from 'path'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
 import type { ExportCaptionOverlayFrame, ExportCaptionSegment, ExportCaptionStyle } from '@shared/types/exportWorker'
 
 type Resolution = { width: number; height: number }
@@ -68,6 +68,18 @@ class ExportOverlayService {
     }
 
     return frames
+  }
+
+  cleanupOverlayFrames(frames: ExportCaptionOverlayFrame[] = []) {
+    for (const frame of frames) {
+      try {
+        if (frame?.imagePath && existsSync(frame.imagePath)) {
+          unlinkSync(frame.imagePath)
+        }
+      } catch {
+        // Best-effort cleanup only.
+      }
+    }
   }
 
   private writeCaptionPng(

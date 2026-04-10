@@ -1,4 +1,6 @@
 import { ffmpegService } from '../services/ffmpegService'
+import { exportOverlayService } from '../services/exportOverlayService'
+import type { ExportCaptionOverlayFrame } from '@shared/types/exportWorker'
 import type {
   ExportWorkerCommand,
   ExportWorkerClipFailureEvent,
@@ -24,6 +26,7 @@ async function runExport(command: StartExportWorkerCommand) {
 
   for (let i = 0; i < command.tasks.length; i++) {
     const task = command.tasks[i]
+    let captionOverlayFrames: ExportCaptionOverlayFrame[] = []
 
     if (cancelRequested) {
       const cancelledEvent: ExportWorkerFailureEvent = {
@@ -40,6 +43,35 @@ async function runExport(command: StartExportWorkerCommand) {
     }
 
     try {
+      const resolution =
+        task.resolution === '16:9'
+          ? { width: 1920, height: 1080 }
+          : task.resolution === '1:1'
+            ? { width: 1080, height: 1080 }
+            : { width: 1080, height: 1920 }
+      let lastClipProgress = 0
+
+      postMessage({
+        type: 'export_progress',
+        exportJobId: command.exportJobId,
+        workflowJobId: command.workflowJobId,
+        clipId: task.clipId,
+        clipIndex: task.clipIndex,
+        totalClips: task.totalClips,
+        clipProgress: 0,
+        overallProgress: Math.round((task.clipIndex / task.totalClips) * 100),
+        outputPath: task.outputPath
+      })
+
+      if (task.captionStyle?.enabled && task.captionSegments.length > 0) {
+        captionOverlayFrames = await exportOverlayService.renderCaptionOverlayFrames(
+          task.clipId,
+          task.captionSegments,
+          task.captionStyle,
+          resolution
+        )
+      }
+
       await ffmpegService.exportReelClip(
         task.sourceMediaPath,
         task.startTime,
@@ -47,6 +79,7 @@ async function runExport(command: StartExportWorkerCommand) {
         task.outputPath,
         {
           captionSegments: task.captionSegments,
+          captionOverlayFrames,
           captionStyle: task.captionStyle,
           logoSettings: task.logoSettings,
           musicSettings: task.musicSettings,
@@ -56,6 +89,9 @@ async function runExport(command: StartExportWorkerCommand) {
               return
             }
 
+            const stableClipProgress = Math.max(lastClipProgress, Math.round(clipProgress))
+            lastClipProgress = stableClipProgress
+
             const progressEvent: ExportWorkerProgressEvent = {
               type: 'export_progress',
               exportJobId: command.exportJobId,
@@ -63,8 +99,8 @@ async function runExport(command: StartExportWorkerCommand) {
               clipId: task.clipId,
               clipIndex: task.clipIndex,
               totalClips: task.totalClips,
-              clipProgress: Math.round(clipProgress),
-              overallProgress: Math.round(((task.clipIndex + clipProgress / 100) / task.totalClips) * 100),
+              clipProgress: stableClipProgress,
+              overallProgress: Math.round(((task.clipIndex + stableClipProgress / 100) / task.totalClips) * 100),
               outputPath: task.outputPath
             }
             postMessage(progressEvent)
@@ -95,6 +131,8 @@ async function runExport(command: StartExportWorkerCommand) {
         message: error instanceof Error ? error.message : 'Unknown clip export error'
       }
       postMessage(failedEvent)
+    } finally {
+      exportOverlayService.cleanupOverlayFrames(captionOverlayFrames)
     }
   }
 

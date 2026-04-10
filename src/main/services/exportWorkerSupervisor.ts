@@ -199,7 +199,7 @@ class ExportWorkerSupervisor {
         updatedAt: now
       })
       database.updateExportJob(event.exportJobId, {
-        currentClipIndex: event.clipIndex,
+        currentClipIndex: Math.min(event.clipIndex + 1, Math.max(event.totalClips - 1, 0)),
         progress: Math.round(((event.clipIndex + 1) / event.totalClips) * 100),
         updatedAt: now
       })
