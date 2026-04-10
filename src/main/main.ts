@@ -991,7 +991,10 @@ ipcMain.handle('export-approved-clips', async (_event, request: StartExportReque
         mainWindow?.webContents.send('export-progress', job)
       }
     )
-    return job
+    return {
+      ...job,
+      status: job.status === 'pending_resume' ? 'pending' : job.status
+    }
   } catch (error) {
     console.error('Export failed:', error)
     throw new Error(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`)

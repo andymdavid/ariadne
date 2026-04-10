@@ -225,7 +225,7 @@ export interface ExportJob {
   id: string
   episodeId: string
   clipIds: string[]
-  status: 'pending' | 'processing' | 'completed' | 'failed'
+  status: 'pending' | 'pending_resume' | 'processing' | 'completed' | 'failed'
   progress: number
   currentClipIndex: number
   totalClips: number
@@ -480,7 +480,12 @@ class ExportService {
 
       let shouldResume = workflowJob.status === 'pending_resume' || exportJob.status === 'pending_resume'
 
-      if (workflowJob.status === 'running' || exportJob.status === 'running') {
+      if (
+        workflowJob.status === 'pending' ||
+        exportJob.status === 'pending' ||
+        workflowJob.status === 'running' ||
+        exportJob.status === 'running'
+      ) {
         const normalizedAt = new Date().toISOString()
         this.recordEvent(workflowJob.id, null, 'export_recovery', 'job_normalized', 'Normalized stale export job to pending_resume', {
           previousWorkflowStatus: workflowJob.status,
@@ -902,7 +907,7 @@ class ExportService {
       return false
     }
 
-    if (job.status === 'processing' || job.status === 'pending') {
+    if (job.status === 'processing' || job.status === 'pending' || job.status === 'pending_resume') {
       const failedAt = new Date().toISOString()
       const durableView = database.getDurableExportView(jobId)
       if (durableView.job) {
