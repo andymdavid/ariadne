@@ -1,6 +1,7 @@
 import { ffmpegService } from '../services/ffmpegService'
 import type {
   ExportWorkerCommand,
+  ExportWorkerClipFailureEvent,
   ExportWorkerCompletedEvent,
   ExportWorkerEvent,
   ExportWorkerFailureEvent,
@@ -19,6 +20,7 @@ function postMessage(event: ExportWorkerEvent) {
 async function runExport(command: StartExportWorkerCommand) {
   cancelRequested = false
   const outputPaths: string[] = []
+  let failedClipCount = 0
 
   for (let i = 0; i < command.tasks.length; i++) {
     const task = command.tasks[i]
@@ -37,49 +39,63 @@ async function runExport(command: StartExportWorkerCommand) {
       return
     }
 
-    await ffmpegService.exportReelClip(
-      task.sourceMediaPath,
-      task.startTime,
-      task.duration,
-      task.outputPath,
-      {
-        captionSegments: task.captionSegments,
-        captionStyle: task.captionStyle,
-        logoSettings: task.logoSettings,
-        musicSettings: task.musicSettings,
-        frameSettings: task.frameSettings,
-        onProgress: (clipProgress) => {
-          if (cancelRequested) {
-            return
-          }
+    try {
+      await ffmpegService.exportReelClip(
+        task.sourceMediaPath,
+        task.startTime,
+        task.duration,
+        task.outputPath,
+        {
+          captionSegments: task.captionSegments,
+          captionStyle: task.captionStyle,
+          logoSettings: task.logoSettings,
+          musicSettings: task.musicSettings,
+          frameSettings: task.frameSettings,
+          onProgress: (clipProgress) => {
+            if (cancelRequested) {
+              return
+            }
 
-          const progressEvent: ExportWorkerProgressEvent = {
-            type: 'export_progress',
-            exportJobId: command.exportJobId,
-            workflowJobId: command.workflowJobId,
-            clipId: task.clipId,
-            clipIndex: task.clipIndex,
-            totalClips: task.totalClips,
-            clipProgress: Math.round(clipProgress),
-            overallProgress: Math.round(((task.clipIndex + clipProgress / 100) / task.totalClips) * 100),
-            outputPath: task.outputPath
+            const progressEvent: ExportWorkerProgressEvent = {
+              type: 'export_progress',
+              exportJobId: command.exportJobId,
+              workflowJobId: command.workflowJobId,
+              clipId: task.clipId,
+              clipIndex: task.clipIndex,
+              totalClips: task.totalClips,
+              clipProgress: Math.round(clipProgress),
+              overallProgress: Math.round(((task.clipIndex + clipProgress / 100) / task.totalClips) * 100),
+              outputPath: task.outputPath
+            }
+            postMessage(progressEvent)
           }
-          postMessage(progressEvent)
         }
-      }
-    )
+      )
 
-    outputPaths.push(task.outputPath)
-    postMessage({
-      type: 'export_clip_complete',
-      exportJobId: command.exportJobId,
-      workflowJobId: command.workflowJobId,
-      clipId: task.clipId,
-      clipIndex: task.clipIndex,
-      totalClips: task.totalClips,
-      outputPath: task.outputPath,
-      resolution: task.resolution
-    })
+      outputPaths.push(task.outputPath)
+      postMessage({
+        type: 'export_clip_complete',
+        exportJobId: command.exportJobId,
+        workflowJobId: command.workflowJobId,
+        clipId: task.clipId,
+        clipIndex: task.clipIndex,
+        totalClips: task.totalClips,
+        outputPath: task.outputPath,
+        resolution: task.resolution
+      })
+    } catch (error) {
+      failedClipCount += 1
+      const failedEvent: ExportWorkerClipFailureEvent = {
+        type: 'export_clip_failed',
+        exportJobId: command.exportJobId,
+        workflowJobId: command.workflowJobId,
+        clipId: task.clipId,
+        clipIndex: task.clipIndex,
+        totalClips: task.totalClips,
+        message: error instanceof Error ? error.message : 'Unknown clip export error'
+      }
+      postMessage(failedEvent)
+    }
   }
 
   const completedEvent: ExportWorkerCompletedEvent = {

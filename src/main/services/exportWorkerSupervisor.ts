@@ -275,25 +275,93 @@ class ExportWorkerSupervisor {
       return
     }
 
+    if (event.type === 'export_clip_failed') {
+      const now = new Date().toISOString()
+      const stepRunId =
+        database.getWorkflowStepRunByJobAndClip(event.workflowJobId, event.clipId)?.id ?? null
+
+      database.updateWorkflowStepRunByJobAndClip(event.workflowJobId, event.clipId, {
+        status: 'failed',
+        errorCode: 'export_failed',
+        errorMessage: event.message,
+        completedAt: now,
+        updatedAt: now
+      })
+      database.updateExportOutputByJobAndClip(event.exportJobId, event.clipId, {
+        status: 'failed',
+        errorMessage: event.message
+      })
+      database.createFailureEvent({
+        id: randomUUID(),
+        jobId: event.workflowJobId,
+        stepRunId,
+        scope: 'export_worker.clip_render',
+        errorCode: 'export_failed',
+        message: event.message,
+        detailJson: JSON.stringify({
+          exportJobId: event.exportJobId,
+          clipId: event.clipId,
+          clipIndex: event.clipIndex
+        }),
+        createdAt: now
+      })
+      this.recordEvent(
+        event.workflowJobId,
+        stepRunId,
+        'export_step',
+        'stage_failed',
+        event.message,
+        {
+          exportJobId: event.exportJobId,
+          clipId: event.clipId,
+          clipIndex: event.clipIndex,
+          totalClips: event.totalClips
+        },
+        now
+      )
+      onJobUpdated?.(event.exportJobId)
+      return
+    }
+
     if (event.type === 'export_completed') {
       const now = new Date().toISOString()
+      const durableView = database.getDurableExportView(event.exportJobId)
+      const failedOutputs = durableView.outputs.filter((output) => output.status === 'failed')
+      const completedOutputs = durableView.outputs.filter((output) => output.status === 'completed')
+      const hadFailures = failedOutputs.length > 0
+
       database.updateWorkflowJob(event.workflowJobId, {
-        status: 'completed',
-        stage: 'completed',
-        message: 'Export complete',
+        status: hadFailures ? 'failed' : 'completed',
+        stage: hadFailures ? 'failed' : 'completed',
+        message: hadFailures
+          ? `Export completed with ${failedOutputs.length} failed clip${failedOutputs.length === 1 ? '' : 's'}`
+          : 'Export complete',
         progress: 100,
         completedAt: now,
         updatedAt: now
       })
       database.updateExportJob(event.exportJobId, {
-        status: 'completed',
+        status: hadFailures ? 'failed' : 'completed',
         progress: 100,
+        errorMessage: hadFailures
+          ? `${failedOutputs.length} clip${failedOutputs.length === 1 ? '' : 's'} failed while ${completedOutputs.length} completed`
+          : null,
         completedAt: now,
         updatedAt: now
       })
-      this.recordEvent(event.workflowJobId, null, 'export_job', 'job_completed', 'Export complete', {
-        exportJobId: event.exportJobId
-      }, now)
+      this.recordEvent(
+        event.workflowJobId,
+        null,
+        'export_job',
+        hadFailures ? 'job_completed_with_failures' : 'job_completed',
+        hadFailures ? 'Export completed with failures' : 'Export complete',
+        {
+          exportJobId: event.exportJobId,
+          completedClipCount: completedOutputs.length,
+          failedClipCount: failedOutputs.length
+        },
+        now
+      )
       onJobUpdated?.(event.exportJobId)
     }
   }

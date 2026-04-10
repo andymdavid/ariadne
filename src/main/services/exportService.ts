@@ -5,6 +5,8 @@ import { existsSync, mkdirSync } from 'fs'
 import { database } from '../database/database'
 import { exportWorkerSupervisor } from './exportWorkerSupervisor'
 import { workflowReadModel } from './workflowReadModel'
+import { configService } from './configService'
+import type { BrandTemplate } from '@shared/types'
 import type {
   ExportCaptionSegment,
   ExportCaptionStyle,
@@ -60,6 +62,21 @@ interface ClipEditsRow {
   zoom_level?: number | null
   video_offset_x?: number | null
   video_offset_y?: number | null
+}
+
+interface ExportTranscriptWord {
+  word: string
+  start: number
+  end: number
+}
+
+interface ExportTranscriptSegment {
+  start_time?: number
+  end_time?: number
+  start?: number
+  end?: number
+  text?: string
+  words?: ExportTranscriptWord[]
 }
 
 export interface ExportOptions {
@@ -369,6 +386,7 @@ class ExportService {
     orderedClipIds?: string[]
   ): ExportRenderTask[] {
     const clipOrder = orderedClipIds || clips.map((clip) => clip.id)
+    const brandTemplate = configService.getBrandTemplate()
 
     return clips.map((clip, clipIndex) => {
       console.log(`========================================`)
@@ -376,12 +394,13 @@ class ExportService {
       console.log(`[ExportService] Clip ID: ${clip.id}`)
 
       const clipEdits = database.getClipEdits(clip.id) as ClipEditsRow | undefined
+      const transcriptSegments = database.getClipTranscriptSegments(clip.id) as ExportTranscriptSegment[]
       const outputPath = join(outputDirectory, this.buildOutputFilename(clip.id))
-      const captionSegments = this.buildCaptionSegments(clipEdits, options.includeCaptions)
-      const captionStyle = this.buildCaptionStyle(clipEdits)
-      const logoSettings = this.buildLogoSettings(clipEdits)
-      const musicSettings = this.buildMusicSettings(clipEdits)
-      const frameSettings = this.buildFrameSettings(clip, clipEdits, options.aspectRatio)
+      const captionSegments = this.buildCaptionSegments(clip.id, clipEdits, transcriptSegments, brandTemplate, options.includeCaptions)
+      const captionStyle = this.buildCaptionStyle(clipEdits, brandTemplate)
+      const logoSettings = this.buildLogoSettings(clipEdits, brandTemplate)
+      const musicSettings = this.buildMusicSettings(clipEdits, brandTemplate)
+      const frameSettings = this.buildFrameSettings(clip, clipEdits, brandTemplate, options.aspectRatio)
 
       console.log(`[ExportService] Prepared clip ${clip.id} with settings:`, {
         captionStyle: captionStyle?.enabled,
@@ -417,88 +436,172 @@ class ExportService {
       clipTitle = this.sanitizeFilename(selectedTitle.title)
     }
 
-    return `${clipTitle}_${Date.now()}.mp4`
+    return `${clipTitle}_${clipId.slice(0, 8)}_${Date.now()}.mp4`
   }
 
-  private buildCaptionSegments(clipEdits: ClipEditsRow | undefined, includeCaptions: boolean): ExportCaptionSegment[] {
-    if (!includeCaptions || !clipEdits || clipEdits.captions_enabled !== 1) {
+  private buildCaptionSegments(
+    clipId: string,
+    clipEdits: ClipEditsRow | undefined,
+    transcriptSegments: ExportTranscriptSegment[],
+    brandTemplate: BrandTemplate,
+    includeCaptions: boolean
+  ): ExportCaptionSegment[] {
+    const captionsEnabled = clipEdits?.captions_enabled != null
+      ? clipEdits.captions_enabled === 1
+      : true
+
+    if (!includeCaptions || !captionsEnabled) {
       return []
     }
 
     try {
-      return JSON.parse(clipEdits.caption_segments || '[]') as ExportCaptionSegment[]
+      const parsed = JSON.parse(clipEdits?.caption_segments || '[]') as ExportCaptionSegment[]
+      if (parsed.length > 0) {
+        return parsed
+      }
     } catch (error) {
       console.error('[ExportService] Failed to parse caption segments:', error)
-      return []
     }
+
+    return this.buildCaptionSegmentsFromTranscript(clipId, transcriptSegments, brandTemplate)
   }
 
-  private buildCaptionStyle(clipEdits: ClipEditsRow | undefined): ExportCaptionStyle | undefined {
-    if (!clipEdits) {
-      return undefined
+  private buildCaptionSegmentsFromTranscript(
+    clipId: string,
+    transcriptSegments: ExportTranscriptSegment[],
+    brandTemplate: BrandTemplate
+  ): ExportCaptionSegment[] {
+    const maxWordsPerCue = 3
+    const cues: ExportCaptionSegment[] = []
+
+    for (const segment of transcriptSegments) {
+      const words = Array.isArray(segment.words)
+        ? segment.words.filter(
+            (word) =>
+              word.word?.trim() &&
+              Number.isFinite(word.start) &&
+              Number.isFinite(word.end) &&
+              word.end > word.start
+          )
+        : []
+
+      if (words.length > 0) {
+        for (let index = 0; index < words.length; index += maxWordsPerCue) {
+          const chunk = words.slice(index, index + maxWordsPerCue)
+          if (!chunk.length) continue
+          cues.push({
+            text: chunk
+              .map((word) => (brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word))
+              .join(' ')
+              .replace(/\s+([,.!?;:])/g, '$1')
+              .trim(),
+            start: chunk[0].start,
+            end: chunk[chunk.length - 1].end
+          })
+        }
+        continue
+      }
+
+      const text = String(segment.text || '').trim()
+      const start = Number(segment.start_time ?? segment.start ?? 0)
+      const end = Number(segment.end_time ?? segment.end ?? start)
+      if (!text || end <= start) continue
+
+      cues.push({
+        text: brandTemplate.caption.uppercase ? text.toUpperCase() : text,
+        start,
+        end
+      })
     }
+
+    console.log(`[ExportService] Built ${cues.length} transcript-derived caption cues for clip ${clipId}`)
+    return cues
+  }
+
+  private buildCaptionStyle(clipEdits: ClipEditsRow | undefined, brandTemplate: BrandTemplate): ExportCaptionStyle | undefined {
+    const templateCaption = brandTemplate.caption
+    const captionsEnabled = clipEdits?.captions_enabled != null
+      ? clipEdits.captions_enabled === 1
+      : true
 
     return {
-      enabled: clipEdits.captions_enabled === 1,
-      font: clipEdits.caption_font || 'Inter',
-      size: clipEdits.caption_size || 48,
-      color: clipEdits.caption_color || '#FFFFFF',
-      position: clipEdits.caption_position || 'bottom',
-      customX: clipEdits.caption_custom_x ?? undefined,
-      customY: clipEdits.caption_custom_y ?? undefined,
-      weight: clipEdits.caption_weight || (clipEdits.caption_bold === 1 ? 700 : 400),
-      italic: clipEdits.caption_italic === 1,
-      outline: clipEdits.caption_outline === 1,
-      outlineColor: clipEdits.caption_outline_color || '#000000',
-      outlineWidth: clipEdits.caption_outline_width || 2,
-      shadow: clipEdits.caption_shadow === 1,
-      highlightStyle: clipEdits.caption_highlight_style || 'word',
-      background: clipEdits.caption_background === 1,
-      backgroundColor: clipEdits.caption_background_color || '#000000',
-      backgroundOpacity: clipEdits.caption_background_opacity || 0.5,
-      textCase: clipEdits.caption_text_case || 'normal',
-      wordsPerCaption: clipEdits.caption_words_per_caption || 3,
-      maxWidth: clipEdits.caption_max_width ?? 90,
-      lineHeight: clipEdits.caption_line_height ?? 1.2,
-      letterSpacing: clipEdits.caption_letter_spacing ?? 0
+      enabled: captionsEnabled,
+      font: clipEdits?.caption_font || templateCaption.font || 'Inter',
+      size: clipEdits?.caption_size || templateCaption.fontSize || 48,
+      color: clipEdits?.caption_color || templateCaption.highlightColor || '#FFFFFF',
+      position: clipEdits?.caption_position || templateCaption.position || 'bottom',
+      customX: clipEdits?.caption_custom_x ?? templateCaption.customX ?? undefined,
+      customY: clipEdits?.caption_custom_y ?? templateCaption.customY ?? undefined,
+      weight:
+        clipEdits?.caption_weight ||
+        (clipEdits?.caption_bold === 1 ? 700 : undefined) ||
+        Number(templateCaption.fontWeight || 700),
+      italic: clipEdits?.caption_italic === 1 || templateCaption.italic === true,
+      outline: clipEdits?.caption_outline != null ? clipEdits.caption_outline === 1 : Number(templateCaption.strokeWidth ?? 0) > 0,
+      outlineColor: clipEdits?.caption_outline_color || templateCaption.strokeColor || '#000000',
+      outlineWidth: clipEdits?.caption_outline_width ?? Number(templateCaption.strokeWidth ?? 2),
+      shadow: clipEdits?.caption_shadow != null ? clipEdits.caption_shadow === 1 : templateCaption.shadowEnabled === true,
+      highlightStyle: clipEdits?.caption_highlight_style || 'word',
+      background:
+        clipEdits?.caption_background != null ? clipEdits.caption_background === 1 : templateCaption.backgroundEnabled === true,
+      backgroundColor: clipEdits?.caption_background_color || templateCaption.backgroundColor || '#000000',
+      backgroundOpacity: clipEdits?.caption_background_opacity ?? 1,
+      textCase:
+        clipEdits?.caption_text_case ||
+        (templateCaption.uppercase ? 'uppercase' : 'normal'),
+      wordsPerCaption: clipEdits?.caption_words_per_caption || 3,
+      maxWidth: clipEdits?.caption_max_width ?? 90,
+      lineHeight: clipEdits?.caption_line_height ?? 1.2,
+      letterSpacing: clipEdits?.caption_letter_spacing ?? 0
     }
   }
 
-  private buildLogoSettings(clipEdits: ClipEditsRow | undefined): ExportLogoSettings | undefined {
-    if (!clipEdits || !clipEdits.logo_enabled) {
+  private buildLogoSettings(clipEdits: ClipEditsRow | undefined, brandTemplate: BrandTemplate): ExportLogoSettings | undefined {
+    const enabled = clipEdits?.logo_enabled != null
+      ? Boolean(clipEdits.logo_enabled)
+      : brandTemplate.logo.enabled || Boolean(brandTemplate.logo.assetPath)
+
+    const logoPath = clipEdits?.logo_path ?? brandTemplate.logo.assetPath ?? null
+    if (!enabled || !logoPath) {
       return undefined
     }
 
     return {
       enabled: true,
-      logoPath: clipEdits.logo_path ?? null,
-      positionX: clipEdits.logo_position_x ?? 85,
-      positionY: clipEdits.logo_position_y ?? 85,
-      scale: clipEdits.logo_scale ?? 0.15,
-      opacity: clipEdits.logo_opacity ?? 0.8
+      logoPath,
+      positionX: clipEdits?.logo_position_x ?? brandTemplate.logo.positionX ?? 85,
+      positionY: clipEdits?.logo_position_y ?? brandTemplate.logo.positionY ?? 85,
+      scale: clipEdits?.logo_scale ?? brandTemplate.logo.scale ?? 0.15,
+      opacity: clipEdits?.logo_opacity ?? brandTemplate.logo.opacity ?? 0.8
     }
   }
 
-  private buildMusicSettings(clipEdits: ClipEditsRow | undefined): ExportMusicSettings | undefined {
-    if (!clipEdits || !clipEdits.music_enabled) {
+  private buildMusicSettings(clipEdits: ClipEditsRow | undefined, brandTemplate: BrandTemplate): ExportMusicSettings | undefined {
+    const enabled = clipEdits?.music_enabled != null
+      ? Boolean(clipEdits.music_enabled)
+      : brandTemplate.music.enabled || Boolean(brandTemplate.music.assetPath)
+
+    const musicPath = clipEdits?.music_path ?? brandTemplate.music.assetPath ?? null
+    if (!enabled || !musicPath) {
       return undefined
     }
 
     return {
       enabled: true,
-      musicPath: clipEdits.music_path ?? null,
-      volume: clipEdits.music_volume ?? 0.3,
-      duckVolume: clipEdits.music_duck_volume ?? 0.1,
-      duckEnabled: clipEdits.music_duck_enabled === 1,
-      fadeIn: clipEdits.music_fade_in ?? 1.0,
-      fadeOut: clipEdits.music_fade_out ?? 1.0,
-      loop: clipEdits.music_loop === 1
+      musicPath,
+      volume: clipEdits?.music_volume ?? brandTemplate.music.volume ?? 0.3,
+      duckVolume: clipEdits?.music_duck_volume ?? 0.1,
+      duckEnabled: clipEdits?.music_duck_enabled === 1,
+      fadeIn: clipEdits?.music_fade_in ?? 1.0,
+      fadeOut: clipEdits?.music_fade_out ?? 1.0,
+      loop: clipEdits?.music_loop === 1
     }
   }
 
   private buildFrameSettings(
     clip: any,
     clipEdits: ClipEditsRow | undefined,
+    brandTemplate: BrandTemplate,
     defaultAspectRatio: '9:16' | '1:1' | '16:9'
   ): ExportFrameSettings {
     const normalizedCropMode = clipEdits?.crop_mode === 'canvas' ? 'fit' : clipEdits?.crop_mode
@@ -506,7 +609,7 @@ class ExportService {
     if (clipEdits) {
       return {
         aspectRatio: clipEdits.aspect_ratio || defaultAspectRatio,
-        cropMode: (normalizedCropMode || 'center') as 'center' | 'fit' | 'blur',
+        cropMode: (normalizedCropMode || brandTemplate.frame.cropMode || 'center') as 'center' | 'fit' | 'blur',
         cropPositionX: clipEdits.crop_position_x ?? 50,
         cropPositionY: clipEdits.crop_position_y ?? 50,
         zoomLevel: clipEdits.zoom_level ?? 1,
@@ -519,7 +622,7 @@ class ExportService {
 
     return {
       aspectRatio: defaultAspectRatio,
-      cropMode: 'center',
+      cropMode: (brandTemplate.frame.cropMode || 'center') as 'center' | 'fit' | 'blur',
       cropPositionX: 50,
       cropPositionY: 50,
       zoomLevel: 1,

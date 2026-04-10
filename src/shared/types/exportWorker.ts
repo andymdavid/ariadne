@@ -122,6 +122,16 @@ export interface ExportWorkerFailureEvent {
   errorCode: 'cancelled' | 'export_failed'
 }
 
+export interface ExportWorkerClipFailureEvent {
+  type: 'export_clip_failed'
+  exportJobId: string
+  workflowJobId: string
+  clipId: string
+  clipIndex: number
+  totalClips: number
+  message: string
+}
+
 export interface ExportWorkerCompletedEvent {
   type: 'export_completed'
   exportJobId: string
@@ -136,5 +146,6 @@ export type ExportWorkerCommand =
 export type ExportWorkerEvent =
   | ExportWorkerProgressEvent
   | ExportWorkerClipCompleteEvent
+  | ExportWorkerClipFailureEvent
   | ExportWorkerFailureEvent
   | ExportWorkerCompletedEvent
