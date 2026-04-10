@@ -1,17 +1,22 @@
-import { BrowserWindow } from 'electron'
+import { nativeImage } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import type { ExportCaptionOverlayFrame, ExportCaptionSegment, ExportCaptionStyle } from '@shared/types/exportWorker'
 
 type Resolution = { width: number; height: number }
 
-const escapeHtml = (value: string) =>
+const escapeXml = (value: string) =>
   value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replace(/'/g, '&apos;')
+
+const estimateTextWidth = (text: string, fontSize: number, fontWeight = 700) => {
+  const weightFactor = fontWeight >= 700 ? 0.62 : 0.58
+  return text.length * fontSize * weightFactor
+}
 
 class ExportOverlayService {
   private tempDir: string
@@ -33,63 +38,52 @@ class ExportOverlayService {
     if (!segments.length) return []
 
     const frames: ExportCaptionOverlayFrame[] = []
-    const window = new BrowserWindow({
-      show: false,
-      width: resolution.width,
-      height: resolution.height,
-      transparent: true,
-      frame: false,
-      useContentSize: true,
-      webPreferences: {
-        sandbox: false,
-        backgroundThrottling: false
-      }
-    })
 
-    try {
-      for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
-        const segment = segments[segmentIndex]
-        const words = Array.isArray(segment.words) ? segment.words.filter((word) => word.word?.trim()) : []
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+      const segment = segments[segmentIndex]
+      const words = Array.isArray(segment.words) ? segment.words.filter((word) => word.word?.trim()) : []
 
-        if (words.length > 0) {
-          for (let activeIndex = 0; activeIndex < words.length; activeIndex += 1) {
-            const activeWord = words[activeIndex]
-            const imagePath = join(this.tempDir, `${clipId}_${segmentIndex}_${activeIndex}.png`)
-            const html = this.buildCaptionHtml(words.map((word) => word.word), activeIndex, style, resolution)
-            await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-            await new Promise((resolve) => setTimeout(resolve, 20))
-            const image = await window.webContents.capturePage()
-            writeFileSync(imagePath, image.toPNG())
-            frames.push({
-              imagePath,
-              start: activeWord.start,
-              end: activeWord.end
-            })
-          }
-          continue
+      if (words.length > 0) {
+        for (let activeIndex = 0; activeIndex < words.length; activeIndex += 1) {
+          const activeWord = words[activeIndex]
+          const imagePath = join(this.tempDir, `${clipId}_${segmentIndex}_${activeIndex}.png`)
+          this.writeCaptionPng(imagePath, words.map((word) => word.word), activeIndex, style, resolution)
+          frames.push({
+            imagePath,
+            start: activeWord.start,
+            end: activeWord.end
+          })
         }
-
-        const fallbackWords = segment.text.split(/\s+/).filter(Boolean)
-        const imagePath = join(this.tempDir, `${clipId}_${segmentIndex}_fallback.png`)
-        const html = this.buildCaptionHtml(fallbackWords, 0, style, resolution)
-        await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-        await new Promise((resolve) => setTimeout(resolve, 20))
-        const image = await window.webContents.capturePage()
-        writeFileSync(imagePath, image.toPNG())
-        frames.push({
-          imagePath,
-          start: segment.start,
-          end: segment.end
-        })
+        continue
       }
-    } finally {
-      window.destroy()
+
+      const fallbackWords = segment.text.split(/\s+/).filter(Boolean)
+      const imagePath = join(this.tempDir, `${clipId}_${segmentIndex}_fallback.png`)
+      this.writeCaptionPng(imagePath, fallbackWords, 0, style, resolution)
+      frames.push({
+        imagePath,
+        start: segment.start,
+        end: segment.end
+      })
     }
 
     return frames
   }
 
-  private buildCaptionHtml(
+  private writeCaptionPng(
+    outputPath: string,
+    words: string[],
+    activeIndex: number,
+    style: ExportCaptionStyle,
+    resolution: Resolution
+  ) {
+    const svg = this.buildCaptionSvg(words, activeIndex, style, resolution)
+    const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+    const image = nativeImage.createFromDataURL(dataUrl)
+    writeFileSync(outputPath, image.toPNG())
+  }
+
+  private buildCaptionSvg(
     words: string[],
     activeIndex: number,
     style: ExportCaptionStyle,
@@ -102,78 +96,58 @@ class ExportOverlayService {
     const paddingX = Math.max(0, Math.round((style.backgroundPaddingX ?? 24) * uiToOutputScale))
     const paddingY = Math.max(0, Math.round((style.backgroundPaddingY ?? 12) * uiToOutputScale))
     const radius = Math.max(0, Math.round((style.backgroundRadius ?? 16) * uiToOutputScale))
-    const strokeWidth = Math.max(0, (style.outlineWidth ?? 0) * uiToOutputScale)
-    const shadowX = (style.shadowOffsetX ?? 0) * uiToOutputScale
-    const shadowY = (style.shadowOffsetY ?? 0) * uiToOutputScale
-    const shadowBlur = (style.shadowBlur ?? 0) * uiToOutputScale
-    const maxWidth = Math.round(Math.min(resolution.width * 0.78, Math.max(280, resolution.width * 0.56)))
+    const fontWeight = Number(style.weight || 700)
+    const lineHeight = style.lineMode === 'three-lines' ? fontSize * 1.28 : fontSize
+    const strokeWidth = Math.max(0, Math.round((style.outlineWidth ?? 0) * uiToOutputScale))
+    const shadowEnabled = Boolean(style.shadow)
 
-    const positionStyle =
+    const wordWidths = words.map((word) => estimateTextWidth(word, fontSize, fontWeight))
+    const spaceWidth = estimateTextWidth(' ', fontSize, fontWeight)
+    const textWidth = wordWidths.reduce((sum, width) => sum + width, 0) + Math.max(0, words.length - 1) * spaceWidth
+    const bubbleWidth = Math.ceil(textWidth + paddingX * 2)
+    const bubbleHeight = Math.ceil(lineHeight + paddingY * 2)
+
+    const x =
+      style.position === 'custom' && style.customX != null
+        ? Math.round((style.customX / 100) * resolution.width - bubbleWidth / 2)
+        : Math.round((resolution.width - bubbleWidth) / 2)
+    const y =
       style.position === 'top'
-        ? 'left:50%; top:12%; transform:translateX(-50%);'
+        ? Math.round(resolution.height * 0.12)
         : style.position === 'center'
-          ? 'left:50%; top:50%; transform:translate(-50%, -50%);'
-          : style.position === 'custom' && style.customX != null && style.customY != null
-            ? `left:${style.customX}%; top:${style.customY}%; transform:translate(-50%, -50%);`
-            : 'left:50%; bottom:12%; transform:translateX(-50%);'
+          ? Math.round((resolution.height - bubbleHeight) / 2)
+          : style.position === 'custom' && style.customY != null
+            ? Math.round((style.customY / 100) * resolution.height - bubbleHeight / 2)
+            : Math.round(resolution.height * 0.88 - bubbleHeight)
 
-    const spans = words
-      .map((word, index) => {
-        const color = index === activeIndex ? (style.highlightColor || style.color) : (style.textColor || style.color)
-        return `<span style="color:${color};">${escapeHtml(word)}</span>`
-      })
-      .join('<span style="color:transparent;"> </span>')
+    let cursorX = x + paddingX
+    const textY = y + paddingY + fontSize * 0.84
+    const tspans = words.map((word, index) => {
+      const tspan = `<tspan x="${cursorX}" y="${textY}" fill="${escapeXml(index === activeIndex ? (style.highlightColor || style.color) : (style.textColor || style.color))}">${escapeXml(word)}</tspan>`
+      cursorX += wordWidths[index] + spaceWidth
+      return tspan
+    }).join('')
 
-    return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <style>
-      html, body {
-        margin: 0;
-        width: ${resolution.width}px;
-        height: ${resolution.height}px;
-        overflow: hidden;
-        background: transparent;
-      }
-      body {
-        position: relative;
-        font-family: "${style.font}", "Hedvig Letters Sans", system-ui, sans-serif;
-      }
-      .caption {
-        position: absolute;
-        z-index: 2;
-        ${positionStyle}
-        max-width: ${maxWidth}px;
-        white-space: ${style.lineMode === 'three-lines' ? 'normal' : 'nowrap'};
-        text-align: center;
-      }
-      .bubble {
-        display: inline-block;
-        background: ${style.background ? style.backgroundColor : 'transparent'};
-        padding: ${style.background ? `${paddingY}px ${paddingX}px` : '0'};
-        border-radius: ${style.background ? `${radius}px` : '0'};
-      }
-      .text {
-        display: inline-block;
-        font-size: ${fontSize}px;
-        font-weight: ${style.weight};
-        font-style: ${style.italic ? 'italic' : 'normal'};
-        text-decoration: none;
-        line-height: ${style.lineMode === 'three-lines' ? '1.28' : 'normal'};
-        -webkit-text-stroke: ${strokeWidth > 0 ? `${strokeWidth}px ${style.outlineColor}` : '0 transparent'};
-        text-shadow: ${style.shadow ? `${shadowX}px ${shadowY}px ${shadowBlur}px ${style.shadowColor || '#000000'}` : 'none'};
-      }
-    </style>
-  </head>
-  <body>
-    <div class="caption">
-      <div class="bubble">
-        <span class="text">${spans}</span>
-      </div>
-    </div>
-  </body>
-</html>`
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${resolution.width}" height="${resolution.height}" viewBox="0 0 ${resolution.width} ${resolution.height}">
+  <defs>
+    ${shadowEnabled ? `<filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="${(style.shadowOffsetX ?? 0) * uiToOutputScale}" dy="${(style.shadowOffsetY ?? 0) * uiToOutputScale}" stdDeviation="${Math.max(0, (style.shadowBlur ?? 0) * uiToOutputScale / 2)}" flood-color="${escapeXml(style.shadowColor || '#000000')}" />
+    </filter>` : ''}
+  </defs>
+  ${style.background ? `<rect x="${x}" y="${y}" width="${bubbleWidth}" height="${bubbleHeight}" rx="${radius}" ry="${radius}" fill="${escapeXml(style.backgroundColor)}" />` : ''}
+  <text
+    font-family="${escapeXml(style.font)}"
+    font-size="${fontSize}"
+    font-weight="${fontWeight}"
+    font-style="${style.italic ? 'italic' : 'normal'}"
+    text-decoration="${style.underline ? 'underline' : 'none'}"
+    stroke="${strokeWidth > 0 ? escapeXml(style.outlineColor) : 'transparent'}"
+    stroke-width="${strokeWidth}"
+    paint-order="stroke fill"
+    ${shadowEnabled ? 'filter="url(#shadow)"' : ''}
+  >${tspans}</text>
+</svg>`
   }
 }
 

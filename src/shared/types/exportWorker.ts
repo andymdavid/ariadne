@@ -27,6 +27,7 @@ export interface ExportCaptionStyle {
   customY?: number
   weight: number
   italic: boolean
+  underline?: boolean
   outline: boolean
   outlineColor: string
   outlineWidth: number

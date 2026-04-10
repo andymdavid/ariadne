@@ -762,6 +762,7 @@ class ExportService {
       weight:
         Number(templateCaption.fontWeight || 700),
       italic: templateCaption.italic === true,
+      underline: templateCaption.underline === true,
       outline: Number(templateCaption.strokeWidth ?? 0) > 0,
       outlineColor: templateCaption.strokeColor || '#000000',
       outlineWidth: Number(templateCaption.strokeWidth ?? 2),
