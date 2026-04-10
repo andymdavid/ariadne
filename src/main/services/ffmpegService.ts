@@ -456,6 +456,11 @@ class FFmpegService {
         end: number
         words?: Array<{ word: string; start: number; end: number }>
       }>
+      captionOverlayFrames?: Array<{
+        imagePath: string
+        start: number
+        end: number
+      }>
       captionStyle?: {
         enabled: boolean
         font: string
@@ -546,9 +551,14 @@ class FFmpegService {
 
     const resolution = resolutions[frameSettings.aspectRatio]
 
-    // Generate ASS subtitle file if captions are enabled
+    // Generate ASS subtitle file if captions are enabled and no DOM-rendered overlays were provided
     let assFilePath: string | undefined
-    if (options.captionStyle?.enabled && options.captionSegments && options.captionSegments.length > 0) {
+    if (
+      options.captionStyle?.enabled &&
+      options.captionSegments &&
+      options.captionSegments.length > 0 &&
+      (!options.captionOverlayFrames || options.captionOverlayFrames.length === 0)
+    ) {
       try {
         assFilePath = await this.generateASSSubtitles(
           options.captionSegments,
@@ -581,6 +591,13 @@ class FFmpegService {
       // Add logo as input if enabled
       if (options.logoSettings?.enabled && options.logoSettings.logoPath) {
         command = command.input(options.logoSettings.logoPath)
+      }
+
+      if (options.captionOverlayFrames?.length) {
+        for (const overlayFrame of options.captionOverlayFrames) {
+          command = command.input(overlayFrame.imagePath)
+          command.inputOptions(['-loop 1'])
+        }
       }
 
       // Build complex filter chain
@@ -670,8 +687,27 @@ class FFmpegService {
         currentVideoOutput = '[v2]'
       }
 
-      // Step 3: Add subtitles if generated
-      if (assFilePath) {
+      // Step 3: Add caption overlays or subtitles
+      if (options.captionOverlayFrames?.length) {
+        const overlayStartIndex =
+          1 +
+          (options.musicSettings?.enabled && options.musicSettings.musicPath ? 1 : 0) +
+          (options.logoSettings?.enabled && options.logoSettings.logoPath ? 1 : 0)
+
+        options.captionOverlayFrames.forEach((overlayFrame, overlayIndex) => {
+          const inputIndex = overlayStartIndex + overlayIndex
+          const overlayLabel = `[caption_overlay_${overlayIndex}]`
+          const nextLabel = `[v_caption_${overlayIndex}]`
+          filters.push(`[${inputIndex}:v]format=rgba${overlayLabel}`)
+          filters.push(
+            `${videoLabel}${overlayLabel}overlay=0:0:enable='between(t,${overlayFrame.start.toFixed(3)},${overlayFrame.end.toFixed(3)})'${nextLabel}`
+          )
+          videoLabel = nextLabel
+        })
+
+        filters.push(`${videoLabel}null[vout]`)
+        videoLabel = '[vout]'
+      } else if (assFilePath) {
         // ASS subtitles with full styling support
         // Escape path for ffmpeg filter (escape backslashes, then colons, handle spaces)
         const escapedPath = assFilePath

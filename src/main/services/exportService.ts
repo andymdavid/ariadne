@@ -4,6 +4,7 @@ import { dialog } from 'electron'
 import { existsSync, mkdirSync } from 'fs'
 import { database } from '../database/database'
 import { exportWorkerSupervisor } from './exportWorkerSupervisor'
+import { exportOverlayService } from './exportOverlayService'
 import { workflowReadModel } from './workflowReadModel'
 import { configService } from './configService'
 import type { BrandTemplate } from '@shared/types'
@@ -394,7 +395,7 @@ class ExportService {
 
     this.activeJobs.set(jobId, job)
 
-    const tasks = this.buildRenderTasks(
+    const tasks = await this.buildRenderTasks(
       episode,
       approvedClips,
       outputDirectory,
@@ -513,17 +514,17 @@ class ExportService {
     }
   }
 
-  private buildRenderTasks(
+  private async buildRenderTasks(
     episode: any,
     clips: any[],
     outputDirectory: string,
     options: Required<Pick<ExportOptions, 'aspectRatio' | 'includeCaptions'>>,
     orderedClipIds?: string[]
-  ): ExportRenderTask[] {
+  ): Promise<ExportRenderTask[]> {
     const clipOrder = orderedClipIds || clips.map((clip) => clip.id)
     const brandTemplate = configService.getBrandTemplate()
 
-    return clips.map((clip, clipIndex) => {
+    return Promise.all(clips.map(async (clip, clipIndex) => {
       console.log(`========================================`)
       console.log(`[ExportService] Preparing clip ${clipIndex + 1}/${clips.length}`)
       console.log(`[ExportService] Clip ID: ${clip.id}`)
@@ -543,10 +544,26 @@ class ExportService {
       const logoSettings = this.buildLogoSettings(clipEdits, brandTemplate)
       const musicSettings = this.buildMusicSettings(clipEdits, brandTemplate)
       const frameSettings = this.buildFrameSettings(clip, clipEdits, brandTemplate, options.aspectRatio)
+      const resolution =
+        frameSettings.aspectRatio === '16:9'
+          ? { width: 1920, height: 1080 }
+          : frameSettings.aspectRatio === '1:1'
+            ? { width: 1080, height: 1080 }
+            : { width: 1080, height: 1920 }
+      const captionOverlayFrames =
+        captionStyle?.enabled && captionSegments.length > 0
+          ? await exportOverlayService.renderCaptionOverlayFrames(
+              clip.id,
+              captionSegments,
+              captionStyle,
+              resolution
+            )
+          : []
 
       console.log(`[ExportService] Prepared clip ${clip.id} with settings:`, {
         captionStyle: captionStyle?.enabled,
         captionSegments: captionSegments.length,
+        captionOverlayFrames: captionOverlayFrames.length,
         logo: logoSettings?.enabled,
         music: musicSettings?.enabled,
         frame: frameSettings
@@ -562,12 +579,13 @@ class ExportService {
         outputPath,
         resolution: frameSettings.aspectRatio,
         captionSegments,
+        captionOverlayFrames,
         captionStyle,
         logoSettings,
         musicSettings,
         frameSettings
       }
-    })
+    }))
   }
 
   private buildOutputFilename(clipId: string) {
@@ -1007,7 +1025,7 @@ class ExportService {
       remainingClips: remainingClips.length
     }, resumedAt)
 
-    const tasks = this.buildRenderTasks(
+    const tasks = await this.buildRenderTasks(
       episode,
       remainingClips,
       durableView.job.outputDirectory,

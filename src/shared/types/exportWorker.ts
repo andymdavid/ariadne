@@ -9,6 +9,12 @@ export interface ExportCaptionSegment {
   }>
 }
 
+export interface ExportCaptionOverlayFrame {
+  imagePath: string
+  start: number
+  end: number
+}
+
 export interface ExportCaptionStyle {
   enabled: boolean
   font: string
@@ -86,6 +92,7 @@ export interface ExportRenderTask {
   outputPath: string
   resolution: '9:16' | '1:1' | '16:9'
   captionSegments: ExportCaptionSegment[]
+  captionOverlayFrames?: ExportCaptionOverlayFrame[]
   captionStyle?: ExportCaptionStyle
   logoSettings?: ExportLogoSettings
   musicSettings?: ExportMusicSettings
