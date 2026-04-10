@@ -80,6 +80,16 @@ interface ExportTranscriptSegment {
   words?: ExportTranscriptWord[]
 }
 
+type CaptionLayoutConfig = {
+  maxLines: number
+  widthRatio: number
+  minWidth: number
+  maxWidth?: number
+  fontScale: number
+  minFontSize: number
+  maxFontSize: number
+}
+
 const isLegacyDefaultLogoPosition = (x: unknown, y: unknown) =>
   Number(x) === 85 && Number(y) === 85
 
@@ -91,6 +101,117 @@ const isUpdatedAfter = (candidate?: string | null, baseline?: string | null) => 
   if (Number.isNaN(baselineTime)) return true
 
   return candidateTime > baselineTime
+}
+
+const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
+
+const estimateTextWidth = (
+  text: string,
+  fontSize: number,
+  fontWeight = 600
+) => {
+  const weightFactor = fontWeight >= 700 ? 0.62 : 0.58
+  return text.length * fontSize * weightFactor
+}
+
+const splitCaptionWords = (
+  words: string[],
+  maxWordsPerCue: number,
+  maxTextWidth?: number,
+  fontSize = 16,
+  fontWeight = 700
+) => {
+  if (!words.length) return []
+  if (!maxTextWidth || maxTextWidth <= 0) {
+    const chunks: string[][] = []
+    for (let index = 0; index < words.length; index += maxWordsPerCue) {
+      chunks.push(words.slice(index, index + maxWordsPerCue))
+    }
+    return chunks
+  }
+
+  const chunks: string[][] = []
+  let currentChunk: string[] = []
+
+  words.forEach((rawWord) => {
+    const word = rawWord.trim()
+    if (!word) return
+
+    const candidateChunk = [...currentChunk, word]
+    const candidateText = normalizeCaptionText(candidateChunk.join(' '))
+    const fitsWidth = estimateTextWidth(candidateText, fontSize, Number(fontWeight)) <= maxTextWidth
+
+    if (currentChunk.length > 0 && (candidateChunk.length > maxWordsPerCue || !fitsWidth)) {
+      chunks.push(currentChunk)
+      currentChunk = [word]
+      return
+    }
+
+    currentChunk = candidateChunk
+  })
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk)
+  }
+
+  return chunks
+}
+
+const getCaptionLayoutConfig = (
+  presetId: string | null | undefined
+): CaptionLayoutConfig => {
+  switch (presetId) {
+    case 'deep-diver':
+      return {
+        maxLines: 1,
+        widthRatio: 0.7,
+        minWidth: 150,
+        fontScale: 0.06,
+        minFontSize: 15,
+        maxFontSize: 22
+      }
+    case 'karaoke':
+      return {
+        maxLines: 2,
+        widthRatio: 0.78,
+        minWidth: 180,
+        maxWidth: 340,
+        fontScale: 0.054,
+        minFontSize: 14,
+        maxFontSize: 20
+      }
+    case 'beasty':
+      return {
+        maxLines: 3,
+        widthRatio: 0.82,
+        minWidth: 190,
+        maxWidth: 360,
+        fontScale: 0.053,
+        minFontSize: 14,
+        maxFontSize: 20
+      }
+    case 'youshaei':
+    case 'pod-p':
+      return {
+        maxLines: 2,
+        widthRatio: 0.8,
+        minWidth: 185,
+        maxWidth: 350,
+        fontScale: 0.052,
+        minFontSize: 14,
+        maxFontSize: 19
+      }
+    default:
+      return {
+        maxLines: 2,
+        widthRatio: 0.78,
+        minWidth: 180,
+        maxWidth: 340,
+        fontScale: 0.052,
+        minFontSize: 14,
+        maxFontSize: 19
+      }
+  }
 }
 
 export interface ExportOptions {
@@ -495,6 +616,18 @@ class ExportService {
     brandTemplate: BrandTemplate
   ): ExportCaptionSegment[] {
     const maxWordsPerCue = 3
+    const previewWidth = brandTemplate.frame.aspectRatio === '16:9' ? 640 : brandTemplate.frame.aspectRatio === '1:1' ? 430 : 300
+    const layout = getCaptionLayoutConfig(brandTemplate.caption.presetId)
+    const paddingX = Math.max(0, brandTemplate.caption.backgroundPaddingX ?? 24)
+    const bubbleWidth = layout.maxWidth
+      ? Math.min(layout.maxWidth, Math.max(layout.minWidth, previewWidth * layout.widthRatio))
+      : Math.max(layout.minWidth, previewWidth * layout.widthRatio)
+    const maxTextWidth =
+      (brandTemplate.caption.lineMode || 'one-line') === 'one-line'
+        ? Math.max(96, Math.min(bubbleWidth, 236) - paddingX * 2)
+        : undefined
+    const fontSize = Number(brandTemplate.caption.fontSize ?? 30)
+    const fontWeight = Number(brandTemplate.caption.fontWeight ?? 700)
     const cues: ExportCaptionSegment[] = []
 
     for (const segment of transcriptSegments) {
@@ -509,17 +642,24 @@ class ExportService {
         : []
 
       if (words.length > 0) {
-        for (let index = 0; index < words.length; index += maxWordsPerCue) {
-          const chunk = words.slice(index, index + maxWordsPerCue)
+        const timedChunks = splitCaptionWords(
+          words.map((word) => brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word),
+          maxWordsPerCue,
+          maxTextWidth,
+          fontSize,
+          fontWeight
+        )
+        let timedWordIndex = 0
+
+        for (let index = 0; index < timedChunks.length; index += 1) {
+          const chunkWords = timedChunks[index]
+          const chunk = words.slice(timedWordIndex, timedWordIndex + chunkWords.length)
+          timedWordIndex += chunkWords.length
           if (!chunk.length) continue
           const relativeStart = Math.max(0, chunk[0].start - clipStartTime)
           const relativeEnd = Math.max(relativeStart, chunk[chunk.length - 1].end - clipStartTime)
           cues.push({
-            text: chunk
-              .map((word) => (brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word))
-              .join(' ')
-              .replace(/\s+([,.!?;:])/g, '$1')
-              .trim(),
+            text: normalizeCaptionText(chunkWords.join(' ')),
             start: relativeStart,
             end: relativeEnd,
             words: chunk.map((word) => ({
@@ -537,10 +677,44 @@ class ExportService {
       const end = Math.max(start, Number(segment.end_time ?? segment.end ?? start) - clipStartTime)
       if (!text || end <= start) continue
 
-      cues.push({
-        text: brandTemplate.caption.uppercase ? text.toUpperCase() : text,
-        start,
-        end
+      const fallbackWords = (brandTemplate.caption.uppercase ? text.toUpperCase() : text).split(/\s+/).filter(Boolean)
+      const totalDuration = Math.max(end - start, 0.01)
+      const fallbackChunks = splitCaptionWords(
+        fallbackWords,
+        maxWordsPerCue,
+        maxTextWidth,
+        fontSize,
+        fontWeight
+      )
+      const chunkCount = Math.max(fallbackChunks.length, 1)
+      const chunkDuration = totalDuration / chunkCount
+
+      fallbackChunks.forEach((chunk, chunkIndex) => {
+        const chunkStart = start + chunkIndex * chunkDuration
+        const chunkEnd =
+          chunkIndex === chunkCount - 1
+            ? end
+            : Math.min(end, chunkStart + chunkDuration)
+
+        cues.push({
+          text: normalizeCaptionText(chunk.join(' ')),
+          start: chunkStart,
+          end: chunkEnd,
+          words: chunk.map((word, wordIndex) => {
+            const wordDuration = chunkDuration / Math.max(chunk.length, 1)
+            const wordStart = chunkStart + wordIndex * wordDuration
+            const wordEnd =
+              chunkIndex === chunkCount - 1 && wordIndex === chunk.length - 1
+                ? chunkEnd
+                : Math.min(chunkEnd, wordStart + wordDuration)
+
+            return {
+              word,
+              start: wordStart,
+              end: wordEnd
+            }
+          })
+        })
       })
     }
 
@@ -559,38 +733,33 @@ class ExportService {
 
     return {
       enabled: captionsEnabled,
-      font: clipEdits?.caption_font || templateCaption.font || 'Inter',
-      size: clipEdits?.caption_size || templateCaption.fontSize || 48,
-      color: clipEdits?.caption_color || templateCaption.highlightColor || '#FFFFFF',
+      font: templateCaption.font || 'Inter',
+      size: templateCaption.fontSize || 48,
+      color: templateCaption.highlightColor || '#FFFFFF',
       textColor: templateCaption.textColor || '#B3B3B3',
       highlightColor: templateCaption.highlightColor || '#FFFFFF',
       position: useCaptionPositionOverride ? 'custom' : (templateCaption.position || 'bottom'),
       customX: useCaptionPositionOverride ? (clipEdits?.caption_custom_x ?? undefined) : (templateCaption.customX ?? undefined),
       customY: useCaptionPositionOverride ? (clipEdits?.caption_custom_y ?? undefined) : (templateCaption.customY ?? undefined),
       weight:
-        clipEdits?.caption_weight ||
-        (clipEdits?.caption_bold === 1 ? 700 : undefined) ||
         Number(templateCaption.fontWeight || 700),
-      italic: clipEdits?.caption_italic === 1 || templateCaption.italic === true,
-      outline: clipEdits?.caption_outline != null ? clipEdits.caption_outline === 1 : Number(templateCaption.strokeWidth ?? 0) > 0,
-      outlineColor: clipEdits?.caption_outline_color || templateCaption.strokeColor || '#000000',
-      outlineWidth: clipEdits?.caption_outline_width ?? Number(templateCaption.strokeWidth ?? 2),
-      shadow: clipEdits?.caption_shadow != null ? clipEdits.caption_shadow === 1 : templateCaption.shadowEnabled === true,
-      highlightStyle: clipEdits?.caption_highlight_style || 'word',
-      background:
-        clipEdits?.caption_background != null ? clipEdits.caption_background === 1 : templateCaption.backgroundEnabled === true,
-      backgroundColor: clipEdits?.caption_background_color || templateCaption.backgroundColor || '#000000',
-      backgroundOpacity: clipEdits?.caption_background_opacity ?? 1,
+      italic: templateCaption.italic === true,
+      outline: Number(templateCaption.strokeWidth ?? 0) > 0,
+      outlineColor: templateCaption.strokeColor || '#000000',
+      outlineWidth: Number(templateCaption.strokeWidth ?? 2),
+      shadow: templateCaption.shadowEnabled === true,
+      highlightStyle: 'word',
+      background: templateCaption.backgroundEnabled === true,
+      backgroundColor: templateCaption.backgroundColor || '#000000',
+      backgroundOpacity: 1,
       backgroundPaddingX: templateCaption.backgroundPaddingX ?? 24,
       backgroundPaddingY: templateCaption.backgroundPaddingY ?? 12,
       backgroundRadius: templateCaption.backgroundRadius ?? 16,
-      textCase:
-        clipEdits?.caption_text_case ||
-        (templateCaption.uppercase ? 'uppercase' : 'normal'),
-      wordsPerCaption: clipEdits?.caption_words_per_caption || 3,
-      maxWidth: clipEdits?.caption_max_width ?? 90,
-      lineHeight: clipEdits?.caption_line_height ?? 1.2,
-      letterSpacing: clipEdits?.caption_letter_spacing ?? 0,
+      textCase: templateCaption.uppercase ? 'uppercase' : 'normal',
+      wordsPerCaption: 3,
+      maxWidth: 90,
+      lineHeight: 1.2,
+      letterSpacing: 0,
       lineMode: templateCaption.lineMode ?? 'one-line',
       shadowColor: templateCaption.shadowColor || '#000000',
       shadowOffsetX: templateCaption.shadowOffsetX ?? 0,
