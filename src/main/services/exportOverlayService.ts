@@ -13,11 +13,6 @@ const escapeXml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;')
 
-const estimateTextWidth = (text: string, fontSize: number, fontWeight = 700) => {
-  const weightFactor = fontWeight >= 700 ? 0.62 : 0.58
-  return text.length * fontSize * weightFactor
-}
-
 class ExportOverlayService {
   private tempDir: string
 
@@ -134,56 +129,84 @@ class ExportOverlayService {
     const paddingY = Math.max(0, Math.round((style.backgroundPaddingY ?? 12) * uiToOutputScale))
     const radius = Math.max(0, Math.round((style.backgroundRadius ?? 16) * uiToOutputScale))
     const fontWeight = Number(style.weight || 700)
-    const lineHeight = style.lineMode === 'three-lines' ? fontSize * 1.28 : fontSize
     const strokeWidth = Math.max(0, Math.round((style.outlineWidth ?? 0) * uiToOutputScale))
     const shadowEnabled = Boolean(style.shadow)
-
-    const wordWidths = words.map((word) => estimateTextWidth(word, fontSize, fontWeight))
-    const spaceWidth = estimateTextWidth(' ', fontSize, fontWeight)
-    const textWidth = wordWidths.reduce((sum, width) => sum + width, 0) + Math.max(0, words.length - 1) * spaceWidth
-    const bubbleWidth = Math.ceil(textWidth + paddingX * 2)
-    const bubbleHeight = Math.ceil(lineHeight + paddingY * 2)
-
-    const x =
-      style.position === 'custom' && style.customX != null
-        ? Math.round((style.customX / 100) * resolution.width - bubbleWidth / 2)
-        : Math.round((resolution.width - bubbleWidth) / 2)
-    const y =
+    const lineHeight = style.lineMode === 'three-lines' ? '1.28' : 'normal'
+    const left = style.position === 'custom' && style.customX != null ? `${style.customX}%` : '50%'
+    const top =
       style.position === 'top'
-        ? Math.round(resolution.height * 0.12)
+        ? '12%'
         : style.position === 'center'
-          ? Math.round((resolution.height - bubbleHeight) / 2)
+          ? '50%'
           : style.position === 'custom' && style.customY != null
-            ? Math.round((style.customY / 100) * resolution.height - bubbleHeight / 2)
-            : Math.round(resolution.height * 0.88 - bubbleHeight)
-
-    let cursorX = x + paddingX
-    const textY = y + paddingY + fontSize * 0.84
-    const tspans = words.map((word, index) => {
-      const tspan = `<tspan x="${cursorX}" y="${textY}" fill="${escapeXml(index === activeIndex ? (style.highlightColor || style.color) : (style.textColor || style.color))}">${escapeXml(word)}</tspan>`
-      cursorX += wordWidths[index] + spaceWidth
-      return tspan
-    }).join('')
+            ? `${style.customY}%`
+            : undefined
+    const bottom =
+      style.position === 'bottom'
+        ? '12%'
+        : style.position === 'custom' && style.customY == null
+          ? '12%'
+          : undefined
+    const transform =
+      style.position === 'center'
+        ? 'translate(-50%, -50%)'
+        : 'translateX(-50%)'
+    const textShadow = shadowEnabled
+      ? `${(style.shadowOffsetX ?? 0) * uiToOutputScale}px ${(style.shadowOffsetY ?? 0) * uiToOutputScale}px ${Math.max(0, (style.shadowBlur ?? 0) * uiToOutputScale)}px ${style.shadowColor || '#000000'}`
+      : 'none'
+    const wordMarkup = words
+      .map((word, index) => {
+        const color = index === activeIndex
+          ? (style.highlightColor || style.color)
+          : (style.textColor || style.color)
+        const suffix = index < words.length - 1 ? '&nbsp;' : ''
+        return `<span style="color:${escapeXml(color)};">${escapeXml(word)}${suffix}</span>`
+      })
+      .join('')
+    const containerMaxWidth = Math.max(96, Math.round((resolution.width * 0.72)))
+    const wrapperStyle = [
+      'position:absolute',
+      `left:${left}`,
+      top ? `top:${top}` : '',
+      bottom ? `bottom:${bottom}` : '',
+      `transform:${transform}`,
+      'text-align:center',
+      'z-index:25'
+    ].filter(Boolean).join(';')
+    const cardStyle = [
+      'display:inline-block',
+      style.lineMode === 'one-line' ? 'white-space:nowrap' : 'white-space:normal',
+      style.lineMode === 'three-lines' ? `max-width:${containerMaxWidth}px` : '',
+      style.background ? `background:${style.backgroundColor}` : 'background:transparent',
+      style.background ? `padding:${paddingY}px ${paddingX}px` : 'padding:0',
+      style.background ? `border-radius:${radius}px` : 'border-radius:0',
+      'text-align:center'
+    ].filter(Boolean).join(';')
+    const textStyle = [
+      'display:inline-block',
+      style.lineMode === 'three-lines' ? 'white-space:pre-line' : 'white-space:nowrap',
+      `font-family:${escapeXml(style.font)}, sans-serif`,
+      `font-size:${fontSize}px`,
+      `font-weight:${fontWeight}`,
+      `font-style:${style.italic ? 'italic' : 'normal'}`,
+      `text-decoration:${style.underline ? 'underline' : 'none'}`,
+      `line-height:${lineHeight}`,
+      `color:${escapeXml(style.color)}`,
+      strokeWidth > 0 ? `-webkit-text-stroke:${strokeWidth}px ${escapeXml(style.outlineColor)}` : '',
+      shadowEnabled ? `text-shadow:${textShadow}` : ''
+    ].filter(Boolean).join(';')
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${resolution.width}" height="${resolution.height}" viewBox="0 0 ${resolution.width} ${resolution.height}">
-  <defs>
-    ${shadowEnabled ? `<filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="${(style.shadowOffsetX ?? 0) * uiToOutputScale}" dy="${(style.shadowOffsetY ?? 0) * uiToOutputScale}" stdDeviation="${Math.max(0, (style.shadowBlur ?? 0) * uiToOutputScale / 2)}" flood-color="${escapeXml(style.shadowColor || '#000000')}" />
-    </filter>` : ''}
-  </defs>
-  ${style.background ? `<rect x="${x}" y="${y}" width="${bubbleWidth}" height="${bubbleHeight}" rx="${radius}" ry="${radius}" fill="${escapeXml(style.backgroundColor)}" />` : ''}
-  <text
-    font-family="${escapeXml(style.font)}"
-    font-size="${fontSize}"
-    font-weight="${fontWeight}"
-    font-style="${style.italic ? 'italic' : 'normal'}"
-    text-decoration="${style.underline ? 'underline' : 'none'}"
-    stroke="${strokeWidth > 0 ? escapeXml(style.outlineColor) : 'transparent'}"
-    stroke-width="${strokeWidth}"
-    paint-order="stroke fill"
-    ${shadowEnabled ? 'filter="url(#shadow)"' : ''}
-  >${tspans}</text>
+  <foreignObject x="0" y="0" width="${resolution.width}" height="${resolution.height}">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="position:relative;width:${resolution.width}px;height:${resolution.height}px;">
+      <div style="${wrapperStyle}">
+        <div style="${cardStyle}">
+          <span style="${textStyle}">${wordMarkup}</span>
+        </div>
+      </div>
+    </div>
+  </foreignObject>
 </svg>`
   }
 }
