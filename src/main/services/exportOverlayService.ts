@@ -1,6 +1,6 @@
+import { BrowserWindow } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
-import { execFileSync } from 'child_process'
 import type { ExportCaptionOverlayFrame, ExportCaptionSegment, ExportCaptionStyle } from '@shared/types/exportWorker'
 
 type Resolution = { width: number; height: number }
@@ -15,6 +15,7 @@ const escapeXml = (value: string) =>
 
 class ExportOverlayService {
   private tempDir: string
+  private renderWindow: BrowserWindow | null = null
 
   constructor() {
     const userDataPath = process.env.ARIADNE_USER_DATA_PATH || process.cwd()
@@ -42,7 +43,7 @@ class ExportOverlayService {
         for (let activeIndex = 0; activeIndex < words.length; activeIndex += 1) {
           const activeWord = words[activeIndex]
           const imagePath = join(this.tempDir, `${clipId}_${segmentIndex}_${activeIndex}.png`)
-          this.writeCaptionPng(imagePath, words.map((word) => word.word), activeIndex, style, resolution)
+          await this.writeCaptionPng(imagePath, words.map((word) => word.word), activeIndex, style, resolution)
           frames.push({
             imagePath,
             start: activeWord.start,
@@ -54,7 +55,7 @@ class ExportOverlayService {
 
       const fallbackWords = segment.text.split(/\s+/).filter(Boolean)
       const imagePath = join(this.tempDir, `${clipId}_${segmentIndex}_fallback.png`)
-      this.writeCaptionPng(imagePath, fallbackWords, 0, style, resolution)
+      await this.writeCaptionPng(imagePath, fallbackWords, 0, style, resolution)
       frames.push({
         imagePath,
         start: segment.start,
@@ -77,45 +78,41 @@ class ExportOverlayService {
     }
   }
 
-  private writeCaptionPng(
+  private async writeCaptionPng(
     outputPath: string,
     words: string[],
     activeIndex: number,
     style: ExportCaptionStyle,
     resolution: Resolution
   ) {
-    const svg = this.buildCaptionSvg(words, activeIndex, style, resolution)
-    try {
-      const electronModule = require('electron') as { nativeImage?: { createFromDataURL: (dataUrl: string) => { toPNG: () => Buffer } } }
-      if (electronModule?.nativeImage?.createFromDataURL) {
-        const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
-        const image = electronModule.nativeImage.createFromDataURL(dataUrl)
-        writeFileSync(outputPath, image.toPNG())
-        return
-      }
-    } catch {
-      // Fall through to CLI rasterization in worker contexts.
-    }
-
-    const svgPath = outputPath.replace(/\.png$/i, '.svg')
-    writeFileSync(svgPath, svg, 'utf8')
-
-    try {
-      execFileSync('/usr/bin/sips', ['-s', 'format', 'png', svgPath, '--out', outputPath], {
-        stdio: 'ignore'
-      })
-    } finally {
-      try {
-        if (existsSync(svgPath)) {
-          unlinkSync(svgPath)
-        }
-      } catch {
-        // Best-effort cleanup only.
-      }
-    }
+    const html = this.buildCaptionHtml(words, activeIndex, style, resolution)
+    const window = await this.getRenderWindow(resolution)
+    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    await window.webContents.executeJavaScript('document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true)')
+    const image = await window.webContents.capturePage({ x: 0, y: 0, width: resolution.width, height: resolution.height })
+    writeFileSync(outputPath, image.toPNG())
   }
 
-  private buildCaptionSvg(
+  private async getRenderWindow(resolution: Resolution) {
+    if (!this.renderWindow || this.renderWindow.isDestroyed()) {
+      this.renderWindow = new BrowserWindow({
+        width: resolution.width,
+        height: resolution.height,
+        show: false,
+        frame: false,
+        transparent: true,
+        webPreferences: {
+          backgroundThrottling: false
+        }
+      })
+    } else {
+      this.renderWindow.setContentSize(resolution.width, resolution.height)
+    }
+
+    return this.renderWindow
+  }
+
+  private buildCaptionHtml(
     words: string[],
     activeIndex: number,
     style: ExportCaptionStyle,
@@ -196,18 +193,31 @@ class ExportOverlayService {
       shadowEnabled ? `text-shadow:${textShadow}` : ''
     ].filter(Boolean).join(';')
 
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${resolution.width}" height="${resolution.height}" viewBox="0 0 ${resolution.width} ${resolution.height}">
-  <foreignObject x="0" y="0" width="${resolution.width}" height="${resolution.height}">
-    <div xmlns="http://www.w3.org/1999/xhtml" style="position:relative;width:${resolution.width}px;height:${resolution.height}px;">
-      <div style="${wrapperStyle}">
-        <div style="${cardStyle}">
-          <span style="${textStyle}">${wordMarkup}</span>
-        </div>
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body {
+        margin: 0;
+        width: ${resolution.width}px;
+        height: ${resolution.height}px;
+        overflow: hidden;
+        background: transparent;
+      }
+      body {
+        position: relative;
+      }
+    </style>
+  </head>
+  <body>
+    <div style="${wrapperStyle}">
+      <div style="${cardStyle}">
+        <span style="${textStyle}">${wordMarkup}</span>
       </div>
     </div>
-  </foreignObject>
-</svg>`
+  </body>
+</html>`
   }
 }
 
