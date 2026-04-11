@@ -698,7 +698,7 @@ class FFmpegService {
           const inputIndex = overlayStartIndex + overlayIndex
           const overlayLabel = `[caption_overlay_${overlayIndex}]`
           const nextLabel = `[v_caption_${overlayIndex}]`
-          filters.push(`[${inputIndex}:v]format=rgba${overlayLabel}`)
+          filters.push(`[${inputIndex}:v]scale=${resolution.width}:${resolution.height}:flags=lanczos,format=rgba${overlayLabel}`)
           filters.push(
             `${videoLabel}${overlayLabel}overlay=0:0:enable='between(t,${overlayFrame.start.toFixed(3)},${overlayFrame.end.toFixed(3)})'${nextLabel}`
           )

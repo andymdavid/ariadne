@@ -91,11 +91,17 @@ class ExportOverlayService {
     style: ExportCaptionStyle,
     resolution: Resolution
   ) {
+    const previewCanvas =
+      resolution.width === 1920
+        ? { width: 640, height: 360 }
+        : resolution.width === 1080 && resolution.height === 1080
+          ? { width: 430, height: 430 }
+          : { width: 300, height: 533 }
     const html = this.buildCaptionHtml(words, activeIndex, style, resolution)
-    const window = await this.getRenderWindow(resolution)
+    const window = await this.getRenderWindow(previewCanvas)
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
     await window.webContents.executeJavaScript('document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true)')
-    const image = await window.webContents.capturePage({ x: 0, y: 0, width: resolution.width, height: resolution.height })
+    const image = await window.webContents.capturePage({ x: 0, y: 0, width: previewCanvas.width, height: previewCanvas.height })
     writeFileSync(outputPath, image.toPNG())
   }
 
@@ -124,15 +130,18 @@ class ExportOverlayService {
     style: ExportCaptionStyle,
     resolution: Resolution
   ) {
-    const referencePreviewWidth =
-      resolution.width === 1920 ? 640 : resolution.width === 1080 && resolution.height === 1080 ? 430 : 300
-    const uiToOutputScale = resolution.width / referencePreviewWidth
-    const fontSize = Math.max(12, Math.round(style.size * uiToOutputScale))
-    const paddingX = Math.max(0, Math.round((style.backgroundPaddingX ?? 24) * uiToOutputScale))
-    const paddingY = Math.max(0, Math.round((style.backgroundPaddingY ?? 12) * uiToOutputScale))
-    const radius = Math.max(0, Math.round((style.backgroundRadius ?? 16) * uiToOutputScale))
+    const previewCanvas =
+      resolution.width === 1920
+        ? { width: 640, height: 360 }
+        : resolution.width === 1080 && resolution.height === 1080
+          ? { width: 430, height: 430 }
+          : { width: 300, height: 533 }
+    const fontSize = Math.max(12, Math.round(style.size))
+    const paddingX = Math.max(0, Math.round(style.backgroundPaddingX ?? 24))
+    const paddingY = Math.max(0, Math.round(style.backgroundPaddingY ?? 12))
+    const radius = Math.max(0, Math.round(style.backgroundRadius ?? 16))
     const fontWeight = Number(style.weight || 700)
-    const strokeWidth = Math.max(0, Math.round((style.outlineWidth ?? 0) * uiToOutputScale))
+    const strokeWidth = Math.max(0, Math.round(style.outlineWidth ?? 0))
     const shadowEnabled = Boolean(style.shadow)
     const lineHeight = style.lineMode === 'three-lines' ? '1.28' : 'normal'
     const left = style.position === 'custom' && style.customX != null ? `${style.customX}%` : '50%'
@@ -155,7 +164,7 @@ class ExportOverlayService {
         ? 'translate(-50%, -50%)'
         : 'translateX(-50%)'
     const textShadow = shadowEnabled
-      ? `${(style.shadowOffsetX ?? 0) * uiToOutputScale}px ${(style.shadowOffsetY ?? 0) * uiToOutputScale}px ${Math.max(0, (style.shadowBlur ?? 0) * uiToOutputScale)}px ${style.shadowColor || '#000000'}`
+      ? `${style.shadowOffsetX ?? 0}px ${style.shadowOffsetY ?? 0}px ${Math.max(0, style.shadowBlur ?? 0)}px ${style.shadowColor || '#000000'}`
       : 'none'
     const wordMarkup = words
       .map((word, index) => {
@@ -166,7 +175,7 @@ class ExportOverlayService {
         return `<span style="color:${escapeXml(color)};">${escapeXml(word)}${suffix}</span>`
       })
       .join('')
-    const containerMaxWidth = Math.max(96, Math.round((resolution.width * 0.72)))
+    const containerMaxWidth = Math.max(96, Math.round((previewCanvas.width * 0.72)))
     const wrapperStyle = [
       'position:absolute',
       `left:${left}`,
@@ -209,8 +218,8 @@ class ExportOverlayService {
       ${fontFaceCss}
       html, body {
         margin: 0;
-        width: ${resolution.width}px;
-        height: ${resolution.height}px;
+        width: ${previewCanvas.width}px;
+        height: ${previewCanvas.height}px;
         overflow: hidden;
         background: transparent;
       }
