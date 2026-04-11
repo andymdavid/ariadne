@@ -92,11 +92,8 @@ class ExportOverlayService {
     const frames = await this.renderCaptionOverlayFrames(clipId, segments, style, resolution)
     if (!frames.length) return undefined
 
-    const previewCanvas = getCanonicalPreviewCanvas(
-      resolution.width === 1920 ? '16:9' : resolution.height === 1080 ? '1:1' : '9:16'
-    )
     const blankPath = join(this.tempDir, `${clipId}_blank.png`)
-    await this.writeBlankPng(blankPath, previewCanvas)
+    await this.writeBlankPng(blankPath, resolution)
 
     const manifestPath = join(this.tempDir, `${clipId}_overlay.txt`)
     const videoPath = join(this.tempDir, `${clipId}_overlay.mov`)
@@ -181,11 +178,8 @@ class ExportOverlayService {
     style: ExportCaptionStyle,
     resolution: Resolution
   ) {
-    const previewCanvas = getCanonicalPreviewCanvas(
-      resolution.width === 1920 ? '16:9' : resolution.height === 1080 ? '1:1' : '9:16'
-    )
     const html = this.buildCaptionHtml(words, activeIndex, style, resolution)
-    const window = await this.getRenderWindow(previewCanvas)
+    const window = await this.getRenderWindow(resolution)
     const htmlJson = JSON.stringify(html)
     await window.webContents.executeJavaScript(`
       document.open();
@@ -193,7 +187,7 @@ class ExportOverlayService {
       document.close();
       document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true);
     `)
-    const image = await window.webContents.capturePage({ x: 0, y: 0, width: previewCanvas.width, height: previewCanvas.height })
+    const image = await window.webContents.capturePage({ x: 0, y: 0, width: resolution.width, height: resolution.height })
     writeFileSync(outputPath, image.toPNG())
   }
 
@@ -240,12 +234,14 @@ class ExportOverlayService {
     const previewCanvas = getCanonicalPreviewCanvas(
       resolution.width === 1920 ? '16:9' : resolution.height === 1080 ? '1:1' : '9:16'
     )
-    const fontSize = Math.max(12, Math.round(style.size))
-    const paddingX = Math.max(0, Math.round(style.backgroundPaddingX ?? 24))
-    const paddingY = Math.max(0, Math.round(style.backgroundPaddingY ?? 12))
-    const radius = Math.max(0, Math.round(style.backgroundRadius ?? 16))
+    // Scale factor to render at full export resolution instead of preview size
+    const scale = resolution.width / previewCanvas.width
+    const fontSize = Math.max(12, Math.round(style.size * scale))
+    const paddingX = Math.max(0, Math.round((style.backgroundPaddingX ?? 24) * scale))
+    const paddingY = Math.max(0, Math.round((style.backgroundPaddingY ?? 12) * scale))
+    const radius = Math.max(0, Math.round((style.backgroundRadius ?? 16) * scale))
     const fontWeight = Number(style.weight || 700)
-    const strokeWidth = Math.max(0, Math.round(style.outlineWidth ?? 0))
+    const strokeWidth = Math.max(0, Math.round((style.outlineWidth ?? 0) * scale))
     const shadowEnabled = Boolean(style.shadow)
     const lineHeight = style.lineMode === 'three-lines' ? '1.28' : 'normal'
     const left = style.position === 'custom' && style.customX != null ? `${style.customX}%` : '50%'
@@ -267,8 +263,11 @@ class ExportOverlayService {
       style.position === 'center'
         ? 'translate(-50%, -50%)'
         : 'translateX(-50%)'
+    const shadowOffsetX = Math.round((style.shadowOffsetX ?? 0) * scale)
+    const shadowOffsetY = Math.round((style.shadowOffsetY ?? 0) * scale)
+    const shadowBlur = Math.round(Math.max(0, style.shadowBlur ?? 0) * scale)
     const textShadow = shadowEnabled
-      ? `${style.shadowOffsetX ?? 0}px ${style.shadowOffsetY ?? 0}px ${Math.max(0, style.shadowBlur ?? 0)}px ${style.shadowColor || '#000000'}`
+      ? `${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${style.shadowColor || '#000000'}`
       : 'none'
     const wordMarkup = words
       .map((word, index) => {
@@ -279,7 +278,7 @@ class ExportOverlayService {
         return `<span style="color:${escapeXml(color)};">${escapeXml(prefix + word.trim())}</span>`
       })
       .join('')
-    const containerMaxWidth = Math.max(96, Math.round((previewCanvas.width * 0.72)))
+    const containerMaxWidth = Math.max(96 * scale, Math.round((resolution.width * 0.72)))
     const wrapperStyle = [
       'position:absolute',
       `left:${left}`,
@@ -322,8 +321,8 @@ class ExportOverlayService {
       ${fontFaceCss}
       html, body {
         margin: 0;
-        width: ${previewCanvas.width}px;
-        height: ${previewCanvas.height}px;
+        width: ${resolution.width}px;
+        height: ${resolution.height}px;
         overflow: hidden;
         background: transparent;
       }
