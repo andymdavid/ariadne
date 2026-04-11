@@ -580,6 +580,7 @@ class FFmpegService {
       let command = ffmpeg(inputPath)
         .seekInput(startTime)
         .duration(duration)
+      const stderrLines: string[] = []
 
       this.activeExportCommand = command
 
@@ -794,6 +795,10 @@ class FFmpegService {
           console.log('[FFmpegService] FFmpeg command:', commandLine)
         })
         .on('stderr', (stderrLine) => {
+          stderrLines.push(stderrLine)
+          if (stderrLines.length > 80) {
+            stderrLines.shift()
+          }
           // Log font-related warnings/errors
           if (stderrLine.toLowerCase().includes('font')) {
             console.log('[FFmpegService] Font-related output:', stderrLine)
@@ -824,7 +829,13 @@ class FFmpegService {
               console.error('[FFmpegService] Failed to clean up ASS file:', cleanupError)
             }
           }
-          reject(new Error(`Reel export failed: ${error.message}`))
+          const stderrSummary = stderrLines
+            .filter((line: string) => line.trim())
+            .slice(-20)
+            .join('\n')
+          reject(new Error(
+            `Reel export failed: ${error.message}${stderrSummary ? `\n${stderrSummary}` : ''}`
+          ))
         })
         .run()
     })
