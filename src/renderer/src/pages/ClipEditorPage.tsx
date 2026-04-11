@@ -19,6 +19,13 @@ import {
 } from 'react-icons/io5'
 import type { BrandTemplate } from '@shared/types'
 import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '@shared/previewCanvas'
+import {
+  buildCaptionCues,
+  estimateCaptionTextWidth,
+  type CaptionCue,
+  type CaptionCueBuildOptions,
+  type CaptionCueLine
+} from '@shared/captionCues'
 
 const clipCaptionPresets = [
   {
@@ -108,17 +115,7 @@ type ClipRecord = {
   duration: number
 }
 
-type TranscriptLine = {
-  id: string
-  start: number
-  end: number
-  text: string
-  words?: Array<{
-    word: string
-    start: number
-    end: number
-  }>
-}
+type TranscriptLine = CaptionCueLine
 
 type PreviewCaptionState = {
   presetId?: string | null
@@ -163,33 +160,10 @@ type PreviewFrameState = {
   cropMode: 'fit' | 'center' | 'blur'
 }
 
-type CaptionCue = {
-  id: string
-  lineId: string
-  start: number
-  end: number
-  text: string
-  words: Array<{
-    word: string
-    start: number
-    end: number
-  }>
-}
-
-type CaptionCueBuildOptions = {
-  maxWordsPerCue?: number
-  maxTextWidth?: number
-  fontSize?: number
-  fontFamily?: string
-  fontWeight?: number | string
-}
-
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 const getFontFamilyValue = (fontFamily: string) => `"${fontFamily}", "Hedvig Letters Sans", system-ui, sans-serif`
 const isLegacyDefaultLogoPosition = (x: unknown, y: unknown) =>
   Number(x) === 85 && Number(y) === 85
-
-const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
 
 const getTimedClipCaptionWordState = (
   cue: CaptionCue | null,
@@ -231,164 +205,6 @@ const isUpdatedAfter = (candidate?: string | null, baseline?: string | null) => 
   if (Number.isNaN(baselineTime)) return true
 
   return candidateTime > baselineTime
-}
-
-const splitCaptionWords = (
-  words: string[],
-  maxWordsPerCue: number,
-  maxTextWidth?: number,
-  fontSize = 16,
-  fontFamily = 'Inter',
-  fontWeight: number | string = 700
-) => {
-  if (!words.length) return []
-  if (!maxTextWidth || maxTextWidth <= 0) {
-    const chunks: string[][] = []
-    for (let index = 0; index < words.length; index += maxWordsPerCue) {
-      chunks.push(words.slice(index, index + maxWordsPerCue))
-    }
-    return chunks
-  }
-
-  const chunks: string[][] = []
-  let currentChunk: string[] = []
-
-  words.forEach((rawWord) => {
-    const word = rawWord.trim()
-    if (!word) return
-
-    const candidateChunk = [...currentChunk, word]
-    const candidateText = normalizeCaptionText(candidateChunk.join(' '))
-    const fitsWidth = measureTextWidth(candidateText, fontSize, fontFamily, Number(fontWeight)) <= maxTextWidth
-
-    if (
-      currentChunk.length > 0 &&
-      (candidateChunk.length > maxWordsPerCue || !fitsWidth)
-    ) {
-      chunks.push(currentChunk)
-      currentChunk = [word]
-      return
-    }
-
-    currentChunk = candidateChunk
-  })
-
-  if (currentChunk.length > 0) {
-    chunks.push(currentChunk)
-  }
-
-  return chunks
-}
-
-const buildCaptionCues = (lines: TranscriptLine[], options: CaptionCueBuildOptions = {}): CaptionCue[] => {
-  const {
-    maxWordsPerCue = 3,
-    maxTextWidth,
-    fontSize = 16,
-    fontFamily = 'Inter',
-    fontWeight = 700
-  } = options
-  const cues: CaptionCue[] = []
-
-  lines.forEach((line) => {
-    const timedWords = (line.words || []).filter(
-      (word) =>
-        word.word?.trim() &&
-        Number.isFinite(word.start) &&
-        Number.isFinite(word.end) &&
-        word.end > word.start
-    )
-
-    if (timedWords.length > 0) {
-      const timedChunks = splitCaptionWords(
-        timedWords.map((word) => word.word),
-        maxWordsPerCue,
-        maxTextWidth,
-        fontSize,
-        fontFamily,
-        fontWeight
-      )
-      let timedWordIndex = 0
-
-      timedChunks.forEach((chunk, chunkIndex) => {
-        if (!chunk.length) return
-        const timedChunk = timedWords.slice(timedWordIndex, timedWordIndex + chunk.length)
-        timedWordIndex += chunk.length
-        cues.push({
-          id: `${line.id}-cue-${chunkIndex}`,
-          lineId: line.id,
-          start: timedChunk[0].start,
-          end: timedChunk[timedChunk.length - 1].end,
-          text: normalizeCaptionText(chunk.join(' ')),
-          words: timedChunk.map((word) => ({
-            word: word.word,
-            start: word.start,
-            end: word.end
-          }))
-        })
-      })
-      return
-    }
-
-    const fallbackWords = line.text.split(/\s+/).filter(Boolean)
-    if (!fallbackWords.length) return
-
-    const totalDuration = Math.max(line.end - line.start, 0.01)
-    const fallbackChunks = splitCaptionWords(
-      fallbackWords,
-      maxWordsPerCue,
-      maxTextWidth,
-      fontSize,
-      fontFamily,
-      fontWeight
-    )
-    const chunkCount = Math.max(fallbackChunks.length, 1)
-    const chunkDuration = totalDuration / chunkCount
-
-    fallbackChunks.forEach((chunk, chunkIndex) => {
-      const start = line.start + chunkIndex * chunkDuration
-      const end =
-        chunkIndex === chunkCount - 1
-          ? line.end
-          : Math.min(line.end, start + chunkDuration)
-
-      cues.push({
-        id: `${line.id}-cue-${chunkIndex}`,
-        lineId: line.id,
-        start,
-        end,
-        text: normalizeCaptionText(chunk.join(' ')),
-        words: chunk.map((word, wordIndex) => {
-          const wordDuration = chunkDuration / Math.max(chunk.length, 1)
-          const wordStart = start + wordIndex * wordDuration
-          const wordEnd = chunkIndex === chunkCount - 1 && wordIndex === chunk.length - 1
-            ? end
-            : Math.min(end, wordStart + wordDuration)
-
-          return {
-            word,
-            start: wordStart,
-            end: wordEnd
-          }
-        })
-      })
-    })
-  })
-
-  return cues
-}
-
-const measureTextWidth = (
-  text: string,
-  fontSize: number,
-  fontFamily: string,
-  fontWeight = 600
-) => {
-  if (typeof document === 'undefined') return text.length * fontSize * 0.56
-  const context = document.createElement('canvas').getContext('2d')
-  if (!context) return text.length * fontSize * 0.56
-  context.font = `${fontWeight} ${fontSize}px ${getFontFamilyValue(fontFamily)}`
-  return context.measureText(text).width
 }
 
 const formatClockTime = (seconds: number) => {
@@ -534,21 +350,25 @@ export function ClipEditorPage() {
               }))
             : undefined
         }))
-          const initialLayout = getCaptionLayoutConfig(template?.caption.presetId ?? null)
+        const initialPreviewCanvas = getCanonicalPreviewCanvas(template?.frame.aspectRatio ?? '9:16')
+        const initialLayout = getCaptionLayoutConfig(template?.caption.presetId ?? null)
         const initialFontSize = clamp(
-          Math.round(Number(template?.caption.fontSize ?? 30) * (260 / 300)),
+          Number(template?.caption.fontSize ?? 30),
           initialLayout.minFontSize,
           initialLayout.maxFontSize
         )
-        const initialPaddingX = Math.round(Number(template?.caption.backgroundPaddingX ?? 24) * (260 / 300))
+        const initialPaddingX = Math.max(0, Number(template?.caption.backgroundPaddingX ?? 24))
         const initialBubbleWidth = initialLayout.maxWidth
-          ? Math.min(initialLayout.maxWidth, Math.max(initialLayout.minWidth, 260 * initialLayout.widthRatio))
-          : Math.max(initialLayout.minWidth, 260 * initialLayout.widthRatio)
+          ? Math.min(
+              initialLayout.maxWidth,
+              Math.max(initialLayout.minWidth, initialPreviewCanvas.width * initialLayout.widthRatio)
+            )
+          : Math.max(initialLayout.minWidth, initialPreviewCanvas.width * initialLayout.widthRatio)
         const initialCaptionCues = buildCaptionCues(mappedSegments, {
           maxWordsPerCue: 3,
           maxTextWidth:
             (template?.caption.lineMode || 'one-line') === 'one-line'
-              ? Math.max(96, Math.min(initialBubbleWidth, 236) - initialPaddingX * 2)
+              ? Math.max(96, Math.min(initialBubbleWidth, initialPreviewCanvas.width - 24) - initialPaddingX * 2)
               : undefined,
           fontSize: initialFontSize,
           fontFamily: template?.caption.font || 'Inter',
@@ -1450,10 +1270,9 @@ export function ClipEditorPage() {
                               words: captionText.split(' ').filter(Boolean),
                               activeIndex: captionText.trim() ? 0 : -1
                             }
-                        const measuredTextWidth = measureTextWidth(
+                        const measuredTextWidth = estimateCaptionTextWidth(
                           captionText,
                           fontSize,
-                          captionPreview.font,
                           Number(captionPreview.fontWeight)
                         )
                         const maxBubbleWidth = Math.min(

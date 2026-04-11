@@ -51,7 +51,6 @@ class ExportOverlayService {
         const displayWords = words.map((word) => word.word.trim()).filter(Boolean)
         for (let activeIndex = 0; activeIndex < words.length; activeIndex += 1) {
           const activeWord = words[activeIndex]
-          const nextWord = words[activeIndex + 1]
           const imagePath = join(this.tempDir, `${clipId}_${segmentIndex}_${activeIndex}.png`)
           await this.writeCaptionPng(
             imagePath,
@@ -60,10 +59,11 @@ class ExportOverlayService {
             style,
             resolution
           )
+          // Use word.end to match preview behavior (currentTime >= word.start && currentTime <= word.end)
           frames.push({
             imagePath,
             start: activeWord.start,
-            end: nextWord ? Math.max(activeWord.start, nextWord.start) : Math.max(activeWord.start, segment.end)
+            end: activeWord.end
           })
         }
         continue

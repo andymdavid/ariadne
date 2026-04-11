@@ -512,6 +512,15 @@ class ExportService {
         captionOverlayFrames: captionOverlayAsset ? 1 : 0,
         logo: logoSettings?.enabled,
         music: musicSettings?.enabled,
+        musicPath: musicSettings?.musicPath,
+        brandTemplateMusic: {
+          enabled: brandTemplate.music.enabled,
+          assetPath: brandTemplate.music.assetPath
+        },
+        clipEditsMusic: {
+          enabled: clipEdits?.music_enabled,
+          path: clipEdits?.music_path
+        },
         frame: frameSettings
       })
 
