@@ -1019,14 +1019,27 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${fontFamilyName},${scaledFontSize},${primaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${scaledSpacing},0,${style.background ? '3' : '1'},${scaledOutlineWidth},${style.shadow ? '2' : '0'},${alignment},10,10,${scaledMarginV},1
-Style: Active,${fontFamilyName},${scaledFontSize},${secondaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${scaledSpacing},0,${style.background ? '3' : '1'},${scaledOutlineWidth},${style.shadow ? '2' : '0'},${alignment},10,10,${scaledMarginV},1
+Style: Default,${fontFamilyName},${scaledFontSize},${primaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${scaledSpacing},0,${style.background ? '3' : '1'},${scaledOutlineWidth},${style.background ? '4' : (style.shadow ? '2' : '0')},${alignment},10,10,${scaledMarginV},1
+Style: Active,${fontFamilyName},${scaledFontSize},${secondaryColor},&H000000FF,${outlineColor},${backgroundColor},${useBoldFlag},${style.italic ? '-1' : '0'},0,0,100,100,${scaledSpacing},0,${style.background ? '3' : '1'},${scaledOutlineWidth},${style.background ? '4' : (style.shadow ? '2' : '0')},${alignment},10,10,${scaledMarginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `
 
-    console.log(`[FFmpegService] Using font family: ${fontFamilyName}, size: ${style.size}, weight: ${style.weight}`)
+    console.log(`[FFmpegService] ASS Style Debug:`, {
+      fontFamily: fontFamilyName,
+      fontSize: style.size,
+      scaledFontSize,
+      weight: style.weight,
+      background: style.background,
+      backgroundColor: style.backgroundColor,
+      backgroundOpacity: style.backgroundOpacity,
+      computedBackColor: backgroundColor,
+      borderStyle: style.background ? '3' : '1',
+      primaryColor,
+      secondaryColor,
+      outlineColor
+    })
 
     // Convert timestamp to ASS format (H:MM:SS.CC)
     const formatTime = (seconds: number): string => {

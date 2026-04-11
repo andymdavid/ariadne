@@ -557,6 +557,8 @@ class ExportService {
             : { width: 1080, height: 1920 }
       console.log(`[ExportService] Prepared clip ${clip.id} with settings:`, {
         captionStyle: captionStyle?.enabled,
+        captionBackground: captionStyle?.background,
+        captionBackgroundColor: captionStyle?.backgroundColor,
         captionSegments: captionSegments.length,
         logo: logoSettings?.enabled,
         music: musicSettings?.enabled,
