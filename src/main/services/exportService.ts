@@ -180,6 +180,11 @@ class ExportService {
     options: ExportOptions = {},
     onProgress?: (job: ExportJob) => void
   ): Promise<ExportJob> {
+    const existingActiveJob = this.getActiveJobForEpisode(episodeId)
+    if (existingActiveJob) {
+      return existingActiveJob
+    }
+
     // Get episode and clips
     const episode = database.getEpisode(episodeId)
     if (!episode) {
@@ -331,43 +336,90 @@ class ExportService {
 
     this.activeJobs.set(jobId, job)
 
-    const tasks = await this.buildRenderTasks(
+    this.emitProgress(job.id, onProgress)
+
+    void this.startQueuedExportJob(
+      {
+        exportJobId: job.id,
+        workflowJobId,
+        episode,
+        approvedClips,
+        outputDirectory,
+        aspectRatio,
+        includeCaptions,
+        clipIds
+      },
+      onProgress
+    )
+
+    return this.getJob(job.id) || job
+  }
+
+  private async startQueuedExportJob(
+    context: {
+      exportJobId: string
+      workflowJobId: string
+      episode: any
+      approvedClips: any[]
+      outputDirectory: string
+      aspectRatio: '9:16' | '1:1' | '16:9'
+      includeCaptions: boolean
+      clipIds: string[]
+    },
+    onProgress?: (job: ExportJob) => void
+  ) {
+    const {
+      exportJobId,
+      workflowJobId,
       episode,
       approvedClips,
       outputDirectory,
-      {
-        aspectRatio,
-        includeCaptions
-      },
+      aspectRatio,
+      includeCaptions,
       clipIds
-    )
+    } = context
 
-    database.updateWorkflowJob(workflowJobId, {
-      status: 'running',
-      stage: 'rendering',
-      message: 'Export started',
-      startedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    })
-    database.updateExportJob(job.id, {
-      status: 'running',
-      startedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    })
-    this.recordEvent(workflowJobId, null, 'export_job', 'job_started', 'Export started', {
-      exportJobId: job.id,
-      clipCount: approvedClips.length
-    })
+    try {
+      const tasks = await this.buildRenderTasks(
+        episode,
+        approvedClips,
+        outputDirectory,
+        {
+          aspectRatio,
+          includeCaptions
+        },
+        clipIds
+      )
 
-    exportWorkerSupervisor.startExport(
-      {
-        type: 'start_export',
-        exportJobId: job.id,
-        workflowJobId,
-        tasks
-      },
-      (updatedJobId) => this.emitProgress(updatedJobId, onProgress)
-    ).catch((error) => {
+      const startedAt = new Date().toISOString()
+      database.updateWorkflowJob(workflowJobId, {
+        status: 'running',
+        stage: 'rendering',
+        message: 'Export started',
+        startedAt,
+        updatedAt: startedAt
+      })
+      database.updateExportJob(exportJobId, {
+        status: 'running',
+        startedAt,
+        updatedAt: startedAt
+      })
+      this.recordEvent(workflowJobId, null, 'export_job', 'job_started', 'Export started', {
+        exportJobId,
+        clipCount: approvedClips.length
+      }, startedAt)
+      this.emitProgress(exportJobId, onProgress)
+
+      await exportWorkerSupervisor.startExport(
+        {
+          type: 'start_export',
+          exportJobId,
+          workflowJobId,
+          tasks
+        },
+        (updatedJobId) => this.emitProgress(updatedJobId, onProgress)
+      )
+    } catch (error) {
       const failedAt = new Date().toISOString()
       const message = error instanceof Error ? error.message : 'Unknown error'
       database.createFailureEvent({
@@ -378,7 +430,7 @@ class ExportService {
         errorCode: 'export_start_failed',
         message,
         detailJson: JSON.stringify({
-          exportJobId: job.id
+          exportJobId
         }),
         createdAt: failedAt
       })
@@ -389,16 +441,14 @@ class ExportService {
         completedAt: failedAt,
         updatedAt: failedAt
       })
-      database.updateExportJob(job.id, {
+      database.updateExportJob(exportJobId, {
         status: 'failed',
         errorMessage: message,
         completedAt: failedAt,
         updatedAt: failedAt
       })
-      this.emitProgress(job.id, onProgress)
-    })
-
-    return this.getJob(job.id) || job
+      this.emitProgress(exportJobId, onProgress)
+    }
   }
 
   async recoverExports(onProgress?: (job: ExportJob) => void) {
