@@ -97,23 +97,15 @@ class ExportOverlayService {
     )
     const html = this.buildCaptionHtml(words, activeIndex, style, resolution)
     const window = await this.getRenderWindow(previewCanvas)
-    const htmlPath = outputPath.replace(/\.png$/i, '.html')
-
-    try {
-      writeFileSync(htmlPath, html, 'utf8')
-      await window.loadFile(htmlPath)
-      await window.webContents.executeJavaScript('document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true)')
-      const image = await window.webContents.capturePage({ x: 0, y: 0, width: previewCanvas.width, height: previewCanvas.height })
-      writeFileSync(outputPath, image.toPNG())
-    } finally {
-      try {
-        if (existsSync(htmlPath)) {
-          unlinkSync(htmlPath)
-        }
-      } catch {
-        // Best-effort cleanup only.
-      }
-    }
+    const htmlJson = JSON.stringify(html)
+    await window.webContents.executeJavaScript(`
+      document.open();
+      document.write(${htmlJson});
+      document.close();
+      document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true);
+    `)
+    const image = await window.webContents.capturePage({ x: 0, y: 0, width: previewCanvas.width, height: previewCanvas.height })
+    writeFileSync(outputPath, image.toPNG())
   }
 
   private async getRenderWindow(resolution: Resolution) {
@@ -128,6 +120,7 @@ class ExportOverlayService {
           backgroundThrottling: false
         }
       })
+      await this.renderWindow.loadURL('about:blank')
     } else {
       this.renderWindow.setContentSize(resolution.width, resolution.height)
     }
