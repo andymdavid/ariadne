@@ -6,9 +6,11 @@ import { database } from '../database/database'
 import { exportWorkerSupervisor } from './exportWorkerSupervisor'
 import { workflowReadModel } from './workflowReadModel'
 import { configService } from './configService'
+import { exportOverlayService } from './exportOverlayService'
 import type { BrandTemplate } from '@shared/types'
 import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '../../shared/previewCanvas'
 import type {
+  ExportCaptionOverlayFrame,
   ExportCaptionSegment,
   ExportCaptionStyle,
   ExportFrameSettings,
@@ -488,11 +490,23 @@ class ExportService {
           : frameSettings.aspectRatio === '1:1'
             ? { width: 1080, height: 1080 }
             : { width: 1080, height: 1920 }
+      let captionOverlayFrames: ExportCaptionOverlayFrame[] = []
+
+      if (captionStyle?.enabled && captionSegments.length > 0) {
+        captionOverlayFrames = await exportOverlayService.renderCaptionOverlayFrames(
+          clip.id,
+          captionSegments,
+          captionStyle,
+          resolution
+        )
+      }
+
       console.log(`[ExportService] Prepared clip ${clip.id} with settings:`, {
         captionStyle: captionStyle?.enabled,
         captionBackground: captionStyle?.background,
         captionBackgroundColor: captionStyle?.backgroundColor,
         captionSegments: captionSegments.length,
+        captionOverlayFrames: captionOverlayFrames.length,
         logo: logoSettings?.enabled,
         music: musicSettings?.enabled,
         frame: frameSettings
@@ -508,6 +522,7 @@ class ExportService {
         outputPath,
         resolution: frameSettings.aspectRatio,
         captionSegments,
+        captionOverlayFrames,
         captionStyle,
         logoSettings,
         musicSettings,

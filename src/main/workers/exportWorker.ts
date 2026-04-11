@@ -1,6 +1,4 @@
 import { ffmpegService } from '../services/ffmpegService'
-import { exportOverlayService } from '../services/exportOverlayService'
-import type { ExportCaptionOverlayFrame } from '@shared/types/exportWorker'
 import type {
   ExportWorkerCommand,
   ExportWorkerClipFailureEvent,
@@ -26,7 +24,6 @@ async function runExport(command: StartExportWorkerCommand) {
 
   for (let i = 0; i < command.tasks.length; i++) {
     const task = command.tasks[i]
-    let captionOverlayFrames: ExportCaptionOverlayFrame[] = []
 
     if (cancelRequested) {
       const cancelledEvent: ExportWorkerFailureEvent = {
@@ -63,24 +60,6 @@ async function runExport(command: StartExportWorkerCommand) {
         outputPath: task.outputPath
       })
 
-      if (task.captionStyle?.enabled && task.captionSegments.length > 0) {
-        try {
-          captionOverlayFrames = await exportOverlayService.renderCaptionOverlayFrames(
-            task.clipId,
-            task.captionSegments,
-            task.captionStyle,
-            resolution
-          )
-          console.log(`[ExportWorker] Generated ${captionOverlayFrames.length} caption overlays for clip ${task.clipId}`)
-        } catch (overlayError) {
-          throw new Error(
-            `Failed to render preview-style caption overlays: ${
-              overlayError instanceof Error ? overlayError.message : 'Unknown overlay error'
-            }`
-          )
-        }
-      }
-
       await ffmpegService.exportReelClip(
         task.sourceMediaPath,
         task.startTime,
@@ -88,7 +67,7 @@ async function runExport(command: StartExportWorkerCommand) {
         task.outputPath,
         {
           captionSegments: task.captionSegments,
-          captionOverlayFrames,
+          captionOverlayFrames: task.captionOverlayFrames,
           captionStyle: task.captionStyle,
           logoSettings: task.logoSettings,
           musicSettings: task.musicSettings,
@@ -140,8 +119,6 @@ async function runExport(command: StartExportWorkerCommand) {
         message: error instanceof Error ? error.message : 'Unknown clip export error'
       }
       postMessage(failedEvent)
-    } finally {
-      exportOverlayService.cleanupOverlayFrames(captionOverlayFrames)
     }
   }
 
