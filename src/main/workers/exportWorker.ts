@@ -63,14 +63,11 @@ async function runExport(command: StartExportWorkerCommand) {
         outputPath: task.outputPath
       })
 
-      if (task.captionStyle?.enabled && task.captionSegments.length > 0) {
-        captionOverlayFrames = await exportOverlayService.renderCaptionOverlayFrames(
-          task.clipId,
-          task.captionSegments,
-          task.captionStyle,
-          resolution
-        )
-      }
+      // Skip PNG overlay generation - use ASS subtitles instead
+      // PNG overlays create one file per word, which can overwhelm FFmpeg
+      // with 100+ inputs causing filter graph errors and SIGKILL
+      // ASS subtitles are rendered inline by FFmpeg's libass
+      captionOverlayFrames = []
 
       await ffmpegService.exportReelClip(
         task.sourceMediaPath,
