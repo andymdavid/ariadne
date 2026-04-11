@@ -456,6 +456,10 @@ class FFmpegService {
         end: number
         words?: Array<{ word: string; start: number; end: number }>
       }>
+      captionOverlayAsset?: {
+        videoPath: string
+        cleanupPaths: string[]
+      }
       captionOverlayFrames?: Array<{
         imagePath: string
         start: number
@@ -557,6 +561,7 @@ class FFmpegService {
       options.captionStyle?.enabled &&
       options.captionSegments &&
       options.captionSegments.length > 0 &&
+      !options.captionOverlayAsset &&
       (!options.captionOverlayFrames || options.captionOverlayFrames.length === 0)
     ) {
       try {
@@ -594,7 +599,9 @@ class FFmpegService {
         command = command.input(options.logoSettings.logoPath)
       }
 
-      if (options.captionOverlayFrames?.length) {
+      if (options.captionOverlayAsset?.videoPath) {
+        command = command.input(options.captionOverlayAsset.videoPath)
+      } else if (options.captionOverlayFrames?.length) {
         for (const overlayFrame of options.captionOverlayFrames) {
           command = command.input(overlayFrame.imagePath)
           command.inputOptions(['-loop 1'])
@@ -689,7 +696,16 @@ class FFmpegService {
       }
 
       // Step 3: Add caption overlays or subtitles
-      if (options.captionOverlayFrames?.length) {
+      if (options.captionOverlayAsset?.videoPath) {
+        const overlayInputIndex =
+          1 +
+          (options.musicSettings?.enabled && options.musicSettings.musicPath ? 1 : 0) +
+          (options.logoSettings?.enabled && options.logoSettings.logoPath ? 1 : 0)
+
+        filters.push(`[${overlayInputIndex}:v]scale=${resolution.width}:${resolution.height}:flags=lanczos,format=rgba[caption_overlay]`)
+        filters.push(`${videoLabel}[caption_overlay]overlay=0:0:eof_action=pass[vout]`)
+        videoLabel = '[vout]'
+      } else if (options.captionOverlayFrames?.length) {
         const overlayStartIndex =
           1 +
           (options.musicSettings?.enabled && options.musicSettings.musicPath ? 1 : 0) +

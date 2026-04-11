@@ -10,6 +10,7 @@ import { exportOverlayService } from './exportOverlayService'
 import type { BrandTemplate } from '@shared/types'
 import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '../../shared/previewCanvas'
 import type {
+  ExportCaptionOverlayAsset,
   ExportCaptionOverlayFrame,
   ExportCaptionSegment,
   ExportCaptionStyle,
@@ -491,14 +492,15 @@ class ExportService {
           : frameSettings.aspectRatio === '1:1'
             ? { width: 1080, height: 1080 }
             : { width: 1080, height: 1920 }
-      let captionOverlayFrames: ExportCaptionOverlayFrame[] = []
+      let captionOverlayAsset: ExportCaptionOverlayAsset | undefined
 
       if (captionStyle?.enabled && captionSegments.length > 0) {
-        captionOverlayFrames = await exportOverlayService.renderCaptionOverlayFrames(
+        captionOverlayAsset = await exportOverlayService.renderCaptionOverlayAsset(
           clip.id,
           captionSegments,
           captionStyle,
-          resolution
+          resolution,
+          Number(clip.duration ?? 0)
         )
       }
 
@@ -507,7 +509,7 @@ class ExportService {
         captionBackground: captionStyle?.background,
         captionBackgroundColor: captionStyle?.backgroundColor,
         captionSegments: captionSegments.length,
-        captionOverlayFrames: captionOverlayFrames.length,
+        captionOverlayFrames: captionOverlayAsset ? 1 : 0,
         logo: logoSettings?.enabled,
         music: musicSettings?.enabled,
         frame: frameSettings
@@ -523,7 +525,7 @@ class ExportService {
         outputPath,
         resolution: frameSettings.aspectRatio,
         captionSegments,
-        captionOverlayFrames,
+        captionOverlayAsset,
         captionStyle,
         logoSettings,
         musicSettings,

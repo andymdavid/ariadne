@@ -2,7 +2,8 @@ import { BrowserWindow } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
 import { pathToFileURL } from 'url'
-import type { ExportCaptionOverlayFrame, ExportCaptionSegment, ExportCaptionStyle } from '@shared/types/exportWorker'
+import ffmpeg from 'fluent-ffmpeg'
+import type { ExportCaptionOverlayAsset, ExportCaptionOverlayFrame, ExportCaptionSegment, ExportCaptionStyle } from '@shared/types/exportWorker'
 import { getCanonicalPreviewCanvas } from '../../shared/previewCanvas'
 
 type Resolution = { width: number; height: number }
@@ -73,11 +74,91 @@ class ExportOverlayService {
     return frames
   }
 
+  async renderCaptionOverlayAsset(
+    clipId: string,
+    segments: ExportCaptionSegment[],
+    style: ExportCaptionStyle,
+    resolution: Resolution,
+    duration: number
+  ): Promise<ExportCaptionOverlayAsset | undefined> {
+    const frames = await this.renderCaptionOverlayFrames(clipId, segments, style, resolution)
+    if (!frames.length) return undefined
+
+    const previewCanvas = getCanonicalPreviewCanvas(
+      resolution.width === 1920 ? '16:9' : resolution.height === 1080 ? '1:1' : '9:16'
+    )
+    const blankPath = join(this.tempDir, `${clipId}_blank.png`)
+    await this.writeBlankPng(blankPath, previewCanvas)
+
+    const manifestPath = join(this.tempDir, `${clipId}_overlay.txt`)
+    const videoPath = join(this.tempDir, `${clipId}_overlay.mov`)
+    const cleanupPaths = [blankPath, manifestPath, videoPath, ...frames.map((frame) => frame.imagePath)]
+
+    const entries: Array<{ path: string; duration: number }> = []
+    let cursor = 0
+
+    for (const frame of frames) {
+      if (frame.start > cursor) {
+        entries.push({ path: blankPath, duration: frame.start - cursor })
+      }
+      entries.push({ path: frame.imagePath, duration: Math.max(0.01, frame.end - frame.start) })
+      cursor = frame.end
+    }
+
+    if (duration > cursor) {
+      entries.push({ path: blankPath, duration: Math.max(0.01, duration - cursor) })
+    }
+
+    if (!entries.length) {
+      this.cleanupPaths(cleanupPaths)
+      return undefined
+    }
+
+    const manifestLines: string[] = []
+    entries.forEach((entry, index) => {
+      manifestLines.push(`file '${entry.path.replace(/'/g, "'\\''")}'`)
+      manifestLines.push(`duration ${entry.duration.toFixed(6)}`)
+      if (index === entries.length - 1) {
+        manifestLines.push(`file '${entry.path.replace(/'/g, "'\\''")}'`)
+      }
+    })
+    writeFileSync(manifestPath, manifestLines.join('\n'), 'utf8')
+
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg()
+        .input(manifestPath)
+        .inputOptions(['-f concat', '-safe 0'])
+        .outputOptions(['-vsync vfr', '-pix_fmt argb'])
+        .videoCodec('qtrle')
+        .output(videoPath)
+        .on('end', () => resolve())
+        .on('error', (error) => reject(error))
+        .run()
+    })
+
+    return {
+      videoPath,
+      cleanupPaths
+    }
+  }
+
   cleanupOverlayFrames(frames: ExportCaptionOverlayFrame[] = []) {
     for (const frame of frames) {
       try {
         if (frame?.imagePath && existsSync(frame.imagePath)) {
           unlinkSync(frame.imagePath)
+        }
+      } catch {
+        // Best-effort cleanup only.
+      }
+    }
+  }
+
+  cleanupPaths(paths: string[] = []) {
+    for (const path of paths) {
+      try {
+        if (path && existsSync(path)) {
+          unlinkSync(path)
         }
       } catch {
         // Best-effort cleanup only.
@@ -103,6 +184,20 @@ class ExportOverlayService {
       document.write(${htmlJson});
       document.close();
       document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true);
+    `)
+    const image = await window.webContents.capturePage({ x: 0, y: 0, width: previewCanvas.width, height: previewCanvas.height })
+    writeFileSync(outputPath, image.toPNG())
+  }
+
+  private async writeBlankPng(
+    outputPath: string,
+    previewCanvas: { width: number; height: number }
+  ) {
+    const window = await this.getRenderWindow(previewCanvas)
+    await window.webContents.executeJavaScript(`
+      document.open();
+      document.write('<!doctype html><html><body style="margin:0;width:${previewCanvas.width}px;height:${previewCanvas.height}px;background:transparent;"></body></html>');
+      document.close();
     `)
     const image = await window.webContents.capturePage({ x: 0, y: 0, width: previewCanvas.width, height: previewCanvas.height })
     writeFileSync(outputPath, image.toPNG())

@@ -15,6 +15,11 @@ export interface ExportCaptionOverlayFrame {
   end: number
 }
 
+export interface ExportCaptionOverlayAsset {
+  videoPath: string
+  cleanupPaths: string[]
+}
+
 export interface ExportCaptionStyle {
   enabled: boolean
   font: string
@@ -93,6 +98,7 @@ export interface ExportRenderTask {
   outputPath: string
   resolution: '9:16' | '1:1' | '16:9'
   captionSegments: ExportCaptionSegment[]
+  captionOverlayAsset?: ExportCaptionOverlayAsset
   captionOverlayFrames?: ExportCaptionOverlayFrame[]
   captionStyle?: ExportCaptionStyle
   logoSettings?: ExportLogoSettings

@@ -1,4 +1,5 @@
 import { ffmpegService } from '../services/ffmpegService'
+import { existsSync, unlinkSync } from 'fs'
 import type {
   ExportWorkerCommand,
   ExportWorkerClipFailureEvent,
@@ -67,6 +68,7 @@ async function runExport(command: StartExportWorkerCommand) {
         task.outputPath,
         {
           captionSegments: task.captionSegments,
+          captionOverlayAsset: task.captionOverlayAsset,
           captionOverlayFrames: task.captionOverlayFrames,
           captionStyle: task.captionStyle,
           logoSettings: task.logoSettings,
@@ -119,6 +121,18 @@ async function runExport(command: StartExportWorkerCommand) {
         message: error instanceof Error ? error.message : 'Unknown clip export error'
       }
       postMessage(failedEvent)
+    } finally {
+      if (task.captionOverlayAsset?.cleanupPaths?.length) {
+        for (const tempPath of task.captionOverlayAsset.cleanupPaths) {
+          try {
+            if (existsSync(tempPath)) {
+              unlinkSync(tempPath)
+            }
+          } catch {
+            // Best-effort cleanup only.
+          }
+        }
+      }
     }
   }
 
