@@ -97,10 +97,23 @@ class ExportOverlayService {
     )
     const html = this.buildCaptionHtml(words, activeIndex, style, resolution)
     const window = await this.getRenderWindow(previewCanvas)
-    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-    await window.webContents.executeJavaScript('document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true)')
-    const image = await window.webContents.capturePage({ x: 0, y: 0, width: previewCanvas.width, height: previewCanvas.height })
-    writeFileSync(outputPath, image.toPNG())
+    const htmlPath = outputPath.replace(/\.png$/i, '.html')
+
+    try {
+      writeFileSync(htmlPath, html, 'utf8')
+      await window.loadFile(htmlPath)
+      await window.webContents.executeJavaScript('document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true)')
+      const image = await window.webContents.capturePage({ x: 0, y: 0, width: previewCanvas.width, height: previewCanvas.height })
+      writeFileSync(outputPath, image.toPNG())
+    } finally {
+      try {
+        if (existsSync(htmlPath)) {
+          unlinkSync(htmlPath)
+        }
+      } catch {
+        // Best-effort cleanup only.
+      }
+    }
   }
 
   private async getRenderWindow(resolution: Resolution) {
