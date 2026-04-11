@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
+import { pathToFileURL } from 'url'
 import type { ExportCaptionOverlayFrame, ExportCaptionSegment, ExportCaptionStyle } from '@shared/types/exportWorker'
 
 type Resolution = { width: number; height: number }
@@ -13,13 +14,18 @@ const escapeXml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;')
 
+const getFontFamilyValue = (fontFamily: string) =>
+  `"${fontFamily}", "Hedvig Letters Sans", system-ui, sans-serif`
+
 class ExportOverlayService {
   private tempDir: string
   private renderWindow: BrowserWindow | null = null
+  private fontsDir: string
 
   constructor() {
     const userDataPath = process.env.ARIADNE_USER_DATA_PATH || process.cwd()
     this.tempDir = join(userDataPath, 'temp', 'export-overlays')
+    this.fontsDir = process.env.ARIADNE_FONTS_DIR || join(process.cwd(), 'assets', 'fonts')
     if (!existsSync(this.tempDir)) {
       mkdirSync(this.tempDir, { recursive: true })
     }
@@ -182,7 +188,7 @@ class ExportOverlayService {
     const textStyle = [
       'display:inline-block',
       style.lineMode === 'three-lines' ? 'white-space:pre-line' : 'white-space:nowrap',
-      `font-family:${escapeXml(style.font)}, sans-serif`,
+      `font-family:${escapeXml(getFontFamilyValue(style.font))}`,
       `font-size:${fontSize}px`,
       `font-weight:${fontWeight}`,
       `font-style:${style.italic ? 'italic' : 'normal'}`,
@@ -193,11 +199,14 @@ class ExportOverlayService {
       shadowEnabled ? `text-shadow:${textShadow}` : ''
     ].filter(Boolean).join(';')
 
+    const fontFaceCss = this.buildFontFaceCss(style.font, fontWeight)
+
     return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <style>
+      ${fontFaceCss}
       html, body {
         margin: 0;
         width: ${resolution.width}px;
@@ -218,6 +227,65 @@ class ExportOverlayService {
     </div>
   </body>
 </html>`
+  }
+
+  private buildFontFaceCss(fontFamily: string, fontWeight: number) {
+    const sources: string[] = []
+    const resolvedPrimary = this.resolveFontFile(fontFamily, fontWeight)
+    if (resolvedPrimary) {
+      sources.push(`@font-face { font-family: '${fontFamily}'; src: url('${pathToFileURL(resolvedPrimary).href}') format('truetype'); font-weight: ${fontWeight}; font-style: normal; }`)
+    }
+
+    if (fontFamily === 'Inter') {
+      ;([
+        [400, 'Inter-Regular.ttf'],
+        [500, 'Inter-Medium.ttf'],
+        [600, 'Inter-SemiBold.ttf'],
+        [700, 'Inter-Bold.ttf'],
+        [800, 'Inter-ExtraBold.ttf'],
+        [900, 'Inter-Black.ttf']
+      ] as Array<[number, string]>).forEach(([weight, file]) => {
+        const filePath = join(this.fontsDir, file)
+        if (existsSync(filePath)) {
+          sources.push(`@font-face { font-family: 'Inter'; src: url('${pathToFileURL(filePath).href}') format('truetype'); font-weight: ${weight}; font-style: normal; }`)
+        }
+      })
+    }
+
+    if (fontFamily === 'Anton') {
+      const filePath = join(this.fontsDir, 'Anton-Regular.ttf')
+      if (existsSync(filePath)) {
+        sources.push(`@font-face { font-family: 'Anton'; src: url('${pathToFileURL(filePath).href}') format('truetype'); font-weight: 400 900; font-style: normal; }`)
+      }
+    }
+
+    return sources.join('\n')
+  }
+
+  private resolveFontFile(fontFamily: string, fontWeight: number) {
+    const fileName = this.mapWeightToFontFileName(fontFamily, fontWeight)
+    const filePath = join(this.fontsDir, fileName)
+    return existsSync(filePath) ? filePath : null
+  }
+
+  private mapWeightToFontFileName(baseFont: string, weight: number) {
+    if (baseFont === 'Inter') {
+      if (weight <= 150) return 'Inter-Thin.ttf'
+      if (weight <= 250) return 'Inter-ExtraLight.ttf'
+      if (weight <= 350) return 'Inter-Light.ttf'
+      if (weight <= 450) return 'Inter-Regular.ttf'
+      if (weight <= 550) return 'Inter-Medium.ttf'
+      if (weight <= 650) return 'Inter-SemiBold.ttf'
+      if (weight <= 750) return 'Inter-Bold.ttf'
+      if (weight <= 850) return 'Inter-ExtraBold.ttf'
+      return 'Inter-Black.ttf'
+    }
+
+    if (baseFont === 'Anton') {
+      return 'Anton-Regular.ttf'
+    }
+
+    return `${baseFont}.ttf`
   }
 }
 
