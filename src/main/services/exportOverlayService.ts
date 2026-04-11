@@ -51,7 +51,13 @@ class ExportOverlayService {
         for (let activeIndex = 0; activeIndex < words.length; activeIndex += 1) {
           const activeWord = words[activeIndex]
           const imagePath = join(this.tempDir, `${clipId}_${segmentIndex}_${activeIndex}.png`)
-          await this.writeCaptionPng(imagePath, words.map((word) => word.word), activeIndex, style, resolution)
+          await this.writeCaptionPng(
+            imagePath,
+            words.map((word) => word.word.trim()).filter(Boolean),
+            activeIndex,
+            style,
+            resolution
+          )
           frames.push({
             imagePath,
             start: activeWord.start,
@@ -267,8 +273,8 @@ class ExportOverlayService {
         const color = index === activeIndex
           ? (style.highlightColor || style.color)
           : (style.textColor || style.color)
-        const suffix = index < words.length - 1 ? '&nbsp;' : ''
-        return `<span style="color:${escapeXml(color)};">${escapeXml(word)}${suffix}</span>`
+        const prefix = index > 0 ? ' ' : ''
+        return `<span style="color:${escapeXml(color)};">${escapeXml(prefix + word.trim())}</span>`
       })
       .join('')
     const containerMaxWidth = Math.max(96, Math.round((previewCanvas.width * 0.72)))
