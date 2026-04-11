@@ -8,13 +8,13 @@ The clip export function produces videos that don't match the Clip Preview scree
 
 ### Export Failures (Critical - Blocking All Exports)
 
-**Primary Issue: PNG Overlay Approach is Fundamentally Flawed**
+**Primary Issue: Too Many PNG Overlay Inputs**
 
-The current approach creates one PNG file per word in the caption, which causes:
+The PNG overlay approach creates one file per word in captions, causing:
 
 1. **Filter Graph Complexity** - FFmpeg fails with `auto_scale_136/165` errors
    - Each PNG becomes a separate FFmpeg input
-   - Filter graph becomes too complex for FFmpeg to handle
+   - 100+ inputs overwhelm FFmpeg's filter graph
    - Error: `Failed to configure output pad on auto_scale_XXX`
 
 2. **Resource Exhaustion** - FFmpeg killed with SIGKILL
@@ -25,77 +25,78 @@ The current approach creates one PNG file per word in the caption, which causes:
    - macOS sips utility has unreliable SVG-to-PNG conversion
    - Error: `Error opening input file .../export-overlays/XXX.png`
 
-**Solution: Use ASS Subtitles Instead**
-- ASS subtitles are rendered inline by FFmpeg's libass
-- No separate input files needed
-- Already implemented in ffmpegService.ts (lines 554-577)
-- Activated when `captionOverlayFrames` array is empty
+### Visual Parity Issue
 
-### Visual Discrepancies (Secondary - To Address After Exports Work)
+ASS subtitles (fallback) create **rectangular** boxes, not rounded corners like preview:
+- Preview uses CSS with `borderRadius` for rounded rectangles
+- ASS BorderStyle=3 creates simple rectangular opaque boxes
+- This is a limitation of the ASS format
 
-1. **Text Width Measurement Mismatch**
-   - Preview uses Canvas API for accurate text measurement
-   - Export uses a rough character-count estimation formula
-   - This causes different word chunking and line breaks
+---
 
-2. **Reference Width Inconsistencies**
-   - Export overlay service uses different reference widths than preview
-   - Preview uses dynamic container width (~260px)
-   - Export uses hardcoded values (300/430/640)
+## Current Solution: Hybrid Approach
 
-3. **Caption Positioning Differences**
-   - Preview uses CSS percentage + transform positioning
-   - Export calculates absolute pixel positions differently
+### Strategy: Smart Fallback
 
-4. **Font Scaling Issues**
-   - UI-to-output scale calculations differ between components
+1. **For clips with ≤50 caption overlays** → Use PNG overlays (visual parity)
+2. **For clips with >50 caption overlays** → Use ASS subtitles (avoid FFmpeg crash)
+
+This provides:
+- Full visual parity (rounded backgrounds) for most clips
+- Reliable export for caption-heavy clips via ASS fallback
+
+### Implementation Details
+
+**exportWorker.ts**:
+```typescript
+const MAX_OVERLAYS_PER_CLIP = 50
+
+// Estimate total overlays needed
+const estimatedOverlays = task.captionSegments.reduce(...)
+
+if (estimatedOverlays <= MAX_OVERLAYS_PER_CLIP) {
+  // Use PNG overlays for visual parity
+  captionOverlayFrames = await exportOverlayService.renderCaptionOverlayFrames(...)
+} else {
+  // Fall back to ASS subtitles
+  captionOverlayFrames = []
+}
+```
 
 ---
 
 ## Implementation Plan
 
-### Phase 1: Fix Export Failures (Critical)
+### Phase 1: Fix Export Failures (Critical) ✅
 
-- [x] **1.1** Disable PNG overlay generation, use ASS subtitles
-  - Modified `exportWorker.ts` to skip PNG overlay generation
-  - ASS subtitles path is now used instead
-  - No more filter graph complexity issues
+- [x] **1.1** Identify root cause via failure_events database
+- [x] **1.2** Implement smart fallback (PNG for ≤50 overlays, ASS for >50)
+- [x] **1.3** Add debug logging for caption style values
+- [x] **1.4** Fix ASS background rendering (BorderStyle=3, Shadow=4)
 
-- [ ] **1.2** Test export with ASS subtitles
-  - Verify clips export successfully
-  - Check caption timing and positioning
-  - Validate font rendering
+### Phase 2: Testing Required
 
-### Phase 2: Visual Parity (After Exports Work)
+- [ ] **2.1** Test export with PNG overlays
+  - Rebuild the app
+  - Export a clip with few captions (≤50 overlays)
+  - Verify rounded background appears
 
-- [ ] **2.1** Unify text measurement
-  - Create shared text measurement utility
-  - Port Canvas-based measurement approach to export service
+- [ ] **2.2** Test export with ASS fallback
+  - Export a clip with many captions (>50 overlays)
+  - Verify export completes (rectangular background is OK)
 
-- [ ] **2.2** Unify caption layout configuration
-  - Extract shared caption layout configuration
-  - Single source of truth for layout parameters
+- [ ] **2.3** Verify console logs show correct values
+  - `[ExportWorker] Generated X caption overlays for clip Y`
+  - `[FFmpegService] ASS Style Debug: { background: true, ... }`
 
-- [ ] **2.3** Align positioning calculations
-  - Unified position calculation utility
-  - Consistent top/center/bottom/custom positions
+### Phase 3: Visual Parity Improvements (Optional)
 
-- [ ] **2.4** Match font scaling
-  - Unified UI-to-output scale calculations
-  - Consistent reference widths
+If rectangular backgrounds are acceptable for long captions, no further work needed.
 
-### Phase 3: Testing & Validation
-
-- [ ] **3.1** Create visual comparison tests
-  - Export clips and compare to preview screenshots
-  - Automate where possible
-
-- [ ] **3.2** Test edge cases
-  - Very long captions
-  - Single word captions
-  - Various fonts and weights
-  - All aspect ratios (9:16, 1:1, 16:9)
-  - All crop modes (fit, center, blur)
+If full parity is required for all clips:
+- [ ] **3.1** Increase MAX_OVERLAYS_PER_CLIP if system can handle it
+- [ ] **3.2** Consider batching overlays more efficiently
+- [ ] **3.3** Consider pre-rendering segment groups as single images
 
 ---
 
@@ -128,9 +129,19 @@ sips fails to convert SVG to valid PNG.
 ## Files Modified
 
 ### Session 2 - April 11, 2026
-- `src/main/workers/exportWorker.ts` - Skip PNG overlay generation, use ASS subtitles
+
+- `src/main/workers/exportWorker.ts`
+  - Smart fallback: PNG overlays for ≤50, ASS for >50
+
+- `src/main/services/ffmpegService.ts`
+  - Debug logging for ASS style values
+  - Fixed ASS Shadow value (4 when background enabled)
+
+- `src/main/services/exportService.ts`
+  - Debug logging for caption background settings
 
 ### Session 1 - April 10, 2026 (REVERTED)
+
 All changes from session 1 were reverted due to runtime module resolution issues.
 
 ---
@@ -141,44 +152,47 @@ All changes from session 1 were reverted due to runtime module resolution issues
 
 **Analysis:**
 1. Queried failure_events table for actual error details
-2. Identified three distinct failure modes:
-   - Filter graph complexity (136+ inputs)
-   - Resource exhaustion (SIGKILL)
-   - PNG generation failures (sips issues)
-3. Root cause: PNG overlay approach creates too many FFmpeg inputs
+2. Identified three distinct failure modes (filter complexity, SIGKILL, PNG failures)
+3. Found threshold: FFmpeg crashes at 136+ overlay inputs
 
-**Fix Applied:**
-1. Disabled PNG overlay generation in exportWorker.ts
-2. FFmpeg will now use ASS subtitles fallback path
-3. This eliminates all three failure modes
+**User Feedback:**
+- Exports were working but caption backgrounds not appearing
+- ASS BorderStyle=3 creates rectangular boxes, not rounded like preview
+
+**Fixes Applied:**
+1. Implemented smart fallback (PNG overlays for ≤50, ASS for >50)
+2. Added debug logging to trace caption style values
+3. Fixed ASS Shadow value to enable opaque box rendering
 
 **Next Steps:**
-1. Test export to verify clips are created successfully
-2. Check caption appearance with ASS subtitles
-3. Address visual parity if needed
-
-### Session 1 - April 10, 2026
-
-**Attempted:**
-- Pre-flight validation, shared utilities, etc.
-- All reverted due to module resolution issues at runtime
+1. Rebuild and test export with PNG overlays
+2. Verify rounded backgrounds appear for clips with ≤50 overlays
+3. Confirm ASS fallback works for caption-heavy clips
 
 ---
 
 ## Technical Notes
 
-### Why ASS Subtitles Are Better
+### PNG Overlay Flow (Visual Parity)
 
-1. **Single file** - One .ass file per clip instead of 100+ PNGs
-2. **Inline rendering** - libass renders subtitles within FFmpeg
-3. **No input limit** - Filter graph stays simple
-4. **Already implemented** - ffmpegService.ts already has ASS generation
-5. **Font support** - Font installed to user library for CoreText
+1. `exportOverlayService.renderCaptionOverlayFrames()` generates SVGs
+2. sips (macOS) converts SVG → PNG
+3. Each PNG is an FFmpeg input with timed overlay
+4. Result: Rounded rectangle backgrounds matching preview
 
-### ASS Subtitle Flow
+Limitation: Max ~50 overlays per clip to avoid FFmpeg crashes.
 
-1. `ffmpegService.exportReelClip()` checks `captionOverlayFrames`
-2. If empty, calls `generateASSSubtitles()` (line 563)
-3. Generates .ass file with styled captions
-4. Adds `ass='path.ass'` filter to FFmpeg
-5. libass renders captions during encoding
+### ASS Subtitle Flow (Fallback)
+
+1. `ffmpegService.generateASSSubtitles()` creates .ass file
+2. BorderStyle=3 with Shadow=4 for opaque box background
+3. libass renders subtitles inline during FFmpeg encoding
+
+Limitation: Rectangular backgrounds only (no rounded corners).
+
+### Threshold Selection
+
+The 50-overlay limit was chosen conservatively based on:
+- FFmpeg crashed at 136+ inputs
+- Leaving headroom for other inputs (logo, music)
+- Most clips have ~20-40 words, which fits under limit
