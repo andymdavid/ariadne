@@ -63,11 +63,36 @@ async function runExport(command: StartExportWorkerCommand) {
         outputPath: task.outputPath
       })
 
-      // Skip PNG overlay generation - use ASS subtitles instead
-      // PNG overlays create one file per word, which can overwhelm FFmpeg
-      // with 100+ inputs causing filter graph errors and SIGKILL
-      // ASS subtitles are rendered inline by FFmpeg's libass
-      captionOverlayFrames = []
+      // Generate PNG overlays for visual parity with preview (rounded backgrounds)
+      // But limit to 50 overlays max per clip to avoid FFmpeg filter complexity issues
+      // If over limit, fall back to ASS subtitles (rectangular backgrounds)
+      const MAX_OVERLAYS_PER_CLIP = 50
+
+      if (task.captionStyle?.enabled && task.captionSegments.length > 0) {
+        // Estimate total overlays needed (roughly words per segment)
+        const estimatedOverlays = task.captionSegments.reduce((sum, seg) => {
+          const words = Array.isArray(seg.words) ? seg.words.filter(w => w.word?.trim()).length : 0
+          return sum + (words > 0 ? words : 1)
+        }, 0)
+
+        if (estimatedOverlays <= MAX_OVERLAYS_PER_CLIP) {
+          try {
+            captionOverlayFrames = await exportOverlayService.renderCaptionOverlayFrames(
+              task.clipId,
+              task.captionSegments,
+              task.captionStyle,
+              resolution
+            )
+            console.log(`[ExportWorker] Generated ${captionOverlayFrames.length} caption overlays for clip ${task.clipId}`)
+          } catch (overlayError) {
+            console.error(`[ExportWorker] Failed to generate caption overlays, falling back to ASS:`, overlayError)
+            captionOverlayFrames = []
+          }
+        } else {
+          console.log(`[ExportWorker] Clip ${task.clipId} needs ${estimatedOverlays} overlays (max ${MAX_OVERLAYS_PER_CLIP}), using ASS subtitles`)
+          captionOverlayFrames = []
+        }
+      }
 
       await ffmpegService.exportReelClip(
         task.sourceMediaPath,
