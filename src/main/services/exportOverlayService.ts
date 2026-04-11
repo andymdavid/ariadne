@@ -3,6 +3,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
 import { pathToFileURL } from 'url'
 import type { ExportCaptionOverlayFrame, ExportCaptionSegment, ExportCaptionStyle } from '@shared/types/exportWorker'
+import { getCanonicalPreviewCanvas } from '@shared/previewCanvas'
 
 type Resolution = { width: number; height: number }
 
@@ -91,12 +92,9 @@ class ExportOverlayService {
     style: ExportCaptionStyle,
     resolution: Resolution
   ) {
-    const previewCanvas =
-      resolution.width === 1920
-        ? { width: 640, height: 360 }
-        : resolution.width === 1080 && resolution.height === 1080
-          ? { width: 430, height: 430 }
-          : { width: 300, height: 533 }
+    const previewCanvas = getCanonicalPreviewCanvas(
+      resolution.width === 1920 ? '16:9' : resolution.height === 1080 ? '1:1' : '9:16'
+    )
     const html = this.buildCaptionHtml(words, activeIndex, style, resolution)
     const window = await this.getRenderWindow(previewCanvas)
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
@@ -130,12 +128,9 @@ class ExportOverlayService {
     style: ExportCaptionStyle,
     resolution: Resolution
   ) {
-    const previewCanvas =
-      resolution.width === 1920
-        ? { width: 640, height: 360 }
-        : resolution.width === 1080 && resolution.height === 1080
-          ? { width: 430, height: 430 }
-          : { width: 300, height: 533 }
+    const previewCanvas = getCanonicalPreviewCanvas(
+      resolution.width === 1920 ? '16:9' : resolution.height === 1080 ? '1:1' : '9:16'
+    )
     const fontSize = Math.max(12, Math.round(style.size))
     const paddingX = Math.max(0, Math.round(style.backgroundPaddingX ?? 24))
     const paddingY = Math.max(0, Math.round(style.backgroundPaddingY ?? 12))

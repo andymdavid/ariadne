@@ -4,10 +4,10 @@ import { dialog } from 'electron'
 import { existsSync, mkdirSync } from 'fs'
 import { database } from '../database/database'
 import { exportWorkerSupervisor } from './exportWorkerSupervisor'
-import { exportOverlayService } from './exportOverlayService'
 import { workflowReadModel } from './workflowReadModel'
 import { configService } from './configService'
 import type { BrandTemplate } from '@shared/types'
+import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '@shared/previewCanvas'
 import type {
   ExportCaptionSegment,
   ExportCaptionStyle,
@@ -81,16 +81,6 @@ interface ExportTranscriptSegment {
   words?: ExportTranscriptWord[]
 }
 
-type CaptionLayoutConfig = {
-  maxLines: number
-  widthRatio: number
-  minWidth: number
-  maxWidth?: number
-  fontScale: number
-  minFontSize: number
-  maxFontSize: number
-}
-
 const isLegacyDefaultLogoPosition = (x: unknown, y: unknown) =>
   Number(x) === 85 && Number(y) === 85
 
@@ -156,63 +146,6 @@ const splitCaptionWords = (
   }
 
   return chunks
-}
-
-const getCaptionLayoutConfig = (
-  presetId: string | null | undefined
-): CaptionLayoutConfig => {
-  switch (presetId) {
-    case 'deep-diver':
-      return {
-        maxLines: 1,
-        widthRatio: 0.7,
-        minWidth: 150,
-        fontScale: 0.06,
-        minFontSize: 15,
-        maxFontSize: 22
-      }
-    case 'karaoke':
-      return {
-        maxLines: 2,
-        widthRatio: 0.78,
-        minWidth: 180,
-        maxWidth: 340,
-        fontScale: 0.054,
-        minFontSize: 14,
-        maxFontSize: 20
-      }
-    case 'beasty':
-      return {
-        maxLines: 3,
-        widthRatio: 0.82,
-        minWidth: 190,
-        maxWidth: 360,
-        fontScale: 0.053,
-        minFontSize: 14,
-        maxFontSize: 20
-      }
-    case 'youshaei':
-    case 'pod-p':
-      return {
-        maxLines: 2,
-        widthRatio: 0.8,
-        minWidth: 185,
-        maxWidth: 350,
-        fontScale: 0.052,
-        minFontSize: 14,
-        maxFontSize: 19
-      }
-    default:
-      return {
-        maxLines: 2,
-        widthRatio: 0.78,
-        minWidth: 180,
-        maxWidth: 340,
-        fontScale: 0.052,
-        minFontSize: 14,
-        maxFontSize: 19
-      }
-  }
 }
 
 export interface ExportOptions {
@@ -629,7 +562,7 @@ class ExportService {
     brandTemplate: BrandTemplate
   ): ExportCaptionSegment[] {
     const maxWordsPerCue = 3
-    const previewWidth = brandTemplate.frame.aspectRatio === '16:9' ? 640 : brandTemplate.frame.aspectRatio === '1:1' ? 430 : 300
+    const previewWidth = getCanonicalPreviewCanvas(brandTemplate.frame.aspectRatio).width
     const layout = getCaptionLayoutConfig(brandTemplate.caption.presetId)
     const paddingX = Math.max(0, brandTemplate.caption.backgroundPaddingX ?? 24)
     const bubbleWidth = layout.maxWidth

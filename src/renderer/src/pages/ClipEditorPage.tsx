@@ -18,6 +18,7 @@ import {
   IoVolumeHighOutline
 } from 'react-icons/io5'
 import type { BrandTemplate } from '@shared/types'
+import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '@shared/previewCanvas'
 
 const clipCaptionPresets = [
   {
@@ -160,16 +161,6 @@ type PreviewLogoState = {
 type PreviewFrameState = {
   aspectRatio: '9:16' | '1:1' | '16:9'
   cropMode: 'fit' | 'center' | 'blur'
-}
-
-type CaptionLayoutConfig = {
-  maxLines: number
-  widthRatio: number
-  minWidth: number
-  maxWidth?: number
-  fontScale: number
-  minFontSize: number
-  maxFontSize: number
 }
 
 type CaptionCue = {
@@ -414,64 +405,6 @@ const formatClockTime = (seconds: number) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${hundredths.toString().padStart(2, '0')}`
 }
 
-const getCaptionLayoutConfig = (
-  presetId: string | null | undefined,
-  _previewWidth: number
-): CaptionLayoutConfig => {
-  switch (presetId) {
-    case 'deep-diver':
-      return {
-        maxLines: 1,
-        widthRatio: 0.7,
-        minWidth: 150,
-        fontScale: 0.06,
-        minFontSize: 15,
-        maxFontSize: 22
-      }
-    case 'karaoke':
-      return {
-        maxLines: 2,
-        widthRatio: 0.78,
-        minWidth: 180,
-        maxWidth: 340,
-        fontScale: 0.054,
-        minFontSize: 14,
-        maxFontSize: 20
-      }
-    case 'beasty':
-      return {
-        maxLines: 3,
-        widthRatio: 0.82,
-        minWidth: 190,
-        maxWidth: 360,
-        fontScale: 0.053,
-        minFontSize: 14,
-        maxFontSize: 20
-      }
-    case 'youshaei':
-    case 'pod-p':
-      return {
-        maxLines: 2,
-        widthRatio: 0.8,
-        minWidth: 185,
-        maxWidth: 350,
-        fontScale: 0.052,
-        minFontSize: 14,
-        maxFontSize: 19
-      }
-    default:
-      return {
-        maxLines: 2,
-        widthRatio: 0.78,
-        minWidth: 180,
-        maxWidth: 340,
-        fontScale: 0.052,
-        minFontSize: 14,
-        maxFontSize: 19
-      }
-  }
-}
-
 export function ClipEditorPage() {
   const navigate = useNavigate()
   const { id: episodeId, clipId } = useParams<{ id: string; clipId: string }>()
@@ -493,7 +426,6 @@ export function ClipEditorPage() {
   const [isCaptionSelected, setIsCaptionSelected] = useState(false)
   const [isLogoSelected, setIsLogoSelected] = useState(false)
   const [dragGuides, setDragGuides] = useState({ horizontal: false, vertical: false })
-  const [previewFrameWidth, setPreviewFrameWidth] = useState(260)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isSavingClip, setIsSavingClip] = useState(false)
@@ -515,17 +447,21 @@ export function ClipEditorPage() {
       : framePreview?.aspectRatio === '16:9'
         ? 'aspect-video w-full max-w-[760px]'
         : 'aspect-[9/16] h-full max-h-[500px] w-full max-w-[300px]'
+  const previewCanvas = useMemo(
+    () => getCanonicalPreviewCanvas(framePreview?.aspectRatio ?? '9:16'),
+    [framePreview?.aspectRatio]
+  )
 
   const captionCueBuildOptions = useMemo<CaptionCueBuildOptions>(() => {
     const presetId = captionPreview?.presetId ?? null
-    const layout = getCaptionLayoutConfig(presetId, previewFrameWidth)
+    const layout = getCaptionLayoutConfig(presetId)
     const lineMode = captionPreview?.lineMode || 'one-line'
     const maxLines = lineMode === 'three-lines' ? 3 : 1
-    const rawBubbleWidth = Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
+    const rawBubbleWidth = Math.max(layout.minWidth, previewCanvas.width * layout.widthRatio)
     const maxBubbleWidth = layout.maxWidth ? Math.min(layout.maxWidth, rawBubbleWidth) : rawBubbleWidth
     const fontSize = clamp(captionPreview?.fontSize ?? 30, 12, 72)
     const paddingX = Math.max(0, captionPreview?.backgroundPaddingX ?? 24)
-    const maxTextWidth = Math.max(96, Math.min(maxBubbleWidth, previewFrameWidth - 24) - paddingX * 2)
+    const maxTextWidth = Math.max(96, Math.min(maxBubbleWidth, previewCanvas.width - 24) - paddingX * 2)
 
     return {
       maxWordsPerCue: 3,
@@ -534,7 +470,7 @@ export function ClipEditorPage() {
       fontFamily: captionPreview?.font || 'Inter',
       fontWeight: Number(captionPreview?.fontWeight ?? 700)
     }
-  }, [captionPreview, previewFrameWidth])
+  }, [captionPreview, previewCanvas.width])
 
   const captionCues = useMemo(
     () => buildCaptionCues(transcriptLines, captionCueBuildOptions),
@@ -598,7 +534,7 @@ export function ClipEditorPage() {
               }))
             : undefined
         }))
-        const initialLayout = getCaptionLayoutConfig(template?.caption.presetId ?? null, 260)
+          const initialLayout = getCaptionLayoutConfig(template?.caption.presetId ?? null)
         const initialFontSize = clamp(
           Math.round(Number(template?.caption.fontSize ?? 30) * (260 / 300)),
           initialLayout.minFontSize,
@@ -1150,22 +1086,6 @@ export function ClipEditorPage() {
 
   useEffect(() => {
     const previewFrame = previewFrameRef.current
-    if (!previewFrame || typeof ResizeObserver === 'undefined') return
-
-    const updateWidth = () => {
-      setPreviewFrameWidth(previewFrame.clientWidth || 260)
-    }
-
-    updateWidth()
-
-    const observer = new ResizeObserver(() => updateWidth())
-    observer.observe(previewFrame)
-
-    return () => observer.disconnect()
-  }, [])
-
-  useEffect(() => {
-    const previewFrame = previewFrameRef.current
     if (!previewFrame || (!isDraggingCaption && !isDraggingLogo)) return
 
     const getSnappedPosition = (rawX: number, rawY: number) => {
@@ -1503,7 +1423,7 @@ export function ClipEditorPage() {
                     ) : null}
                     {captionPreview?.text ? (
                       (() => {
-                        const layout = getCaptionLayoutConfig(captionPreview.presetId, previewFrameWidth)
+                        const layout = getCaptionLayoutConfig(captionPreview.presetId)
                         const maxLines =
                           captionPreview.lineMode === 'one-line'
                             ? 1
@@ -1511,8 +1431,8 @@ export function ClipEditorPage() {
                               ? 3
                               : layout.maxLines
                         const bubbleWidth = layout.maxWidth
-                          ? Math.min(layout.maxWidth, Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio))
-                          : Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio)
+                          ? Math.min(layout.maxWidth, Math.max(layout.minWidth, previewCanvas.width * layout.widthRatio))
+                          : Math.max(layout.minWidth, previewCanvas.width * layout.widthRatio)
                         const fontSize = clamp(captionPreview.fontSize, 12, 72)
                         const paddingX = Math.max(0, captionPreview.backgroundPaddingX)
                         const paddingY = Math.max(0, captionPreview.backgroundPaddingY)
@@ -1537,8 +1457,8 @@ export function ClipEditorPage() {
                           Number(captionPreview.fontWeight)
                         )
                         const maxBubbleWidth = Math.min(
-                          layout.maxWidth ?? Math.max(layout.minWidth, previewFrameWidth * layout.widthRatio),
-                          previewFrameWidth - 24
+                          layout.maxWidth ?? Math.max(layout.minWidth, previewCanvas.width * layout.widthRatio),
+                          previewCanvas.width - 24
                         )
                         const singleLineMaxWidth = Math.min(
                           maxBubbleWidth,
