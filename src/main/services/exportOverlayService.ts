@@ -3,7 +3,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
 import { pathToFileURL } from 'url'
 import type { ExportCaptionOverlayFrame, ExportCaptionSegment, ExportCaptionStyle } from '@shared/types/exportWorker'
-import { getCanonicalPreviewCanvas } from '@shared/previewCanvas'
+import { getCanonicalPreviewCanvas } from '../../shared/previewCanvas'
 
 type Resolution = { width: number; height: number }
 

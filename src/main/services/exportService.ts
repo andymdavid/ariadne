@@ -7,7 +7,7 @@ import { exportWorkerSupervisor } from './exportWorkerSupervisor'
 import { workflowReadModel } from './workflowReadModel'
 import { configService } from './configService'
 import type { BrandTemplate } from '@shared/types'
-import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '@shared/previewCanvas'
+import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '../../shared/previewCanvas'
 import type {
   ExportCaptionSegment,
   ExportCaptionStyle,
