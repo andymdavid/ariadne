@@ -463,8 +463,9 @@ class ExportService {
   ): Promise<ExportRenderTask[]> {
     const clipOrder = orderedClipIds || clips.map((clip) => clip.id)
     const brandTemplate = configService.getBrandTemplate()
+    const tasks: ExportRenderTask[] = []
 
-    return Promise.all(clips.map(async (clip, clipIndex) => {
+    for (const [clipIndex, clip] of clips.entries()) {
       console.log(`========================================`)
       console.log(`[ExportService] Preparing clip ${clipIndex + 1}/${clips.length}`)
       console.log(`[ExportService] Clip ID: ${clip.id}`)
@@ -512,7 +513,7 @@ class ExportService {
         frame: frameSettings
       })
 
-      return {
+      tasks.push({
         clipId: clip.id,
         clipIndex: clipOrder.indexOf(clip.id),
         totalClips: clipOrder.length,
@@ -527,8 +528,10 @@ class ExportService {
         logoSettings,
         musicSettings,
         frameSettings
-      }
-    }))
+      })
+    }
+
+    return tasks
   }
 
   private buildOutputFilename(clipId: string) {
