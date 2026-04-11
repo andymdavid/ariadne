@@ -9,6 +9,10 @@ import { configService } from './configService'
 import { exportOverlayService } from './exportOverlayService'
 import type { BrandTemplate } from '@shared/types'
 import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '../../shared/previewCanvas'
+import {
+  buildCaptionCues,
+  type CaptionCueLine
+} from '../../shared/captionCues'
 import type {
   ExportCaptionOverlayAsset,
   ExportCaptionOverlayFrame,
@@ -95,60 +99,6 @@ const isUpdatedAfter = (candidate?: string | null, baseline?: string | null) => 
   if (Number.isNaN(baselineTime)) return true
 
   return candidateTime > baselineTime
-}
-
-const normalizeCaptionText = (text: string) => text.replace(/\s+([,.!?;:])/g, '$1').trim()
-
-const estimateTextWidth = (
-  text: string,
-  fontSize: number,
-  fontWeight = 600
-) => {
-  const weightFactor = fontWeight >= 700 ? 0.62 : 0.58
-  return text.length * fontSize * weightFactor
-}
-
-const splitCaptionWords = (
-  words: string[],
-  maxWordsPerCue: number,
-  maxTextWidth?: number,
-  fontSize = 16,
-  fontWeight = 700
-) => {
-  if (!words.length) return []
-  if (!maxTextWidth || maxTextWidth <= 0) {
-    const chunks: string[][] = []
-    for (let index = 0; index < words.length; index += maxWordsPerCue) {
-      chunks.push(words.slice(index, index + maxWordsPerCue))
-    }
-    return chunks
-  }
-
-  const chunks: string[][] = []
-  let currentChunk: string[] = []
-
-  words.forEach((rawWord) => {
-    const word = rawWord.trim()
-    if (!word) return
-
-    const candidateChunk = [...currentChunk, word]
-    const candidateText = normalizeCaptionText(candidateChunk.join(' '))
-    const fitsWidth = estimateTextWidth(candidateText, fontSize, Number(fontWeight)) <= maxTextWidth
-
-    if (currentChunk.length > 0 && (candidateChunk.length > maxWordsPerCue || !fitsWidth)) {
-      chunks.push(currentChunk)
-      currentChunk = [word]
-      return
-    }
-
-    currentChunk = candidateChunk
-  })
-
-  if (currentChunk.length > 0) {
-    chunks.push(currentChunk)
-  }
-
-  return chunks
 }
 
 export interface ExportOptions {
@@ -631,7 +581,6 @@ class ExportService {
     transcriptSegments: ExportTranscriptSegment[],
     brandTemplate: BrandTemplate
   ): ExportCaptionSegment[] {
-    const maxWordsPerCue = 3
     const previewWidth = getCanonicalPreviewCanvas(brandTemplate.frame.aspectRatio).width
     const layout = getCaptionLayoutConfig(brandTemplate.caption.presetId)
     const paddingX = Math.max(0, brandTemplate.caption.backgroundPaddingX ?? 24)
@@ -640,99 +589,45 @@ class ExportService {
       : Math.max(layout.minWidth, previewWidth * layout.widthRatio)
     const maxTextWidth =
       (brandTemplate.caption.lineMode || 'one-line') === 'one-line'
-        ? Math.max(96, Math.min(bubbleWidth, 236) - paddingX * 2)
+        ? Math.max(96, Math.min(bubbleWidth, previewWidth - 24) - paddingX * 2)
         : undefined
     const fontSize = Number(brandTemplate.caption.fontSize ?? 30)
     const fontWeight = Number(brandTemplate.caption.fontWeight ?? 700)
-    const cues: ExportCaptionSegment[] = []
+    const cueLines: CaptionCueLine[] = transcriptSegments.map((segment, index) => ({
+      id: `${clipId}-segment-${index}`,
+      start: Math.max(0, Number(segment.start_time ?? segment.start ?? 0) - clipStartTime),
+      end: Math.max(
+        0,
+        Number(segment.end_time ?? segment.end ?? segment.start_time ?? segment.start ?? 0) - clipStartTime
+      ),
+      text: brandTemplate.caption.uppercase
+        ? String(segment.text || '').toUpperCase()
+        : String(segment.text || ''),
+      words: Array.isArray(segment.words)
+        ? segment.words.map((word) => ({
+            word: brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word,
+            start: Math.max(0, word.start - clipStartTime),
+            end: Math.max(0, word.end - clipStartTime)
+          }))
+        : undefined
+    }))
 
-    for (const segment of transcriptSegments) {
-      const words = Array.isArray(segment.words)
-        ? segment.words.filter(
-            (word) =>
-              word.word?.trim() &&
-              Number.isFinite(word.start) &&
-              Number.isFinite(word.end) &&
-              word.end > word.start
-          )
-        : []
-
-      if (words.length > 0) {
-        const timedChunks = splitCaptionWords(
-          words.map((word) => brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word),
-          maxWordsPerCue,
-          maxTextWidth,
-          fontSize,
-          fontWeight
-        )
-        let timedWordIndex = 0
-
-        for (let index = 0; index < timedChunks.length; index += 1) {
-          const chunkWords = timedChunks[index]
-          const chunk = words.slice(timedWordIndex, timedWordIndex + chunkWords.length)
-          timedWordIndex += chunkWords.length
-          if (!chunk.length) continue
-          const relativeStart = Math.max(0, chunk[0].start - clipStartTime)
-          const relativeEnd = Math.max(relativeStart, chunk[chunk.length - 1].end - clipStartTime)
-          cues.push({
-            text: normalizeCaptionText(chunkWords.join(' ')),
-            start: relativeStart,
-            end: relativeEnd,
-            words: chunk.map((word) => ({
-              word: brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word,
-              start: Math.max(0, word.start - clipStartTime),
-              end: Math.max(0, word.end - clipStartTime)
-            }))
-          })
-        }
-        continue
-      }
-
-      const text = String(segment.text || '').trim()
-      const start = Math.max(0, Number(segment.start_time ?? segment.start ?? 0) - clipStartTime)
-      const end = Math.max(start, Number(segment.end_time ?? segment.end ?? start) - clipStartTime)
-      if (!text || end <= start) continue
-
-      const fallbackWords = (brandTemplate.caption.uppercase ? text.toUpperCase() : text).split(/\s+/).filter(Boolean)
-      const totalDuration = Math.max(end - start, 0.01)
-      const fallbackChunks = splitCaptionWords(
-        fallbackWords,
-        maxWordsPerCue,
-        maxTextWidth,
-        fontSize,
-        fontWeight
-      )
-      const chunkCount = Math.max(fallbackChunks.length, 1)
-      const chunkDuration = totalDuration / chunkCount
-
-      fallbackChunks.forEach((chunk, chunkIndex) => {
-        const chunkStart = start + chunkIndex * chunkDuration
-        const chunkEnd =
-          chunkIndex === chunkCount - 1
-            ? end
-            : Math.min(end, chunkStart + chunkDuration)
-
-        cues.push({
-          text: normalizeCaptionText(chunk.join(' ')),
-          start: chunkStart,
-          end: chunkEnd,
-          words: chunk.map((word, wordIndex) => {
-            const wordDuration = chunkDuration / Math.max(chunk.length, 1)
-            const wordStart = chunkStart + wordIndex * wordDuration
-            const wordEnd =
-              chunkIndex === chunkCount - 1 && wordIndex === chunk.length - 1
-                ? chunkEnd
-                : Math.min(chunkEnd, wordStart + wordDuration)
-
-            return {
-              word,
-              start: wordStart,
-              end: wordEnd
-            }
-          })
-        })
-      })
-    }
+    const cues = buildCaptionCues(cueLines, {
+      maxWordsPerCue: 3,
+      maxTextWidth,
+      fontSize,
+      fontFamily: brandTemplate.caption.font || 'Inter',
+      fontWeight
+    }).map<ExportCaptionSegment>((cue) => ({
+      text: cue.text,
+      start: cue.start,
+      end: cue.end,
+      words: cue.words.map((word) => ({
+        word: word.word,
+        start: word.start,
+        end: word.end
+      }))
+    }))
 
     console.log(`[ExportService] Built ${cues.length} transcript-derived caption cues for clip ${clipId}`)
     return cues
