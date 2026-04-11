@@ -48,12 +48,14 @@ class ExportOverlayService {
       const words = Array.isArray(segment.words) ? segment.words.filter((word) => word.word?.trim()) : []
 
       if (words.length > 0) {
+        const displayWords = words.map((word) => word.word.trim()).filter(Boolean)
         for (let activeIndex = 0; activeIndex < words.length; activeIndex += 1) {
           const activeWord = words[activeIndex]
+          const nextWord = words[activeIndex + 1]
           const imagePath = join(this.tempDir, `${clipId}_${segmentIndex}_${activeIndex}.png`)
           await this.writeCaptionPng(
             imagePath,
-            words.map((word) => word.word.trim()).filter(Boolean),
+            displayWords,
             activeIndex,
             style,
             resolution
@@ -61,7 +63,7 @@ class ExportOverlayService {
           frames.push({
             imagePath,
             start: activeWord.start,
-            end: activeWord.end
+            end: nextWord ? Math.max(activeWord.start, nextWord.start) : Math.max(activeWord.start, segment.end)
           })
         }
         continue
