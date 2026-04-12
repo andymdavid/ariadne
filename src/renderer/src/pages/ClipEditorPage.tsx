@@ -269,6 +269,7 @@ export function ClipEditorPage() {
   const [error, setError] = useState<string | null>(null)
   const [isUpdatingVideoSource, setIsUpdatingVideoSource] = useState(false)
   const [isSavingClip, setIsSavingClip] = useState(false)
+  const [isSavingAllClips, setIsSavingAllClips] = useState(false)
   const [saveClipFeedback, setSaveClipFeedback] = useState<'idle' | 'saved'>('idle')
   const [timelineZoom, setTimelineZoom] = useState(1.15)
   const [timelineWaveform, setTimelineWaveform] = useState<number[]>([])
@@ -958,6 +959,28 @@ export function ClipEditorPage() {
     dragStartRef.current = { x: event.clientX, y: event.clientY }
   }
 
+  const buildClipEditPayload = () => {
+    if (!captionPreview || !framePreview) return null
+
+    const clipEditPayload: Record<string, unknown> = {
+      aspect_ratio: framePreview.aspectRatio,
+      crop_mode: framePreview.cropMode,
+      crop_position_x: framePreview.cropPositionX,
+      crop_position_y: framePreview.cropPositionY,
+      zoom_level: framePreview.zoomLevel,
+      video_offset_x: framePreview.videoOffsetX,
+      video_offset_y: framePreview.videoOffsetY
+    }
+
+    if (captionPreview.position === 'custom') {
+      clipEditPayload.caption_position = 'custom'
+      clipEditPayload.caption_custom_x = captionPreview.customX
+      clipEditPayload.caption_custom_y = captionPreview.customY
+    }
+
+    return clipEditPayload
+  }
+
   const cycleCaptionPreset = () => {
     setCaptionPreview((current) => {
       if (!current) return current
@@ -979,28 +1002,15 @@ export function ClipEditorPage() {
   }
 
   const handleSaveClipEdits = async () => {
-    if (!clipId || !captionPreview || !framePreview) return
+    if (!clipId) return
+
+    const clipEditPayload = buildClipEditPayload()
+    if (!clipEditPayload) return
 
     setIsSavingClip(true)
     setSaveClipFeedback('idle')
 
     try {
-      const clipEditPayload: Record<string, unknown> = {
-        aspect_ratio: framePreview.aspectRatio,
-        crop_mode: framePreview.cropMode,
-        crop_position_x: framePreview.cropPositionX,
-        crop_position_y: framePreview.cropPositionY,
-        zoom_level: framePreview.zoomLevel,
-        video_offset_x: framePreview.videoOffsetX,
-        video_offset_y: framePreview.videoOffsetY
-      }
-
-      if (captionPreview.position === 'custom') {
-        clipEditPayload.caption_position = 'custom'
-        clipEditPayload.caption_custom_x = captionPreview.customX
-        clipEditPayload.caption_custom_y = captionPreview.customY
-      }
-
       await window.electronAPI?.saveClipEdits?.(clipId, {
         ...clipEditPayload
       })
@@ -1016,6 +1026,42 @@ export function ClipEditorPage() {
       console.error('Failed to save clip edits:', saveError)
     } finally {
       setIsSavingClip(false)
+    }
+  }
+
+  const handleSaveToAllClips = async () => {
+    if (!episodeId) return
+
+    const clipEditPayload = buildClipEditPayload()
+    if (!clipEditPayload) return
+
+    setIsSavingAllClips(true)
+    setSaveClipFeedback('idle')
+
+    try {
+      const episodeClips = await window.electronAPI?.getEpisodeClips?.(episodeId)
+
+      if (!episodeClips || episodeClips.length === 0) {
+        throw new Error('No clips found for this episode')
+      }
+
+      for (const episodeClip of episodeClips) {
+        await window.electronAPI?.saveClipEdits?.(episodeClip.id, {
+          ...clipEditPayload
+        })
+      }
+
+      if (saveFeedbackTimeoutRef.current) {
+        window.clearTimeout(saveFeedbackTimeoutRef.current)
+      }
+      setSaveClipFeedback('saved')
+      saveFeedbackTimeoutRef.current = window.setTimeout(() => {
+        setSaveClipFeedback('idle')
+      }, 1600)
+    } catch (saveError) {
+      console.error('Failed to save clip edits to all clips:', saveError)
+    } finally {
+      setIsSavingAllClips(false)
     }
   }
 
@@ -1320,6 +1366,15 @@ export function ClipEditorPage() {
               >
                 <IoCheckmarkCircleOutline size={16} />
                 {isSavingClip ? 'Saving...' : saveClipFeedback === 'saved' ? 'Saved' : 'Save clip'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveToAllClips()}
+                disabled={isSavingAllClips}
+                className="app-action-secondary clip-editor-header-action"
+              >
+                <IoCheckmarkCircleOutline size={16} />
+                {isSavingAllClips ? 'Saving all...' : 'Save to all'}
               </button>
               <button
                 type="button"
