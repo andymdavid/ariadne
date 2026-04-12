@@ -309,9 +309,22 @@ export class VideoGenerationService {
           }
         }
       ]
+      delete payload.aspect_ratio
     } else {
       payload.aspect_ratio = job.aspectRatio
     }
+
+    const payloadDebug = {
+      jobId: job.id,
+      model: payload.model,
+      duration: payload.duration,
+      resolution: payload.resolution,
+      aspect_ratio: Object.prototype.hasOwnProperty.call(payload, 'aspect_ratio')
+        ? payload.aspect_ratio
+        : undefined,
+      hasInputReferences: Array.isArray(payload.input_references) && payload.input_references.length > 0
+    }
+    console.log('[VideoGeneration] submitting payload', payloadDebug)
 
     const response = await fetch('https://openrouter.ai/api/v1/videos', {
       method: 'POST',
