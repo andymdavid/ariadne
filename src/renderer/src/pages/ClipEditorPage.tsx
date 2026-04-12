@@ -251,6 +251,7 @@ export function ClipEditorPage() {
   const [clipVisualSource, setClipVisualSource] = useState<ClipVisualSource | null>(null)
   const [generatedVideoAssets, setGeneratedVideoAssets] = useState<GeneratedVideoAsset[]>([])
   const [transcriptLines, setTranscriptLines] = useState<EditableTranscriptLine[]>([])
+  const [transcriptDraft, setTranscriptDraft] = useState('')
   const [isTranscriptOnly, setIsTranscriptOnly] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -422,6 +423,7 @@ export function ClipEditorPage() {
         setMediaUrl(resolvedSource?.sourcePath ? `app-file://${resolvedSource.sourcePath}` : null)
         setVideoMetadata(null)
         setTranscriptLines(mappedSegments)
+        setTranscriptDraft(mappedSegments.map((segment) => segment.text).join('\n\n'))
         setCurrentTime(mappedClip.startTime)
         const activeCaptionText =
           initialCaptionCues.find((cue) => mappedClip.startTime >= cue.start && mappedClip.startTime <= cue.end)?.text ||
@@ -1034,23 +1036,40 @@ export function ClipEditorPage() {
     }
   }
 
-  const handleTranscriptLineChange = (lineId: string, nextText: string) => {
-    setTranscriptLines((currentLines) =>
-      currentLines.map((line) => (line.id === lineId ? { ...line, text: nextText } : line))
-    )
+  const applyTranscriptDraftToLines = (draft: string, sourceLines: EditableTranscriptLine[]) => {
+    const normalized = draft.replace(/\r\n/g, '\n')
+    const chunks = normalized
+      .split(/\n{2,}/)
+      .map((chunk) => chunk.trim())
+
+    return sourceLines.map((line, index) => ({
+      ...line,
+      text: chunks[index] ?? ''
+    }))
   }
 
-  const handleTranscriptLineBlur = async (lineId: string, episodeSegmentIndex: number, nextText: string) => {
+  const handleTranscriptDraftChange = (nextDraft: string) => {
+    setTranscriptDraft(nextDraft)
+    setTranscriptLines((currentLines) => applyTranscriptDraftToLines(nextDraft, currentLines))
+  }
+
+  const handleTranscriptDraftBlur = async () => {
     if (!episodeId) return
 
-    setSavingTranscriptLineId(lineId)
+    const linesToSave = applyTranscriptDraftToLines(transcriptDraft, transcriptLines)
 
     try {
-      await window.electronAPI?.updateTranscriptSegment?.(episodeId, episodeSegmentIndex, nextText)
+      for (const line of linesToSave) {
+        if (!line.text.trim()) continue
+        setSavingTranscriptLineId(line.id)
+        await window.electronAPI?.updateTranscriptSegment?.(episodeId, line.episodeSegmentIndex, line.text)
+      }
+      setTranscriptLines(linesToSave)
+      setTranscriptDraft(linesToSave.map((line) => line.text).join('\n\n'))
     } catch (transcriptError) {
-      console.error('Failed to save transcript segment:', transcriptError)
+      console.error('Failed to save transcript draft:', transcriptError)
     } finally {
-      setSavingTranscriptLineId((current) => (current === lineId ? null : current))
+      setSavingTranscriptLineId(null)
     }
   }
 
@@ -1431,26 +1450,12 @@ export function ClipEditorPage() {
               </div>
 
               <div ref={transcriptScrollerRef} className="min-h-0 overflow-y-auto pr-2">
-                <div className="space-y-5 text-[15px] leading-8 text-[#d8dbe2]">
-                  {transcriptLines.map((line) => (
-                    <div
-                      key={line.id}
-                      data-line-id={line.id}
-                      className={`clip-editor-transcript-line ${
-                        activeLineId === line.id ? 'is-active' : ''
-                      }`}
-                    >
-                      <textarea
-                        value={line.text}
-                        onChange={(event) => handleTranscriptLineChange(line.id, event.target.value)}
-                        onBlur={(event) =>
-                          void handleTranscriptLineBlur(line.id, line.episodeSegmentIndex, event.target.value)
-                        }
-                        className="brand-control-textarea min-h-[56px] w-full resize-y bg-transparent text-[15px] leading-8 text-[#d8dbe2]"
-                      />
-                    </div>
-                  ))}
-                </div>
+                <textarea
+                  value={transcriptDraft}
+                  onChange={(event) => handleTranscriptDraftChange(event.target.value)}
+                  onBlur={() => void handleTranscriptDraftBlur()}
+                  className="brand-control-textarea min-h-[560px] w-full resize-none bg-transparent text-[15px] leading-8 text-[#d8dbe2]"
+                />
               </div>
             </div>
           </section>
