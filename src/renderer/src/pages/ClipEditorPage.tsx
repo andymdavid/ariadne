@@ -1037,34 +1037,6 @@ export function ClipEditorPage() {
     })
   }
 
-  const handleSaveClipEdits = async () => {
-    if (!clipId) return
-
-    const clipEditPayload = buildClipEditPayload()
-    if (!clipEditPayload) return
-
-    setIsSavingClip(true)
-    setSaveClipFeedback('idle')
-
-    try {
-      await window.electronAPI?.saveClipEdits?.(clipId, {
-        ...clipEditPayload
-      })
-
-      if (saveFeedbackTimeoutRef.current) {
-        window.clearTimeout(saveFeedbackTimeoutRef.current)
-      }
-      setSaveClipFeedback('saved')
-      saveFeedbackTimeoutRef.current = window.setTimeout(() => {
-        setSaveClipFeedback('idle')
-      }, 1600)
-    } catch (saveError) {
-      console.error('Failed to save clip edits:', saveError)
-    } finally {
-      setIsSavingClip(false)
-    }
-  }
-
   const applyTranscriptDraftToLines = (draft: string, sourceLines: EditableTranscriptLine[]) => {
     const normalized = draft.replace(/\r\n/g, '\n')
     const chunks = normalized
@@ -1083,7 +1055,7 @@ export function ClipEditorPage() {
     setTranscriptLines((currentLines) => applyTranscriptDraftToLines(nextDraft, currentLines))
   }
 
-  const handleTranscriptDraftBlur = async () => {
+  const persistTranscriptDraft = async () => {
     if (!episodeId) return
 
     const linesToSave = applyTranscriptDraftToLines(transcriptDraft, transcriptLines)
@@ -1100,6 +1072,39 @@ export function ClipEditorPage() {
       console.error('Failed to save transcript draft:', transcriptError)
     } finally {
       setSavingTranscriptLineId(null)
+    }
+  }
+
+  const handleTranscriptDraftBlur = async () => {
+    await persistTranscriptDraft()
+  }
+
+  const handleSaveClipEdits = async () => {
+    if (!clipId) return
+
+    const clipEditPayload = buildClipEditPayload()
+    if (!clipEditPayload) return
+
+    setIsSavingClip(true)
+    setSaveClipFeedback('idle')
+
+    try {
+      await persistTranscriptDraft()
+      await window.electronAPI?.saveClipEdits?.(clipId, {
+        ...clipEditPayload
+      })
+
+      if (saveFeedbackTimeoutRef.current) {
+        window.clearTimeout(saveFeedbackTimeoutRef.current)
+      }
+      setSaveClipFeedback('saved')
+      saveFeedbackTimeoutRef.current = window.setTimeout(() => {
+        setSaveClipFeedback('idle')
+      }, 1600)
+    } catch (saveError) {
+      console.error('Failed to save clip edits:', saveError)
+    } finally {
+      setIsSavingClip(false)
     }
   }
 
