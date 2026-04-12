@@ -117,6 +117,9 @@ type ClipRecord = {
 }
 
 type TranscriptLine = CaptionCueLine
+type EditableTranscriptLine = TranscriptLine & {
+  episodeSegmentIndex: number
+}
 
 type PreviewCaptionState = {
   presetId?: string | null
@@ -247,7 +250,7 @@ export function ClipEditorPage() {
   const [resolvedVideoSource, setResolvedVideoSource] = useState<ResolvedClipVideoSource | null>(null)
   const [clipVisualSource, setClipVisualSource] = useState<ClipVisualSource | null>(null)
   const [generatedVideoAssets, setGeneratedVideoAssets] = useState<GeneratedVideoAsset[]>([])
-  const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([])
+  const [transcriptLines, setTranscriptLines] = useState<EditableTranscriptLine[]>([])
   const [isTranscriptOnly, setIsTranscriptOnly] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -267,6 +270,7 @@ export function ClipEditorPage() {
   const [dragGuides, setDragGuides] = useState({ horizontal: false, vertical: false })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [savingTranscriptLineId, setSavingTranscriptLineId] = useState<string | null>(null)
   const [isUpdatingVideoSource, setIsUpdatingVideoSource] = useState(false)
   const [isSavingClip, setIsSavingClip] = useState(false)
   const [isSavingAllClips, setIsSavingAllClips] = useState(false)
@@ -365,11 +369,12 @@ export function ClipEditorPage() {
 
         const template = brandTemplate as BrandTemplate | null
         const savedEdits = clipEdits as Record<string, any> | null
-        const mappedSegments: TranscriptLine[] = (segments || []).map((segment: any) => ({
+        const mappedSegments: EditableTranscriptLine[] = (segments || []).map((segment: any) => ({
           id: segment.id,
           start: Number(segment.start_time ?? segment.start ?? 0),
           end: Number(segment.end_time ?? segment.end ?? 0),
           text: segment.text || '',
+          episodeSegmentIndex: Number(segment.episode_segment_index ?? 0),
           words: Array.isArray(segment.words)
             ? segment.words.map((word: any) => ({
                 word: word.word || '',
@@ -1029,6 +1034,26 @@ export function ClipEditorPage() {
     }
   }
 
+  const handleTranscriptLineChange = (lineId: string, nextText: string) => {
+    setTranscriptLines((currentLines) =>
+      currentLines.map((line) => (line.id === lineId ? { ...line, text: nextText } : line))
+    )
+  }
+
+  const handleTranscriptLineBlur = async (lineId: string, episodeSegmentIndex: number, nextText: string) => {
+    if (!episodeId) return
+
+    setSavingTranscriptLineId(lineId)
+
+    try {
+      await window.electronAPI?.updateTranscriptSegment?.(episodeId, episodeSegmentIndex, nextText)
+    } catch (transcriptError) {
+      console.error('Failed to save transcript segment:', transcriptError)
+    } finally {
+      setSavingTranscriptLineId((current) => (current === lineId ? null : current))
+    }
+  }
+
   const handleSaveToAllClips = async () => {
     if (!episodeId) return
 
@@ -1392,14 +1417,17 @@ export function ClipEditorPage() {
             <div className="workspace-panel-scroll">
               <div className="mb-5 flex items-center justify-between gap-4">
                 <h2 className="workspace-panel-title !mt-0">Transcript</h2>
-                <label className="clip-editor-transcript-toggle">
-                  <input
-                    type="checkbox"
-                    checked={isTranscriptOnly}
-                    onChange={(event) => setIsTranscriptOnly(event.target.checked)}
-                  />
-                  Transcript only
-                </label>
+                <div className="flex items-center gap-4">
+                  {savingTranscriptLineId ? <div className="text-xs text-text-muted">Saving…</div> : null}
+                  <label className="clip-editor-transcript-toggle">
+                    <input
+                      type="checkbox"
+                      checked={isTranscriptOnly}
+                      onChange={(event) => setIsTranscriptOnly(event.target.checked)}
+                    />
+                    Transcript only
+                  </label>
+                </div>
               </div>
 
               <div ref={transcriptScrollerRef} className="min-h-0 overflow-y-auto pr-2">
@@ -1412,7 +1440,14 @@ export function ClipEditorPage() {
                         activeLineId === line.id ? 'is-active' : ''
                       }`}
                     >
-                      {line.text}
+                      <textarea
+                        value={line.text}
+                        onChange={(event) => handleTranscriptLineChange(line.id, event.target.value)}
+                        onBlur={(event) =>
+                          void handleTranscriptLineBlur(line.id, line.episodeSegmentIndex, event.target.value)
+                        }
+                        className="brand-control-textarea min-h-[56px] w-full resize-y bg-transparent text-[15px] leading-8 text-[#d8dbe2]"
+                      />
                     </div>
                   ))}
                 </div>
