@@ -946,6 +946,18 @@ export function ClipEditorPage() {
     await persistFrameEdits(nextFrame)
   }
 
+  const handlePreviewFrameMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    setIsCaptionSelected(false)
+    setIsLogoSelected(false)
+
+    if (!trackerEnabled || event.button !== 0 || !framePreview) return
+    if (framePreview.cropMode !== 'fit' && framePreview.cropMode !== 'center') return
+
+    event.preventDefault()
+    setIsDraggingVideo(true)
+    dragStartRef.current = { x: event.clientX, y: event.clientY }
+  }
+
   const cycleCaptionPreset = () => {
     setCaptionPreview((current) => {
       if (!current) return current
@@ -1489,10 +1501,7 @@ export function ClipEditorPage() {
               <div
                 ref={previewFrameRef}
                 className={`clip-editor-preview-frame relative min-h-0 overflow-hidden ${previewAspectClass}`}
-                onMouseDown={() => {
-                  setIsCaptionSelected(false)
-                  setIsLogoSelected(false)
-                }}
+                onMouseDown={handlePreviewFrameMouseDown}
               >
                     <div
                       className={`brand-template-preview-safe-area ${
@@ -1537,15 +1546,6 @@ export function ClipEditorPage() {
                         onTimeUpdate={handleVideoTimeUpdate}
                         onPlay={handleVideoPlay}
                         onPause={handleVideoPause}
-                        onMouseDown={(event) => {
-                          if (!trackerEnabled || event.button !== 0 || !framePreview) return
-                          if (framePreview.cropMode === 'fit' || framePreview.cropMode === 'center') {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            setIsDraggingVideo(true)
-                            dragStartRef.current = { x: event.clientX, y: event.clientY }
-                          }
-                        }}
                         style={(() => {
                           if (!framePreview) return undefined
 
