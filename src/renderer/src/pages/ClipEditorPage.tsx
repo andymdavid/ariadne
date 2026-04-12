@@ -333,12 +333,21 @@ export function ClipEditorPage() {
   )
 
   const activeCaptionCue = useMemo(() => {
-    return (
-      captionCues.find((cue) => currentTime >= cue.start && currentTime <= cue.end) ||
-      captionCues.find((cue) => cue.start >= currentTime) ||
-      captionCues[captionCues.length - 1] ||
-      null
-    )
+    if (!captionCues.length) return null
+
+    const activeCue = captionCues.find((cue) => currentTime >= cue.start && currentTime <= cue.end)
+    if (activeCue) return activeCue
+
+    const nextCueIndex = captionCues.findIndex((cue) => currentTime < cue.start)
+    if (nextCueIndex === 0) {
+      return captionCues[0]
+    }
+
+    if (nextCueIndex > 0) {
+      return captionCues[nextCueIndex - 1]
+    }
+
+    return captionCues[captionCues.length - 1]
   }, [captionCues, currentTime])
 
   useEffect(() => {
