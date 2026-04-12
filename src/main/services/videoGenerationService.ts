@@ -297,7 +297,6 @@ export class VideoGenerationService {
       prompt: this.composePrompt(job),
       duration: job.durationSeconds,
       resolution: modelResolutionDefaults[job.modelId] ?? '720p',
-      aspect_ratio: job.aspectRatio,
       generate_audio: false
     }
 
@@ -310,6 +309,8 @@ export class VideoGenerationService {
           }
         }
       ]
+    } else {
+      payload.aspect_ratio = job.aspectRatio
     }
 
     const response = await fetch('https://openrouter.ai/api/v1/videos', {
