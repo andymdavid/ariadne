@@ -717,11 +717,27 @@ class ExportService {
   }
 
   private buildMusicSettings(clipEdits: ClipEditsRow | undefined, brandTemplate: BrandTemplate): ExportMusicSettings | undefined {
-    const enabled = clipEdits?.music_enabled != null
-      ? Boolean(clipEdits.music_enabled)
+    const clipOverridesCurrent = isUpdatedAfter(clipEdits?.updated_at, brandTemplate.updatedAt)
+    const useMusicOverride =
+      clipOverridesCurrent &&
+      (
+        clipEdits?.music_enabled != null ||
+        clipEdits?.music_path != null ||
+        clipEdits?.music_volume != null ||
+        clipEdits?.music_duck_volume != null ||
+        clipEdits?.music_duck_enabled != null ||
+        clipEdits?.music_fade_in != null ||
+        clipEdits?.music_fade_out != null ||
+        clipEdits?.music_loop != null
+      )
+
+    const enabled = useMusicOverride
+      ? Boolean(clipEdits?.music_enabled)
       : brandTemplate.music.enabled || Boolean(brandTemplate.music.assetPath)
 
-    const musicPath = clipEdits?.music_path ?? brandTemplate.music.assetPath ?? null
+    const musicPath = useMusicOverride
+      ? clipEdits?.music_path ?? null
+      : brandTemplate.music.assetPath ?? null
     if (!enabled || !musicPath) {
       return undefined
     }
@@ -729,16 +745,12 @@ class ExportService {
     return {
       enabled: true,
       musicPath,
-      volume: clipEdits?.music_volume ?? brandTemplate.music.volume ?? 0.3,
-      duckVolume: clipEdits?.music_duck_volume ?? 0.1,
-      // Do not silently duck Brand Template music just because a clip_edits row exists.
-      // Match the current preview behavior unless ducking was explicitly configured.
-      duckEnabled: clipEdits?.music_duck_enabled != null
-        ? clipEdits.music_duck_enabled === 1
-        : false,
-      fadeIn: clipEdits?.music_fade_in ?? 1.0,
-      fadeOut: clipEdits?.music_fade_out ?? 1.0,
-      loop: clipEdits?.music_loop != null ? clipEdits.music_loop === 1 : true
+      volume: useMusicOverride ? (clipEdits?.music_volume ?? brandTemplate.music.volume ?? 0.3) : (brandTemplate.music.volume ?? 0.3),
+      duckVolume: useMusicOverride ? (clipEdits?.music_duck_volume ?? 0.1) : 0.1,
+      duckEnabled: useMusicOverride ? clipEdits?.music_duck_enabled === 1 : false,
+      fadeIn: useMusicOverride ? (clipEdits?.music_fade_in ?? 1.0) : 1.0,
+      fadeOut: useMusicOverride ? (clipEdits?.music_fade_out ?? 1.0) : 1.0,
+      loop: useMusicOverride ? clipEdits?.music_loop === 1 : true
     }
   }
 
