@@ -1114,6 +1114,9 @@ export function ClipEditorPage() {
 
     setCaptionPreview((currentCaption) => {
       if (!currentCaption) return currentCaption
+      if (transcriptDraft.trim().length > 0) {
+        return currentCaption
+      }
       const nextText =
         currentCaption.presetId === 'none'
           ? ''
@@ -1128,7 +1131,7 @@ export function ClipEditorPage() {
         text: nextText
       }
     })
-  }, [activeCaptionCue, captionCues])
+  }, [activeCaptionCue, captionCues, transcriptDraft])
 
   useEffect(() => {
     const previewFrame = previewFrameRef.current
@@ -1433,7 +1436,7 @@ export function ClipEditorPage() {
 
         <div className="workspace-grid clip-editor-grid">
           <section className="workspace-panel clip-editor-transcript-panel">
-            <div className="workspace-panel-scroll">
+            <div className="workspace-panel-scroll clip-editor-transcript-scroll">
               <div className="mb-5 flex items-center justify-between gap-4">
                 <h2 className="workspace-panel-title !mt-0">Transcript</h2>
                 <div className="flex items-center gap-4">
@@ -1449,12 +1452,12 @@ export function ClipEditorPage() {
                 </div>
               </div>
 
-              <div ref={transcriptScrollerRef} className="min-h-0 overflow-y-auto pr-2">
+              <div ref={transcriptScrollerRef} className="min-h-0 flex-1">
                 <textarea
                   value={transcriptDraft}
                   onChange={(event) => handleTranscriptDraftChange(event.target.value)}
                   onBlur={() => void handleTranscriptDraftBlur()}
-                  className="brand-control-textarea min-h-[560px] w-full resize-none bg-transparent text-[15px] leading-8 text-[#d8dbe2]"
+                  className="clip-editor-transcript-editor"
                 />
               </div>
             </div>
