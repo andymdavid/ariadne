@@ -159,12 +159,29 @@ type PreviewLogoState = {
 type PreviewFrameState = {
   aspectRatio: '9:16' | '1:1' | '16:9'
   cropMode: 'fit' | 'center' | 'blur'
+  cropPositionX: number
+  cropPositionY: number
+  zoomLevel: number
+  videoOffsetX: number
+  videoOffsetY: number
+}
+
+type VideoMetadata = {
+  width: number
+  height: number
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 const getFontFamilyValue = (fontFamily: string) => `"${fontFamily}", "Hedvig Letters Sans", system-ui, sans-serif`
 const isLegacyDefaultLogoPosition = (x: unknown, y: unknown) =>
   Number(x) === 85 && Number(y) === 85
+const clampZoom = (value?: number) => clamp(value ?? 1, 0.5, 4)
+const getAspectResolution = (aspectRatio: PreviewFrameState['aspectRatio']) =>
+  aspectRatio === '16:9'
+    ? { width: 1920, height: 1080 }
+    : aspectRatio === '1:1'
+      ? { width: 1080, height: 1080 }
+      : { width: 1080, height: 1920 }
 
 const getTimedClipCaptionWordState = (
   cue: CaptionCue | null,
@@ -243,8 +260,10 @@ export function ClipEditorPage() {
   const [trackerEnabled, setTrackerEnabled] = useState(true)
   const [isDraggingCaption, setIsDraggingCaption] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
+  const [isDraggingVideo, setIsDraggingVideo] = useState(false)
   const [isCaptionSelected, setIsCaptionSelected] = useState(false)
   const [isLogoSelected, setIsLogoSelected] = useState(false)
+  const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null)
   const [dragGuides, setDragGuides] = useState({ horizontal: false, vertical: false })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -261,6 +280,7 @@ export function ClipEditorPage() {
   const previewFrameRef = useRef<HTMLDivElement>(null)
   const saveFeedbackTimeoutRef = useRef<number | null>(null)
   const playbackFrameRef = useRef<number | null>(null)
+  const dragStartRef = useRef({ x: 0, y: 0 })
 
   const previewAspectClass =
     framePreview?.aspectRatio === '1:1'
@@ -394,6 +414,7 @@ export function ClipEditorPage() {
         )
         setResolvedVideoSource(resolvedSource ?? null)
         setMediaUrl(resolvedSource?.sourcePath ? `app-file://${resolvedSource.sourcePath}` : null)
+        setVideoMetadata(null)
         setTranscriptLines(mappedSegments)
         setCurrentTime(mappedClip.startTime)
         const activeCaptionText =
@@ -464,7 +485,12 @@ export function ClipEditorPage() {
             (useFrameOverride ? savedEdits?.crop_mode : null) ||
             template?.frame.cropMode ||
             'fit'
-          ) as PreviewFrameState['cropMode']
+          ) as PreviewFrameState['cropMode'],
+          cropPositionX: Number(savedEdits?.crop_position_x ?? 50),
+          cropPositionY: Number(savedEdits?.crop_position_y ?? 50),
+          zoomLevel: clampZoom(Number(savedEdits?.zoom_level ?? 1)),
+          videoOffsetX: Number(savedEdits?.video_offset_x ?? 0),
+          videoOffsetY: Number(savedEdits?.video_offset_y ?? 0)
         })
 
         setMusicEnabled(template?.music.enabled ?? false)
@@ -500,6 +526,7 @@ export function ClipEditorPage() {
       setClipVisualSource(nextVisualSource ?? null)
       setResolvedVideoSource(nextResolvedSource ?? null)
       setMediaUrl(nextResolvedSource?.sourcePath ? `app-file://${nextResolvedSource.sourcePath}` : null)
+      setVideoMetadata(null)
       setTimelineThumbnails({})
     } catch (sourceError) {
       console.error('Failed to update clip video source:', sourceError)
@@ -545,6 +572,10 @@ export function ClipEditorPage() {
   const handleVideoLoadedMetadata = () => {
     const video = videoRef.current
     if (!video || !clip) return
+    setVideoMetadata({
+      width: video.videoWidth,
+      height: video.videoHeight
+    })
     video.currentTime = clip.startTime
     syncAudioToVideo(clip.startTime, true)
     setCurrentTime(clip.startTime)
@@ -858,7 +889,12 @@ export function ClipEditorPage() {
     if (!clipId) return
     await window.electronAPI?.saveClipEdits?.(clipId, {
       aspect_ratio: nextFrame.aspectRatio,
-      crop_mode: nextFrame.cropMode
+      crop_mode: nextFrame.cropMode,
+      crop_position_x: nextFrame.cropPositionX,
+      crop_position_y: nextFrame.cropPositionY,
+      zoom_level: nextFrame.zoomLevel,
+      video_offset_x: nextFrame.videoOffsetX,
+      video_offset_y: nextFrame.videoOffsetY
     })
   }
 
@@ -875,7 +911,37 @@ export function ClipEditorPage() {
     if (!framePreview) return
     const currentIndex = cropModeCycle.indexOf(framePreview.cropMode)
     const nextCropMode = cropModeCycle[(currentIndex + 1) % cropModeCycle.length]
-    const nextFrame = { ...framePreview, cropMode: nextCropMode }
+    const nextFrame = {
+      ...framePreview,
+      cropMode: nextCropMode,
+      ...(nextCropMode === 'fit'
+        ? {
+            zoomLevel: clampZoom(framePreview.zoomLevel),
+            videoOffsetX: framePreview.videoOffsetX ?? 0,
+            videoOffsetY: framePreview.videoOffsetY ?? 0
+          }
+        : {})
+    }
+    setFramePreview(nextFrame)
+    await persistFrameEdits(nextFrame)
+  }
+
+  const adjustFrameZoom = async (direction: 'in' | 'out' | 'reset') => {
+    if (!framePreview) return
+
+    const nextZoom =
+      direction === 'reset'
+        ? 1
+        : clampZoom(framePreview.zoomLevel + (direction === 'in' ? 0.1 : -0.1))
+
+    const nextFrame: PreviewFrameState = {
+      ...framePreview,
+      cropMode: 'fit',
+      zoomLevel: nextZoom,
+      videoOffsetX: framePreview.videoOffsetX ?? 0,
+      videoOffsetY: framePreview.videoOffsetY ?? 0
+    }
+
     setFramePreview(nextFrame)
     await persistFrameEdits(nextFrame)
   }
@@ -909,7 +975,12 @@ export function ClipEditorPage() {
     try {
       const clipEditPayload: Record<string, unknown> = {
         aspect_ratio: framePreview.aspectRatio,
-        crop_mode: framePreview.cropMode
+        crop_mode: framePreview.cropMode,
+        crop_position_x: framePreview.cropPositionX,
+        crop_position_y: framePreview.cropPositionY,
+        zoom_level: framePreview.zoomLevel,
+        video_offset_x: framePreview.videoOffsetX,
+        video_offset_y: framePreview.videoOffsetY
       }
 
       if (captionPreview.position === 'custom') {
@@ -1040,6 +1111,127 @@ export function ClipEditorPage() {
       document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [captionPreview, clipId, isDraggingCaption, isDraggingLogo, logoPreview])
+
+  useEffect(() => {
+    if (!isDraggingVideo || !framePreview || !previewFrameRef.current) return
+
+    const clampCanvasFitOffsets = (
+      proposedX: number,
+      proposedY: number,
+      settingsOverride?: PreviewFrameState | null
+    ) => {
+      const metadata = videoMetadata
+      const activeSettings = settingsOverride ?? framePreview
+
+      if (!metadata || activeSettings.cropMode !== 'fit') {
+        return { x: proposedX, y: proposedY }
+      }
+
+      const resolution = getAspectResolution(activeSettings.aspectRatio)
+      const zoom = clampZoom(activeSettings.zoomLevel)
+      const baseScale = resolution.width / metadata.width
+      const videoWidth = metadata.width * baseScale * zoom
+      const videoHeight = metadata.height * baseScale * zoom
+
+      const minVisibleRatio = 0.1
+      const minVisibleWidth = videoWidth * minVisibleRatio
+      const minVisibleHeight = videoHeight * minVisibleRatio
+
+      const leftBase = (resolution.width - videoWidth) / 2
+      const topBase = (resolution.height - videoHeight) / 2
+
+      let offsetX = proposedX
+      let offsetY = proposedY
+
+      const desiredLeft = leftBase + offsetX
+      const desiredTop = topBase + offsetY
+      const minLeft = minVisibleWidth - videoWidth
+      const maxLeft = resolution.width - minVisibleWidth
+      const minTop = minVisibleHeight - videoHeight
+      const maxTop = resolution.height - minVisibleHeight
+
+      if (desiredLeft < minLeft) {
+        offsetX += minLeft - desiredLeft
+      } else if (desiredLeft > maxLeft) {
+        offsetX -= desiredLeft - maxLeft
+      }
+
+      if (desiredTop < minTop) {
+        offsetY += minTop - desiredTop
+      } else if (desiredTop > maxTop) {
+        offsetY -= desiredTop - maxTop
+      }
+
+      return { x: offsetX, y: offsetY }
+    }
+
+    const handleVideoDrag = (event: MouseEvent) => {
+      const container = previewFrameRef.current
+      if (!container || !framePreview) return
+
+      if (framePreview.cropMode === 'center') {
+        const rect = container.getBoundingClientRect()
+        const x = ((event.clientX - rect.left) / rect.width) * 100
+        const y = ((event.clientY - rect.top) / rect.height) * 100
+
+        setFramePreview((current) =>
+          current
+            ? {
+                ...current,
+                cropPositionX: clamp(x, 0, 100),
+                cropPositionY: clamp(y, 0, 100)
+              }
+            : current
+        )
+        return
+      }
+
+      if (framePreview.cropMode !== 'fit') return
+
+      const resolution = getAspectResolution(framePreview.aspectRatio)
+      const previewScaleX = container.offsetWidth / resolution.width || 1
+      const previewScaleY = container.offsetHeight / resolution.height || 1
+
+      const deltaX = event.clientX - dragStartRef.current.x
+      const deltaY = event.clientY - dragStartRef.current.y
+
+      if (deltaX === 0 && deltaY === 0) return
+
+      setFramePreview((current) =>
+        current
+          ? {
+              ...current,
+              ...(() => {
+                const nextOffsetX = (current.videoOffsetX ?? 0) + deltaX / previewScaleX
+                const nextOffsetY = (current.videoOffsetY ?? 0) + deltaY / previewScaleY
+                const clamped = clampCanvasFitOffsets(nextOffsetX, nextOffsetY, current)
+                return {
+                  videoOffsetX: clamped.x,
+                  videoOffsetY: clamped.y
+                }
+              })()
+            }
+          : current
+      )
+
+      dragStartRef.current = { x: event.clientX, y: event.clientY }
+    }
+
+    const handleMouseUp = async () => {
+      setIsDraggingVideo(false)
+      if (framePreview) {
+        await persistFrameEdits(framePreview)
+      }
+    }
+
+    document.addEventListener('mousemove', handleVideoDrag)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleVideoDrag)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [framePreview, isDraggingVideo, videoMetadata])
 
   useEffect(() => {
     return () => {
@@ -1254,6 +1446,30 @@ export function ClipEditorPage() {
               <button
                 type="button"
                 className="clip-editor-preview-meta-item clip-editor-preview-control"
+                onClick={() => void adjustFrameZoom('out')}
+              >
+                <IoRemoveOutline size={15} />
+                Zoom {Math.round((framePreview?.zoomLevel ?? 1) * 100)}%
+              </button>
+              <button
+                type="button"
+                className="clip-editor-preview-meta-item clip-editor-preview-control"
+                onClick={() => void adjustFrameZoom('in')}
+              >
+                <IoAddOutline size={15} />
+                Scale
+              </button>
+              <button
+                type="button"
+                className="clip-editor-preview-meta-item clip-editor-preview-control"
+                onClick={() => void adjustFrameZoom('reset')}
+              >
+                <IoRefreshOutline size={15} />
+                Reset frame
+              </button>
+              <button
+                type="button"
+                className="clip-editor-preview-meta-item clip-editor-preview-control"
                 onClick={cycleCaptionPreset}
               >
                 <IoTextOutline size={15} />
@@ -1321,6 +1537,46 @@ export function ClipEditorPage() {
                         onTimeUpdate={handleVideoTimeUpdate}
                         onPlay={handleVideoPlay}
                         onPause={handleVideoPause}
+                        onMouseDown={(event) => {
+                          if (!trackerEnabled || event.button !== 0 || !framePreview) return
+                          if (framePreview.cropMode === 'fit' || framePreview.cropMode === 'center') {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            setIsDraggingVideo(true)
+                            dragStartRef.current = { x: event.clientX, y: event.clientY }
+                          }
+                        }}
+                        style={(() => {
+                          if (!framePreview) return undefined
+
+                          if (framePreview.cropMode === 'fit' && previewFrameRef.current && videoMetadata) {
+                            const container = previewFrameRef.current
+                            const resolution = getAspectResolution(framePreview.aspectRatio)
+                            const previewScaleX = container.offsetWidth / resolution.width || 1
+                            const previewScaleY = container.offsetHeight / resolution.height || 1
+                            const offsetXOutput = (framePreview.videoOffsetX ?? 0) * previewScaleX
+                            const offsetYOutput = (framePreview.videoOffsetY ?? 0) * previewScaleY
+                            return {
+                              position: 'absolute',
+                              width: '100%',
+                              height: 'auto',
+                              top: '50%',
+                              left: '50%',
+                              transformOrigin: 'center center',
+                              transform: `translate(-50%, -50%) translate(${offsetXOutput}px, ${offsetYOutput}px) scale(${clampZoom(framePreview.zoomLevel)})`,
+                              cursor: isDraggingVideo ? 'grabbing' : 'grab'
+                            }
+                          }
+
+                          if (framePreview.cropMode === 'center') {
+                            return {
+                              objectPosition: `${framePreview.cropPositionX}% ${framePreview.cropPositionY}%`,
+                              cursor: isDraggingVideo ? 'grabbing' : 'grab'
+                            }
+                          }
+
+                          return undefined
+                        })()}
                       />
                     ) : null}
                     <div className="clip-editor-preview-dim" />
