@@ -2245,7 +2245,10 @@ class DatabaseManager {
     if (!clip) return []
 
     const stmt = this.db.prepare(`
-      SELECT * FROM transcript_segments
+      SELECT
+        *,
+        ROW_NUMBER() OVER (ORDER BY start_time ASC) - 1 AS episode_segment_index
+      FROM transcript_segments
       WHERE episode_id = ?
         AND end_time > ?
         AND start_time < ?

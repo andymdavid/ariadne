@@ -5,7 +5,7 @@ import type { Clip, ClipVisualSource, GeneratedVideoAsset, ResolvedClipVideoSour
 
 type ClipCardData = Clip & {
   title: string
-  transcriptLines: Array<{ id: string; start: number; end: number; text: string }>
+  transcriptLines: Array<{ id: string; start: number; end: number; text: string; episodeSegmentIndex: number }>
   publicationStatus?: string | null
   visualSource: ClipVisualSource
   resolvedVideoSource: ResolvedClipVideoSource
@@ -50,16 +50,19 @@ function ClipPreview({
   startTime,
   endTime,
   title,
+  transcriptLines,
   compact = false
 }: {
   mediaUrl: string | null
   startTime: number
   endTime: number
   title: string
+  transcriptLines: Array<{ id: string; start: number; end: number; text: string }>
   compact?: boolean
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(startTime)
 
   useEffect(() => {
     const video = videoRef.current
@@ -70,10 +73,12 @@ function ClipPreview({
     }
 
     const handleTimeUpdate = () => {
+      setCurrentTime(video.currentTime)
       if (video.currentTime >= endTime) {
         video.pause()
         video.currentTime = startTime
         setIsPlaying(false)
+        setCurrentTime(startTime)
       }
     }
 
@@ -101,7 +106,16 @@ function ClipPreview({
     if (mediaUrl) {
       video.currentTime = startTime
     }
+    setCurrentTime(startTime)
   }, [mediaUrl, startTime, endTime])
+
+  const activeCaptionLine = useMemo(() => {
+    const active = transcriptLines.find((line) => currentTime >= line.start && currentTime <= line.end)
+    if (active) return active
+
+    const upcoming = transcriptLines.find((line) => currentTime < line.start)
+    return upcoming ?? transcriptLines[transcriptLines.length - 1] ?? null
+  }, [currentTime, transcriptLines])
 
   const togglePlayback = () => {
     const video = videoRef.current
@@ -154,6 +168,13 @@ function ClipPreview({
             {isPlaying ? 'Pause' : 'Preview'}
           </span>
         </button>
+        {activeCaptionLine?.text ? (
+          <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 flex justify-center">
+            <div className={`max-w-[88%] rounded-[3px] bg-[#0f0f0f] px-3 py-1.5 text-center font-medium text-white ${compact ? 'text-[11px]' : 'text-sm'}`}>
+              {activeCaptionLine.text}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -167,6 +188,7 @@ export function ClipWorkspacePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updatingVideoSourceClipId, setUpdatingVideoSourceClipId] = useState<string | null>(null)
+  const [savingTranscriptKey, setSavingTranscriptKey] = useState<string | null>(null)
   const cardRefs = useRef<Record<string, HTMLElement | null>>({})
 
   useEffect(() => {
@@ -229,7 +251,8 @@ export function ClipWorkspacePage() {
                 id: segment.id,
                 start: Number(segment.start_time ?? segment.start ?? 0),
                 end: Number(segment.end_time ?? segment.end ?? 0),
-                text: segment.text || ''
+                text: segment.text || '',
+                episodeSegmentIndex: Number(segment.episode_segment_index ?? 0)
               }))
             } satisfies ClipCardData
           })
@@ -308,6 +331,41 @@ export function ClipWorkspacePage() {
       )
     } catch (statusError) {
       console.error(`Failed to update clip status to ${status}:`, statusError)
+    }
+  }
+
+  const handleTranscriptChange = (targetClipId: string, lineId: string, nextText: string) => {
+    setClips((currentClips) =>
+      currentClips.map((clip) =>
+        clip.id === targetClipId
+          ? {
+              ...clip,
+              transcriptLines: clip.transcriptLines.map((line) =>
+                line.id === lineId ? { ...line, text: nextText } : line
+              )
+            }
+          : clip
+      )
+    )
+  }
+
+  const handleTranscriptBlur = async (
+    targetClipId: string,
+    lineId: string,
+    episodeSegmentIndex: number,
+    nextText: string
+  ) => {
+    if (!episodeId) return
+
+    const saveKey = `${targetClipId}:${lineId}`
+    setSavingTranscriptKey(saveKey)
+
+    try {
+      await window.electronAPI?.updateTranscriptSegment?.(episodeId, episodeSegmentIndex, nextText)
+    } catch (transcriptError) {
+      console.error('Failed to save transcript segment:', transcriptError)
+    } finally {
+      setSavingTranscriptKey(null)
     }
   }
 
@@ -396,6 +454,7 @@ export function ClipWorkspacePage() {
                     startTime={clip.startTime}
                     endTime={clip.endTime}
                     title={clip.title}
+                    transcriptLines={clip.transcriptLines}
                     compact
                   />
                 </div>
@@ -447,6 +506,37 @@ export function ClipWorkspacePage() {
                   <span className="timestamp">
                     {formatTime(clip.startTime)} - {formatTime(clip.endTime)}
                   </span>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-text-muted">Transcript</div>
+                    {savingTranscriptKey?.startsWith(`${clip.id}:`) ? (
+                      <div className="text-[11px] text-text-muted">Saving…</div>
+                    ) : null}
+                  </div>
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-[3px] border border-border-default bg-bg-secondary p-2">
+                    {clip.transcriptLines.length > 0 ? (
+                      clip.transcriptLines.map((line) => (
+                        <textarea
+                          key={line.id}
+                          value={line.text}
+                          onChange={(event) => handleTranscriptChange(clip.id, line.id, event.target.value)}
+                          onBlur={(event) =>
+                            void handleTranscriptBlur(
+                              clip.id,
+                              line.id,
+                              line.episodeSegmentIndex,
+                              event.target.value
+                            )
+                          }
+                          className="brand-control-textarea min-h-[52px] w-full resize-y text-sm"
+                        />
+                      ))
+                    ) : (
+                      <div className="text-sm text-text-muted">No transcript lines available for this clip.</div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="clip-actions clip-actions-grid">
