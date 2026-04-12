@@ -2276,7 +2276,7 @@ class DatabaseManager {
     const segment = segments[segmentIndex] as any
     const stmt = this.db.prepare(`
       UPDATE transcript_segments
-      SET text = ?
+      SET text = ?, words = NULL
       WHERE episode_id = ? AND start_time = ? AND end_time = ?
     `)
     return stmt.run(text, episodeId, segment.start_time, segment.end_time)
