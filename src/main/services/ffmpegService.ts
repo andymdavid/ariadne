@@ -777,10 +777,10 @@ class FFmpegService {
         // Mix original audio with music
         if (duckEnabled) {
           // Apply ducking: reduce music volume during speech
-          filters.push(`${audioLabel}[music]amix=inputs=2:duration=shortest:weights=1 ${duckVolume}[aout]`)
+          filters.push(`${audioLabel}[music]amix=inputs=2:duration=first:weights='1 ${duckVolume}':normalize=0[aout]`)
         } else {
           // Simple mix without ducking
-          filters.push(`${audioLabel}[music]amix=inputs=2:duration=shortest[aout]`)
+          filters.push(`${audioLabel}[music]amix=inputs=2:duration=first:normalize=0[aout]`)
         }
       } else {
         // Just copy original audio
