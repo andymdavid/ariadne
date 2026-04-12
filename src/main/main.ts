@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, type OpenDialogOptions } from 'electron';
 import { execFile } from 'child_process';
 import { randomUUID } from 'crypto';
-import { join } from 'path';
+import { extname, join } from 'path';
 import { existsSync, copyFileSync, mkdirSync } from 'fs';
 import { promisify } from 'util';
 import { database } from './database/database';
@@ -888,30 +888,45 @@ ipcMain.handle('get-brand-template', () => {
 })
 
 ipcMain.handle('import-video-reference-image', async () => {
-  const result = await dialog.showOpenDialog(mainWindow!, {
-    properties: ['openFile'],
-    filters: [
-      {
-        name: 'Images',
-        extensions: ['png', 'jpg', 'jpeg', 'webp']
-      }
-    ]
-  })
+  try {
+    const dialogOptions: OpenDialogOptions = {
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'Images',
+          extensions: ['png', 'jpg', 'jpeg', 'webp']
+        }
+      ]
+    }
 
-  if (result.canceled || result.filePaths.length === 0) {
-    return null
+    const result =
+      mainWindow && !mainWindow.isDestroyed()
+        ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions)
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+
+    const sourcePath = result.filePaths[0]
+    if (!existsSync(sourcePath)) {
+      throw new Error('Selected reference image could not be found on disk')
+    }
+
+    const extension = extname(sourcePath).replace('.', '').toLowerCase() || 'png'
+    const safeExtension = ['png', 'jpg', 'jpeg', 'webp'].includes(extension) ? extension : 'png'
+    const referencesDir = join(app.getPath('userData'), 'video-library', 'references')
+    if (!existsSync(referencesDir)) {
+      mkdirSync(referencesDir, { recursive: true })
+    }
+
+    const destPath = join(referencesDir, `reference_${Date.now()}.${safeExtension}`)
+    copyFileSync(sourcePath, destPath)
+    return destPath
+  } catch (error) {
+    console.error('Failed to import video reference image:', error)
+    throw new Error(error instanceof Error ? error.message : 'Reference image import failed')
   }
-
-  const sourcePath = result.filePaths[0]
-  const ext = sourcePath.split('.').pop() || 'png'
-  const referencesDir = join(app.getPath('userData'), 'video-library', 'references')
-  if (!existsSync(referencesDir)) {
-    mkdirSync(referencesDir, { recursive: true })
-  }
-
-  const destPath = join(referencesDir, `reference_${Date.now()}.${ext}`)
-  copyFileSync(sourcePath, destPath)
-  return destPath
 })
 
 ipcMain.handle('list-generated-video-assets', (_event, statuses?: GeneratedVideoAsset['status'][]) => {

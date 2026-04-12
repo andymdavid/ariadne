@@ -22,6 +22,13 @@ const modelOptions: Array<{ id: VideoGenerationModelId; label: string; descripti
   { id: 'openai/sora-2-pro', label: 'Sora 2 Pro', description: 'Alternative cinematic model with longer durations.' }
 ]
 
+const modelDurationOptions: Record<VideoGenerationModelId, number[]> = {
+  'alibaba/wan-2.6': [5, 10],
+  'bytedance/seedance-1-5-pro': [4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'google/veo-3.1': [4, 6, 8],
+  'openai/sora-2-pro': [4, 8, 12, 16, 20]
+}
+
 const upsertById = <T extends { id: string }>(items: T[], nextItem: T) => {
   const existingIndex = items.findIndex((item) => item.id === nextItem.id)
   if (existingIndex === -1) {
@@ -133,6 +140,13 @@ export function VideoLibraryPage() {
   }, [runningJobs.length])
 
   const selectedModel = modelOptions.find((option) => option.id === draftModel) ?? modelOptions[0]
+  const supportedDurations = modelDurationOptions[draftModel] ?? [5]
+
+  useEffect(() => {
+    if (!supportedDurations.includes(draftDurationSeconds)) {
+      setDraftDurationSeconds(supportedDurations[0])
+    }
+  }, [draftDurationSeconds, supportedDurations])
 
   const handleImportReference = async () => {
     try {
@@ -313,12 +327,15 @@ export function VideoLibraryPage() {
                       onChange={(event) => setDraftDurationSeconds(Number(event.target.value))}
                       className="brand-control-select w-full"
                     >
-                      {[4, 5, 6, 8, 10, 12].map((seconds) => (
+                      {supportedDurations.map((seconds) => (
                         <option key={seconds} value={seconds}>
                           {seconds}s
                         </option>
                       ))}
                     </select>
+                    <div className="text-xs text-text-muted">
+                      Native model duration. Current OpenRouter video models top out at 20s, so 30–90s clip coverage will need chaining or looping rather than one direct generation.
+                    </div>
                   </div>
                 </div>
 
