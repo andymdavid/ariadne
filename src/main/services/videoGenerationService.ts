@@ -40,6 +40,7 @@ const modelResolutionDefaults: Record<VideoGenerationModelId, string> = {
 
 export class VideoGenerationService {
   private activeJobs = new Set<string>()
+  private cancelledJobs = new Set<string>()
   private assetsDir: string
   private thumbnailsDir: string
   private progressListener: ((event: GeneratedVideoJobEvent) => void) | null = null
@@ -69,10 +70,100 @@ export class VideoGenerationService {
     }
 
     this.activeJobs.add(jobId)
+    this.cancelledJobs.delete(jobId)
     void this.runJob(jobId).finally(() => {
       this.activeJobs.delete(jobId)
+      this.cancelledJobs.delete(jobId)
     })
     return videoLibraryService.getJob(jobId) ?? existing
+  }
+
+  cancelJob(jobId: string) {
+    const existing = videoLibraryService.getJob(jobId)
+    if (!existing) {
+      throw new Error(`Generated video job not found: ${jobId}`)
+    }
+
+    const cancelledAt = new Date().toISOString()
+    this.cancelledJobs.add(jobId)
+
+    const cancelledJob: GeneratedVideoJob = {
+      ...existing,
+      status: 'cancelled',
+      errorMessage: existing.status === 'completed' ? null : 'Cancelled by user',
+      completedAt: cancelledAt,
+      updatedAt: cancelledAt
+    }
+    videoLibraryService.saveJob(cancelledJob)
+
+    const asset = existing.assetId ? videoLibraryService.getAsset(existing.assetId) : undefined
+    const updatedAsset =
+      asset && asset.status !== 'completed'
+        ? {
+            ...asset,
+            status: 'pending' as const,
+            updatedAt: cancelledAt,
+            metadata: {
+              ...(asset.metadata ?? {}),
+              generationState: 'cancelled'
+            }
+          }
+        : asset ?? null
+
+    if (updatedAsset) {
+      videoLibraryService.saveAsset(updatedAsset)
+    }
+
+    this.emitJobUpdate(cancelledJob, updatedAsset)
+    return cancelledJob
+  }
+
+  retryJob(jobId: string) {
+    const existing = videoLibraryService.getJob(jobId)
+    if (!existing) {
+      throw new Error(`Generated video job not found: ${jobId}`)
+    }
+
+    if (!['failed', 'cancelled'].includes(existing.status)) {
+      throw new Error('Only failed or cancelled video jobs can be retried')
+    }
+
+    const retriedAt = new Date().toISOString()
+    const retriedJob: GeneratedVideoJob = {
+      ...existing,
+      status: 'pending',
+      progress: 0,
+      errorMessage: null,
+      startedAt: null,
+      completedAt: null,
+      updatedAt: retriedAt,
+      output: {}
+    }
+    videoLibraryService.saveJob(retriedJob)
+
+    const asset = existing.assetId ? videoLibraryService.getAsset(existing.assetId) : undefined
+    const updatedAsset =
+      asset
+        ? {
+            ...asset,
+            status: 'pending' as const,
+            filePath: null,
+            thumbnailPath: null,
+            updatedAt: retriedAt,
+            metadata: {
+              ...(asset.metadata ?? {}),
+              generationState: 'draft',
+              errorMessage: null
+            }
+          }
+        : null
+
+    if (updatedAsset) {
+      videoLibraryService.saveAsset(updatedAsset)
+    }
+
+    this.emitJobUpdate(retriedJob, updatedAsset)
+    return this.startJob(jobId)
   }
 
   setProgressListener(listener: ((event: GeneratedVideoJobEvent) => void) | null) {
@@ -245,7 +336,15 @@ export class VideoGenerationService {
     }
 
     for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt += 1) {
+      if (this.cancelledJobs.has(job.id)) {
+        throw new Error('Video generation cancelled')
+      }
+
       await this.sleep(DEFAULT_POLL_INTERVAL_MS)
+
+      if (this.cancelledJobs.has(job.id)) {
+        throw new Error('Video generation cancelled')
+      }
 
       const response = await fetch(pollingUrl, {
         headers: {
@@ -327,6 +426,10 @@ export class VideoGenerationService {
   }
 
   private async failJob(job: GeneratedVideoJob, message: string) {
+    if (this.cancelledJobs.has(job.id) || message === 'Video generation cancelled') {
+      return
+    }
+
     const failedAt = new Date().toISOString()
     const asset = job.assetId ? videoLibraryService.getAsset(job.assetId) : undefined
     let failedAsset: GeneratedVideoAsset | null = null

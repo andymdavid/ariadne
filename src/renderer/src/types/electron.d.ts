@@ -125,6 +125,8 @@ declare global {
       getGeneratedVideoJob: (jobId: string) => Promise<GeneratedVideoJob | undefined>;
       saveGeneratedVideoJob: (job: GeneratedVideoJob) => Promise<GeneratedVideoJob>;
       startGeneratedVideoJob: (jobId: string) => Promise<GeneratedVideoJob>;
+      cancelGeneratedVideoJob: (jobId: string) => Promise<GeneratedVideoJob>;
+      retryGeneratedVideoJob: (jobId: string) => Promise<GeneratedVideoJob>;
       createGeneratedVideoDraft: (input: {
         name?: string | null;
         prompt: string;

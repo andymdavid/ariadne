@@ -942,6 +942,14 @@ ipcMain.handle('start-generated-video-job', (_event, jobId: string) => {
   return videoGenerationService.startJob(jobId)
 })
 
+ipcMain.handle('cancel-generated-video-job', (_event, jobId: string) => {
+  return videoGenerationService.cancelJob(jobId)
+})
+
+ipcMain.handle('retry-generated-video-job', (_event, jobId: string) => {
+  return videoGenerationService.retryJob(jobId)
+})
+
 ipcMain.handle('create-generated-video-draft', (_event, input: {
   name?: string | null
   prompt: string

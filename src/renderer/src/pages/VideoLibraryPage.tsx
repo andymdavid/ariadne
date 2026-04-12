@@ -47,6 +47,8 @@ export function VideoLibraryPage() {
   const [referenceImagePath, setReferenceImagePath] = useState<string | null>(null)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [startingJobId, setStartingJobId] = useState<string | null>(null)
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null)
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null)
 
   useEffect(() => {
     void loadLibrary()
@@ -92,8 +94,18 @@ export function VideoLibraryPage() {
     return assets.find((asset) => asset.id === selectedAssetId) ?? completedAssets[0] ?? assets[0] ?? null
   }, [assets, completedAssets, selectedAssetId])
 
+  const selectedAssetJob = useMemo(() => {
+    if (!selectedAsset?.sourceJobId) return null
+    return jobs.find((job) => job.id === selectedAsset.sourceJobId) ?? null
+  }, [jobs, selectedAsset])
+
   const runningJobs = useMemo(
     () => jobs.filter((job) => job.status === 'pending' || job.status === 'running'),
+    [jobs]
+  )
+
+  const failedJobs = useMemo(
+    () => jobs.filter((job) => job.status === 'failed' || job.status === 'cancelled'),
     [jobs]
   )
 
@@ -174,6 +186,32 @@ export function VideoLibraryPage() {
       alert(error instanceof Error ? error.message : 'Failed to start generated video job')
     } finally {
       setStartingJobId(null)
+    }
+  }
+
+  const handleCancelJob = async (jobId: string) => {
+    try {
+      setCancellingJobId(jobId)
+      await window.electronAPI?.cancelGeneratedVideoJob?.(jobId)
+      await loadLibrary()
+    } catch (error) {
+      console.error('Failed to cancel generated video job:', error)
+      alert(error instanceof Error ? error.message : 'Failed to cancel generated video job')
+    } finally {
+      setCancellingJobId(null)
+    }
+  }
+
+  const handleRetryJob = async (jobId: string) => {
+    try {
+      setRetryingJobId(jobId)
+      await window.electronAPI?.retryGeneratedVideoJob?.(jobId)
+      await loadLibrary()
+    } catch (error) {
+      console.error('Failed to retry generated video job:', error)
+      alert(error instanceof Error ? error.message : 'Failed to retry generated video job')
+    } finally {
+      setRetryingJobId(null)
     }
   }
 
@@ -356,12 +394,64 @@ export function VideoLibraryPage() {
                               {startingJobId === job.id ? 'Starting...' : 'Start'}
                             </button>
                           ) : null}
+                          {job.status === 'running' ? (
+                            <button
+                              className="btn-secondary"
+                              onClick={() => void handleCancelJob(job.id)}
+                              disabled={cancellingJobId === job.id}
+                            >
+                              {cancellingJobId === job.id ? 'Cancelling...' : 'Cancel'}
+                            </button>
+                          ) : null}
+                          {(job.status === 'failed' || job.status === 'cancelled') ? (
+                            <button
+                              className="btn-secondary"
+                              onClick={() => void handleRetryJob(job.id)}
+                              disabled={retryingJobId === job.id}
+                            >
+                              {retryingJobId === job.id ? 'Retrying...' : 'Retry'}
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
               </section>
+
+              {failedJobs.length > 0 ? (
+                <section className="app-section-shell min-h-0">
+                  <div className="app-section-header">
+                    <div>
+                      <h2 className="app-section-title">Failed or cancelled jobs</h2>
+                    </div>
+                    <div className="text-xs text-text-muted">{failedJobs.length} attention needed</div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {failedJobs.map((job) => (
+                      <div key={job.id} className="app-list-row">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-text-primary">{job.prompt || 'Untitled generation job'}</div>
+                          <div className="mt-1 text-xs text-text-muted">
+                            {job.status} • {job.modelId} • {job.aspectRatio} • {job.durationSeconds}s
+                          </div>
+                          {job.errorMessage ? (
+                            <div className="mt-2 text-xs text-red-200">{job.errorMessage}</div>
+                          ) : null}
+                        </div>
+                        <button
+                          className="btn-secondary"
+                          onClick={() => void handleRetryJob(job.id)}
+                          disabled={retryingJobId === job.id}
+                        >
+                          {retryingJobId === job.id ? 'Retrying...' : 'Retry'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
 
               <section className="app-section-shell min-h-0 flex flex-1 flex-col">
                 <div className="app-section-header">
@@ -410,6 +500,49 @@ export function VideoLibraryPage() {
                         </div>
                       </div>
                     )}
+
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="rounded-[4px] border border-border-subtle bg-bg-primary p-3">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-text-muted">Prompting</div>
+                        <div className="mt-2 text-sm whitespace-pre-wrap text-text-primary">
+                          {selectedAsset.prompt || 'No prompt saved'}
+                        </div>
+                        {selectedAsset.stylePrompt ? (
+                          <div className="mt-3">
+                            <div className="text-[11px] uppercase tracking-[0.18em] text-text-muted">Style prompt</div>
+                            <div className="mt-2 text-sm whitespace-pre-wrap text-text-primary">{selectedAsset.stylePrompt}</div>
+                          </div>
+                        ) : null}
+                        {selectedAsset.negativePrompt ? (
+                          <div className="mt-3">
+                            <div className="text-[11px] uppercase tracking-[0.18em] text-text-muted">Negative prompt</div>
+                            <div className="mt-2 text-sm whitespace-pre-wrap text-text-primary">{selectedAsset.negativePrompt}</div>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="rounded-[4px] border border-border-subtle bg-bg-primary p-3">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-text-muted">Asset metadata</div>
+                        <div className="mt-2 space-y-2 text-sm text-text-primary">
+                          <div>Model: {selectedAsset.modelId}</div>
+                          <div>Status: {selectedAsset.status}</div>
+                          <div>Aspect ratio: {selectedAsset.aspectRatio}</div>
+                          <div>Duration: {selectedAsset.durationSeconds ? `${selectedAsset.durationSeconds}s` : 'Unknown'}</div>
+                          <div>Updated: {new Date(selectedAsset.updatedAt).toLocaleString()}</div>
+                          {selectedAsset.referenceImagePath ? (
+                            <div>Reference: {selectedAsset.referenceImagePath.split('/').pop()}</div>
+                          ) : null}
+                          {selectedAsset.filePath ? (
+                            <div>File: {selectedAsset.filePath.split('/').pop()}</div>
+                          ) : null}
+                        </div>
+                        {selectedAssetJob?.errorMessage ? (
+                          <div className="mt-3 rounded-[4px] border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                            {selectedAssetJob.errorMessage}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 ) : null}
 

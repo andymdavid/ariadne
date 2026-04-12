@@ -226,6 +226,10 @@ const electronAPI = {
     ipcRenderer.invoke('save-generated-video-job', job) as Promise<GeneratedVideoJob>,
   startGeneratedVideoJob: (jobId: string) =>
     ipcRenderer.invoke('start-generated-video-job', jobId) as Promise<GeneratedVideoJob>,
+  cancelGeneratedVideoJob: (jobId: string) =>
+    ipcRenderer.invoke('cancel-generated-video-job', jobId) as Promise<GeneratedVideoJob>,
+  retryGeneratedVideoJob: (jobId: string) =>
+    ipcRenderer.invoke('retry-generated-video-job', jobId) as Promise<GeneratedVideoJob>,
   createGeneratedVideoDraft: (input: {
     name?: string | null
     prompt: string
