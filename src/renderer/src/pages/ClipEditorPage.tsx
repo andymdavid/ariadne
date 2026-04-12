@@ -205,12 +205,20 @@ const getTimedClipCaptionWordState = (
   }
 
   const activeIndex = cueWords.findIndex((word) => currentTime >= word.start && currentTime <= word.end)
-  const safeIndex =
-    activeIndex >= 0
-      ? activeIndex
-      : currentTime < cueWords[0].start
-        ? 0
-        : cueWords.length - 1
+  let safeIndex = cueWords.length - 1
+
+  if (activeIndex >= 0) {
+    safeIndex = activeIndex
+  } else if (currentTime < cueWords[0].start) {
+    safeIndex = 0
+  } else {
+    const nextWordIndex = cueWords.findIndex((word) => currentTime < word.start)
+    if (nextWordIndex > 0) {
+      safeIndex = nextWordIndex - 1
+    } else if (nextWordIndex === 0) {
+      safeIndex = 0
+    }
+  }
 
   return {
     words: cueWords.map((word) => (uppercase ? word.word.toUpperCase() : word.word)),
@@ -1044,7 +1052,8 @@ export function ClipEditorPage() {
 
     return sourceLines.map((line, index) => ({
       ...line,
-      text: chunks[index] ?? ''
+      text: chunks[index] ?? '',
+      words: (chunks[index] ?? '') !== line.text ? undefined : line.words
     }))
   }
 
