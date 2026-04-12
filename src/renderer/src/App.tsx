@@ -13,6 +13,7 @@ import { ClipWorkspacePage } from './pages/ClipWorkspacePage'
 import { ExportPage } from './pages/ExportPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { VideoLibraryPage } from './pages/VideoLibraryPage'
 import { setupNoScrollViewport } from './hooks/useViewport'
 import { useProcessingUpdates } from './hooks/useProcessingUpdates'
 import { CommandProcessor, createCommandProcessor, CommandContext } from './services/commandProcessor'
@@ -70,6 +71,7 @@ function App() {
     if (path === '/' || path.startsWith('/review/') || path.startsWith('/content/') || path.startsWith('/export/')) return 'home'
     if (path === '/brand-template') return 'brand-template'
     if (path === '/asset-library') return 'asset-library'
+    if (path === '/video-library') return 'video-library'
     if (path === '/calendar') return 'calendar'
     if (path === '/analytics') return 'analytics'
     if (path === '/settings') return 'settings'
@@ -611,6 +613,7 @@ function App() {
               } />
               <Route path="/brand-template" element={<BrandTemplatePage />} />
               <Route path="/asset-library" element={<AssetLibraryPage />} />
+              <Route path="/video-library" element={<VideoLibraryPage />} />
               <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/review/:id" element={<ClipWorkspacePage />} />

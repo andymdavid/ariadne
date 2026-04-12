@@ -347,3 +347,93 @@ export interface ClipPublishPreferences {
   performanceScore: number;
   updatedAt: string;
 }
+
+export type VideoGenerationProvider = 'openrouter';
+
+export type VideoGenerationModelId =
+  | 'alibaba/wan-2.6'
+  | 'bytedance/seedance-1-5-pro'
+  | 'google/veo-3.1'
+  | 'openai/sora-2-pro';
+
+export type GeneratedVideoAssetStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'archived';
+
+export type GeneratedVideoJobStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type GeneratedVideoAspectRatio = '9:16' | '1:1' | '16:9';
+
+export type ClipVisualSourceType = 'original' | 'generated_video';
+
+export interface GeneratedVideoAsset {
+  id: string;
+  name: string;
+  status: GeneratedVideoAssetStatus;
+  provider: VideoGenerationProvider;
+  modelId: VideoGenerationModelId;
+  prompt: string;
+  stylePrompt?: string | null;
+  negativePrompt?: string | null;
+  referenceImagePath?: string | null;
+  sourceJobId?: string | null;
+  filePath?: string | null;
+  thumbnailPath?: string | null;
+  durationSeconds?: number | null;
+  aspectRatio: GeneratedVideoAspectRatio;
+  width?: number | null;
+  height?: number | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GeneratedVideoJob {
+  id: string;
+  assetId?: string | null;
+  provider: VideoGenerationProvider;
+  modelId: VideoGenerationModelId;
+  prompt: string;
+  stylePrompt?: string | null;
+  negativePrompt?: string | null;
+  referenceImagePath?: string | null;
+  aspectRatio: GeneratedVideoAspectRatio;
+  durationSeconds: number;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  status: GeneratedVideoJobStatus;
+  progress: number;
+  errorMessage?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt: string;
+}
+
+export interface ClipVisualSource {
+  clipId: string;
+  sourceType: ClipVisualSourceType;
+  generatedVideoAssetId?: string | null;
+  updatedAt: string;
+}
+
+export interface ResolvedClipVideoSource {
+  clipId: string;
+  sourceType: ClipVisualSourceType;
+  sourcePath: string;
+  generatedVideoAssetId?: string | null;
+  asset?: GeneratedVideoAsset | null;
+}
+
+export interface GeneratedVideoJobEvent {
+  job: GeneratedVideoJob;
+  asset?: GeneratedVideoAsset | null;
+}

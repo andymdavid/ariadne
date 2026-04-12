@@ -314,6 +314,60 @@ CREATE TABLE IF NOT EXISTS clip_publish_preferences (
     FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS generated_video_assets (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    style_prompt TEXT,
+    negative_prompt TEXT,
+    reference_image_path TEXT,
+    source_job_id TEXT,
+    file_path TEXT,
+    thumbnail_path TEXT,
+    duration_seconds REAL,
+    aspect_ratio TEXT NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS generated_video_jobs (
+    id TEXT PRIMARY KEY,
+    asset_id TEXT,
+    provider TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    style_prompt TEXT,
+    negative_prompt TEXT,
+    reference_image_path TEXT,
+    aspect_ratio TEXT NOT NULL,
+    duration_seconds REAL NOT NULL,
+    input_json TEXT NOT NULL DEFAULT '{}',
+    output_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL,
+    progress INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (asset_id) REFERENCES generated_video_assets (id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS clip_visual_sources (
+    clip_id TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    generated_video_asset_id TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE,
+    FOREIGN KEY (generated_video_asset_id) REFERENCES generated_video_assets (id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS failure_events (
     id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL,
@@ -404,6 +458,11 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_publications_clip ON scheduled_publicat
 CREATE INDEX IF NOT EXISTS idx_scheduled_publications_account_time ON scheduled_publications (publishing_account_id, scheduled_for_utc ASC);
 CREATE INDEX IF NOT EXISTS idx_scheduled_publications_status ON scheduled_publications (status, scheduled_for_utc ASC);
 CREATE INDEX IF NOT EXISTS idx_publication_history_publication ON publication_history (scheduled_publication_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_generated_video_assets_status ON generated_video_assets (status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_generated_video_assets_model ON generated_video_assets (model_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_generated_video_jobs_asset ON generated_video_jobs (asset_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_generated_video_jobs_status ON generated_video_jobs (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clip_visual_sources_asset ON clip_visual_sources (generated_video_asset_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_failure_events_job ON failure_events (job_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_failure_events_step ON failure_events (step_run_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_failure_events_scope ON failure_events (scope, created_at DESC);

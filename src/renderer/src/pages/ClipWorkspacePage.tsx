@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { IoArrowBack, IoCheckmark, IoClose, IoCreateOutline, IoPlay, IoPause, IoShareOutline } from 'react-icons/io5'
-import type { Clip, ScheduledPublication } from '@shared/types'
+import type { Clip, ClipVisualSource, GeneratedVideoAsset, ResolvedClipVideoSource, ScheduledPublication } from '@shared/types'
 
 type ClipCardData = Clip & {
   title: string
   transcriptLines: Array<{ id: string; start: number; end: number; text: string }>
   publicationStatus?: string | null
+  visualSource: ClipVisualSource
+  resolvedVideoSource: ResolvedClipVideoSource
+  mediaUrl: string | null
 }
 
 type RawClip = Record<string, any>
@@ -34,6 +37,13 @@ const formatTime = (seconds: number) => {
   const secs = Math.floor(seconds % 60)
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
+
+const defaultVisualSource = (clipId: string): ClipVisualSource => ({
+  clipId,
+  sourceType: 'original',
+  generatedVideoAssetId: null,
+  updatedAt: new Date(0).toISOString()
+})
 
 function ClipPreview({
   mediaUrl,
@@ -153,9 +163,10 @@ export function ClipWorkspacePage() {
   const navigate = useNavigate()
   const { id: episodeId, clipId } = useParams<{ id: string; clipId?: string }>()
   const [clips, setClips] = useState<ClipCardData[]>([])
-  const [mediaUrl, setMediaUrl] = useState<string | null>(null)
+  const [generatedVideoAssets, setGeneratedVideoAssets] = useState<GeneratedVideoAsset[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [updatingVideoSourceClipId, setUpdatingVideoSourceClipId] = useState<string | null>(null)
   const cardRefs = useRef<Record<string, HTMLElement | null>>({})
 
   useEffect(() => {
@@ -170,9 +181,9 @@ export function ClipWorkspacePage() {
         setLoading(true)
         setError(null)
 
-        const [mediaSource, rawClips] = await Promise.all([
-          window.electronAPI?.getEpisodeMediaSource?.(episodeId),
-          window.electronAPI?.getEpisodeClips?.(episodeId)
+        const [rawClips, completedAssets] = await Promise.all([
+          window.electronAPI?.getEpisodeClips?.(episodeId),
+          window.electronAPI?.listGeneratedVideoAssets?.(['completed'])
         ])
 
         const overview = await window.electronAPI?.getCalendarOverview?.()
@@ -183,15 +194,17 @@ export function ClipWorkspacePage() {
           }
         })
 
-        setMediaUrl(mediaSource?.mediaUrl ?? null)
+        setGeneratedVideoAssets(completedAssets ?? [])
 
         const normalizedClips = ((rawClips || []) as RawClip[]).map((clip) => mapClip(clip, episodeId))
 
         const detailedClips = await Promise.all(
           normalizedClips.map(async (clip) => {
-            const [titles, transcriptSegments] = await Promise.all([
+            const [titles, transcriptSegments, visualSource, resolvedVideoSource] = await Promise.all([
               window.electronAPI?.getClipTitles?.(clip.id).catch(() => []),
-              window.electronAPI?.getClipTranscriptSegments?.(clip.id).catch(() => [])
+              window.electronAPI?.getClipTranscriptSegments?.(clip.id).catch(() => []),
+              window.electronAPI?.getClipVisualSource?.(clip.id).catch(() => defaultVisualSource(clip.id)),
+              window.electronAPI?.resolveClipVideoSource?.(clip.id).catch(() => null)
             ])
 
             const selectedTitle =
@@ -203,6 +216,15 @@ export function ClipWorkspacePage() {
               ...clip,
               title: selectedTitle,
               publicationStatus: publicationStatusByClipId.get(clip.id) ?? null,
+              visualSource: visualSource ?? defaultVisualSource(clip.id),
+              resolvedVideoSource: resolvedVideoSource ?? {
+                clipId: clip.id,
+                sourceType: 'original',
+                sourcePath: '',
+                generatedVideoAssetId: null,
+                asset: null
+              },
+              mediaUrl: resolvedVideoSource?.sourcePath ? `app-file://${resolvedVideoSource.sourcePath}` : null,
               transcriptLines: (transcriptSegments || []).map((segment: any) => ({
                 id: segment.id,
                 start: Number(segment.start_time ?? segment.start ?? 0),
@@ -234,6 +256,38 @@ export function ClipWorkspacePage() {
   }, [clipId, clips])
 
   const selectedClipId = useMemo(() => clipId || null, [clipId])
+
+  const handleVideoSourceChange = async (targetClipId: string, nextValue: string) => {
+    const [sourceType, generatedVideoAssetIdRaw] = nextValue.split(':')
+    const generatedVideoAssetId = generatedVideoAssetIdRaw || null
+
+    try {
+      setUpdatingVideoSourceClipId(targetClipId)
+      const visualSource = await window.electronAPI?.setClipVisualSource?.(
+        targetClipId,
+        sourceType as ClipVisualSource['sourceType'],
+        generatedVideoAssetId
+      )
+      const resolvedVideoSource = await window.electronAPI?.resolveClipVideoSource?.(targetClipId)
+
+      setClips((currentClips) =>
+        currentClips.map((clip) =>
+          clip.id === targetClipId
+            ? {
+                ...clip,
+                visualSource: visualSource ?? clip.visualSource,
+                resolvedVideoSource: resolvedVideoSource ?? clip.resolvedVideoSource,
+                mediaUrl: resolvedVideoSource?.sourcePath ? `app-file://${resolvedVideoSource.sourcePath}` : clip.mediaUrl
+              }
+            : clip
+        )
+      )
+    } catch (sourceError) {
+      console.error('Failed to update clip visual source:', sourceError)
+    } finally {
+      setUpdatingVideoSourceClipId(null)
+    }
+  }
 
   const updateClipStatus = async (targetClipId: string, status: Clip['status']) => {
     try {
@@ -338,12 +392,38 @@ export function ClipWorkspacePage() {
 
                 <div className="clip-card-preview-shell">
                   <ClipPreview
-                    mediaUrl={mediaUrl}
+                    mediaUrl={clip.mediaUrl}
                     startTime={clip.startTime}
                     endTime={clip.endTime}
                     title={clip.title}
                     compact
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-text-muted">Video source</div>
+                  <select
+                    value={
+                      clip.visualSource.sourceType === 'generated_video' && clip.visualSource.generatedVideoAssetId
+                        ? `generated_video:${clip.visualSource.generatedVideoAssetId}`
+                        : 'original:'
+                    }
+                    onChange={(event) => void handleVideoSourceChange(clip.id, event.target.value)}
+                    className="brand-control-select w-full"
+                    disabled={updatingVideoSourceClipId === clip.id}
+                  >
+                    <option value="original:">Original clip</option>
+                    {generatedVideoAssets.map((asset) => (
+                      <option key={asset.id} value={`generated_video:${asset.id}`}>
+                        Library: {asset.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="text-xs text-text-muted">
+                    {clip.resolvedVideoSource.sourceType === 'generated_video'
+                      ? `Using library video${clip.resolvedVideoSource.asset?.name ? `: ${clip.resolvedVideoSource.asset.name}` : ''}`
+                      : 'Using original episode source'}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between gap-2">

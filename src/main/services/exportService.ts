@@ -7,6 +7,7 @@ import { exportWorkerSupervisor } from './exportWorkerSupervisor'
 import { workflowReadModel } from './workflowReadModel'
 import { configService } from './configService'
 import { exportOverlayService } from './exportOverlayService'
+import { videoLibraryService } from './videoLibraryService'
 import type { BrandTemplate } from '@shared/types'
 import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '../../shared/previewCanvas'
 import {
@@ -524,11 +525,13 @@ class ExportService {
         frame: frameSettings
       })
 
+      const resolvedVideoSource = videoLibraryService.resolveClipVideoSource(clip.id)
+
       tasks.push({
         clipId: clip.id,
         clipIndex: clipOrder.indexOf(clip.id),
         totalClips: clipOrder.length,
-        sourceMediaPath: episode.file_path,
+        sourceMediaPath: resolvedVideoSource.sourcePath,
         startTime: clip.start_time,
         duration: clip.duration,
         outputPath,

@@ -2,9 +2,14 @@ import type {
   BrandTemplate,
   BrandTemplatePreset,
   CalendarSlot,
+  ClipVisualSource,
   ClipTrimState,
+  GeneratedVideoAsset,
+  GeneratedVideoJobEvent,
+  GeneratedVideoJob,
   PostingPlan,
   PublishingAccount,
+  ResolvedClipVideoSource,
   ScheduledPublication,
   TrimBoundaryAnchor
 } from '@shared/types'
@@ -112,6 +117,34 @@ declare global {
       retryScheduledPublication: (publicationId: string) => Promise<ScheduledPublication>;
       getPublicationHistory: (publicationId: string) => Promise<PublicationHistoryEvent[]>;
       getBrandTemplate: () => Promise<BrandTemplate>;
+      importVideoReferenceImage: () => Promise<string | null>;
+      listGeneratedVideoAssets: (statuses?: GeneratedVideoAsset['status'][]) => Promise<GeneratedVideoAsset[]>;
+      getGeneratedVideoAsset: (assetId: string) => Promise<GeneratedVideoAsset | undefined>;
+      saveGeneratedVideoAsset: (asset: GeneratedVideoAsset) => Promise<GeneratedVideoAsset>;
+      listGeneratedVideoJobs: (assetId?: string) => Promise<GeneratedVideoJob[]>;
+      getGeneratedVideoJob: (jobId: string) => Promise<GeneratedVideoJob | undefined>;
+      saveGeneratedVideoJob: (job: GeneratedVideoJob) => Promise<GeneratedVideoJob>;
+      startGeneratedVideoJob: (jobId: string) => Promise<GeneratedVideoJob>;
+      createGeneratedVideoDraft: (input: {
+        name?: string | null;
+        prompt: string;
+        stylePrompt?: string | null;
+        negativePrompt?: string | null;
+        referenceImagePath?: string | null;
+        modelId?: GeneratedVideoAsset['modelId'];
+        aspectRatio?: GeneratedVideoAsset['aspectRatio'];
+        durationSeconds?: number;
+      }) => Promise<{
+        asset: GeneratedVideoAsset;
+        job: GeneratedVideoJob;
+      }>;
+      getClipVisualSource: (clipId: string) => Promise<ClipVisualSource>;
+      setClipVisualSource: (
+        clipId: string,
+        sourceType: ClipVisualSource['sourceType'],
+        generatedVideoAssetId?: string | null
+      ) => Promise<ClipVisualSource>;
+      resolveClipVideoSource: (clipId: string) => Promise<ResolvedClipVideoSource>;
       updateBrandTemplate: (template: Partial<BrandTemplate>) => Promise<BrandTemplate>;
       getBrandTemplatePresets: () => Promise<{
         presets: BrandTemplatePreset[];
@@ -167,6 +200,7 @@ declare global {
       onProcessingError: (callback: (error: ProcessingErrorEventDTO) => void) => () => void;
       onClipExtractionProgress: (callback: (data: any) => void) => () => void;
       onExportProgress: (callback: (job: ExportProgressEventDTO) => void) => () => void;
+      onVideoGenerationProgress: (callback: (event: GeneratedVideoJobEvent) => void) => () => void;
       onDatabaseCleaned: (callback: (result: any) => void) => () => void;
     };
   }

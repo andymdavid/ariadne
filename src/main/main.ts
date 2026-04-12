@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron';
 import { execFile } from 'child_process';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, copyFileSync, mkdirSync } from 'fs';
 import { promisify } from 'util';
 import { database } from './database/database';
 import { processingPipeline } from './services/processingPipeline';
@@ -15,7 +15,18 @@ import { workflowReadModel } from './services/workflowReadModel';
 import { postingPlanService } from './services/postingPlanService';
 import { schedulingService } from './services/schedulingService';
 import { youtubePublishingService } from './services/youtubePublishingService';
-import type { BrandTemplate, PostingPlan, PublishingAccount, TrimBoundaryAnchor } from '@shared/types';
+import { videoLibraryService } from './services/videoLibraryService';
+import { videoGenerationService } from './services/videoGenerationService';
+import type {
+  BrandTemplate,
+  ClipVisualSource,
+  GeneratedVideoAsset,
+  GeneratedVideoJobEvent,
+  GeneratedVideoJob,
+  PostingPlan,
+  PublishingAccount,
+  TrimBoundaryAnchor
+} from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,
@@ -529,6 +540,9 @@ app.whenReady().then(async () => {
   }
 
   await createWindow();
+  videoGenerationService.setProgressListener((event: GeneratedVideoJobEvent) => {
+    mainWindow?.webContents.send('video-generation-progress', event)
+  })
 
   exportService.recoverExports((job) => {
     mainWindow?.webContents.send('export-progress', job)
@@ -871,6 +885,89 @@ ipcMain.handle('get-publication-history', (_event, publicationId: string) => {
 
 ipcMain.handle('get-brand-template', () => {
   return configService.getBrandTemplate()
+})
+
+ipcMain.handle('import-video-reference-image', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile'],
+    filters: [
+      {
+        name: 'Images',
+        extensions: ['png', 'jpg', 'jpeg', 'webp']
+      }
+    ]
+  })
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null
+  }
+
+  const sourcePath = result.filePaths[0]
+  const ext = sourcePath.split('.').pop() || 'png'
+  const referencesDir = join(app.getPath('userData'), 'video-library', 'references')
+  if (!existsSync(referencesDir)) {
+    mkdirSync(referencesDir, { recursive: true })
+  }
+
+  const destPath = join(referencesDir, `reference_${Date.now()}.${ext}`)
+  copyFileSync(sourcePath, destPath)
+  return destPath
+})
+
+ipcMain.handle('list-generated-video-assets', (_event, statuses?: GeneratedVideoAsset['status'][]) => {
+  return videoLibraryService.listAssets(statuses)
+})
+
+ipcMain.handle('get-generated-video-asset', (_event, assetId: string) => {
+  return videoLibraryService.getAsset(assetId)
+})
+
+ipcMain.handle('save-generated-video-asset', (_event, asset: GeneratedVideoAsset) => {
+  return videoLibraryService.saveAsset(asset)
+})
+
+ipcMain.handle('list-generated-video-jobs', (_event, assetId?: string) => {
+  return videoLibraryService.listJobs(assetId)
+})
+
+ipcMain.handle('get-generated-video-job', (_event, jobId: string) => {
+  return videoLibraryService.getJob(jobId)
+})
+
+ipcMain.handle('save-generated-video-job', (_event, job: GeneratedVideoJob) => {
+  return videoLibraryService.saveJob(job)
+})
+
+ipcMain.handle('start-generated-video-job', (_event, jobId: string) => {
+  return videoGenerationService.startJob(jobId)
+})
+
+ipcMain.handle('create-generated-video-draft', (_event, input: {
+  name?: string | null
+  prompt: string
+  stylePrompt?: string | null
+  negativePrompt?: string | null
+  referenceImagePath?: string | null
+  modelId?: GeneratedVideoAsset['modelId']
+  aspectRatio?: GeneratedVideoAsset['aspectRatio']
+  durationSeconds?: number
+}) => {
+  return videoLibraryService.createDraftGeneration(input)
+})
+
+ipcMain.handle('get-clip-visual-source', (_event, clipId: string) => {
+  return videoLibraryService.getClipVideoSource(clipId)
+})
+
+ipcMain.handle(
+  'set-clip-visual-source',
+  (_event, clipId: string, sourceType: ClipVisualSource['sourceType'], generatedVideoAssetId?: string | null) => {
+    return videoLibraryService.setClipVideoSource(clipId, sourceType, generatedVideoAssetId)
+  }
+)
+
+ipcMain.handle('resolve-clip-video-source', (_event, clipId: string) => {
+  return videoLibraryService.resolveClipVideoSource(clipId)
 })
 
 ipcMain.handle('update-brand-template', (event, template: Partial<BrandTemplate>) => {

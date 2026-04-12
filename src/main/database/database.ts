@@ -6,7 +6,14 @@ import type {
   CalendarSlot,
   CalendarSlotStatus,
   ClipPublishPreferences,
+  ClipVisualSource,
+  ClipVisualSourceType,
   ClipTrimState,
+  GeneratedVideoAsset,
+  GeneratedVideoAssetStatus,
+  GeneratedVideoAspectRatio,
+  GeneratedVideoJob,
+  GeneratedVideoJobStatus,
   PostingPlan,
   PublicationHistoryEvent,
   PublishingAccount,
@@ -15,7 +22,9 @@ import type {
   ScheduledPublicationStatus,
   SlotStrategy,
   TargetRegion,
-  TrimBoundaryAnchor
+  TrimBoundaryAnchor,
+  VideoGenerationModelId,
+  VideoGenerationProvider
 } from '@shared/types'
 
 type WorkflowJobStatus =
@@ -259,6 +268,57 @@ interface ScheduledPublicationRecord {
   lastErrorMessage: string | null
   retryCount: number
   createdAt: string
+  updatedAt: string
+}
+
+interface GeneratedVideoAssetRecord {
+  id: string
+  name: string
+  status: GeneratedVideoAssetStatus
+  provider: VideoGenerationProvider
+  modelId: VideoGenerationModelId
+  prompt: string
+  stylePrompt: string | null
+  negativePrompt: string | null
+  referenceImagePath: string | null
+  sourceJobId: string | null
+  filePath: string | null
+  thumbnailPath: string | null
+  durationSeconds: number | null
+  aspectRatio: GeneratedVideoAspectRatio
+  width: number | null
+  height: number | null
+  metadataJson: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface GeneratedVideoJobRecord {
+  id: string
+  assetId: string | null
+  provider: VideoGenerationProvider
+  modelId: VideoGenerationModelId
+  prompt: string
+  stylePrompt: string | null
+  negativePrompt: string | null
+  referenceImagePath: string | null
+  aspectRatio: GeneratedVideoAspectRatio
+  durationSeconds: number
+  inputJson: string
+  outputJson: string
+  status: GeneratedVideoJobStatus
+  progress: number
+  errorMessage: string | null
+  createdAt: string
+  startedAt: string | null
+  completedAt: string | null
+  updatedAt: string
+}
+
+interface ClipVisualSourceRecord {
+  clipId: string
+  sourceType: ClipVisualSourceType
+  generatedVideoAssetId: string | null
   updatedAt: string
 }
 
@@ -570,6 +630,63 @@ class DatabaseManager {
     }
   }
 
+  private mapGeneratedVideoAsset(row: any): GeneratedVideoAssetRecord {
+    return {
+      id: row.id,
+      name: row.name,
+      status: row.status,
+      provider: row.provider,
+      modelId: row.model_id,
+      prompt: row.prompt,
+      stylePrompt: row.style_prompt ?? null,
+      negativePrompt: row.negative_prompt ?? null,
+      referenceImagePath: row.reference_image_path ?? null,
+      sourceJobId: row.source_job_id ?? null,
+      filePath: row.file_path ?? null,
+      thumbnailPath: row.thumbnail_path ?? null,
+      durationSeconds: row.duration_seconds ?? null,
+      aspectRatio: row.aspect_ratio,
+      width: row.width ?? null,
+      height: row.height ?? null,
+      metadataJson: row.metadata_json ?? '{}',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapGeneratedVideoJob(row: any): GeneratedVideoJobRecord {
+    return {
+      id: row.id,
+      assetId: row.asset_id ?? null,
+      provider: row.provider,
+      modelId: row.model_id,
+      prompt: row.prompt,
+      stylePrompt: row.style_prompt ?? null,
+      negativePrompt: row.negative_prompt ?? null,
+      referenceImagePath: row.reference_image_path ?? null,
+      aspectRatio: row.aspect_ratio,
+      durationSeconds: row.duration_seconds,
+      inputJson: row.input_json ?? '{}',
+      outputJson: row.output_json ?? '{}',
+      status: row.status,
+      progress: row.progress,
+      errorMessage: row.error_message ?? null,
+      createdAt: row.created_at,
+      startedAt: row.started_at ?? null,
+      completedAt: row.completed_at ?? null,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapClipVisualSource(row: any): ClipVisualSourceRecord {
+    return {
+      clipId: row.clip_id,
+      sourceType: row.source_type,
+      generatedVideoAssetId: row.generated_video_asset_id ?? null,
+      updatedAt: row.updated_at
+    }
+  }
+
   private parseJsonValue<T>(value: string | null | undefined, fallback: T): T {
     if (!value) {
       return fallback
@@ -675,6 +792,63 @@ class DatabaseManager {
       message: record.message,
       detail: this.parseJsonValue(record.detailJson, {}),
       createdAt: record.createdAt
+    }
+  }
+
+  private toGeneratedVideoAsset(record: GeneratedVideoAssetRecord): GeneratedVideoAsset {
+    return {
+      id: record.id,
+      name: record.name,
+      status: record.status,
+      provider: record.provider,
+      modelId: record.modelId,
+      prompt: record.prompt,
+      stylePrompt: record.stylePrompt,
+      negativePrompt: record.negativePrompt,
+      referenceImagePath: record.referenceImagePath,
+      sourceJobId: record.sourceJobId,
+      filePath: record.filePath,
+      thumbnailPath: record.thumbnailPath,
+      durationSeconds: record.durationSeconds,
+      aspectRatio: record.aspectRatio,
+      width: record.width,
+      height: record.height,
+      metadata: this.parseJsonValue(record.metadataJson, {}),
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt
+    }
+  }
+
+  private toGeneratedVideoJob(record: GeneratedVideoJobRecord): GeneratedVideoJob {
+    return {
+      id: record.id,
+      assetId: record.assetId,
+      provider: record.provider,
+      modelId: record.modelId,
+      prompt: record.prompt,
+      stylePrompt: record.stylePrompt,
+      negativePrompt: record.negativePrompt,
+      referenceImagePath: record.referenceImagePath,
+      aspectRatio: record.aspectRatio,
+      durationSeconds: record.durationSeconds,
+      input: this.parseJsonValue(record.inputJson, {}),
+      output: this.parseJsonValue(record.outputJson, {}),
+      status: record.status,
+      progress: record.progress,
+      errorMessage: record.errorMessage,
+      createdAt: record.createdAt,
+      startedAt: record.startedAt,
+      completedAt: record.completedAt,
+      updatedAt: record.updatedAt
+    }
+  }
+
+  private toClipVisualSource(record: ClipVisualSourceRecord): ClipVisualSource {
+    return {
+      clipId: record.clipId,
+      sourceType: record.sourceType,
+      generatedVideoAssetId: record.generatedVideoAssetId,
+      updatedAt: record.updatedAt
     }
   }
 
@@ -1528,6 +1702,74 @@ class DatabaseManager {
         this.db.pragma('user_version = 23')
       }
     }
+
+    if (preVersion <= 23) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS generated_video_assets (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            style_prompt TEXT,
+            negative_prompt TEXT,
+            reference_image_path TEXT,
+            source_job_id TEXT,
+            file_path TEXT,
+            thumbnail_path TEXT,
+            duration_seconds REAL,
+            aspect_ratio TEXT NOT NULL,
+            width INTEGER,
+            height INTEGER,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE TABLE IF NOT EXISTS generated_video_jobs (
+            id TEXT PRIMARY KEY,
+            asset_id TEXT,
+            provider TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            style_prompt TEXT,
+            negative_prompt TEXT,
+            reference_image_path TEXT,
+            aspect_ratio TEXT NOT NULL,
+            duration_seconds REAL NOT NULL,
+            input_json TEXT NOT NULL DEFAULT '{}',
+            output_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL,
+            progress INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (asset_id) REFERENCES generated_video_assets (id) ON DELETE SET NULL
+          );
+          CREATE TABLE IF NOT EXISTS clip_visual_sources (
+            clip_id TEXT PRIMARY KEY,
+            source_type TEXT NOT NULL,
+            generated_video_asset_id TEXT,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE,
+            FOREIGN KEY (generated_video_asset_id) REFERENCES generated_video_assets (id) ON DELETE SET NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_generated_video_assets_status ON generated_video_assets (status, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_generated_video_assets_model ON generated_video_assets (model_id, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_generated_video_jobs_asset ON generated_video_jobs (asset_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_generated_video_jobs_status ON generated_video_jobs (status, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_clip_visual_sources_asset ON clip_visual_sources (generated_video_asset_id, updated_at DESC);
+        `)
+        console.log('✅ Added AI video library tables (v24)')
+        this.db.pragma('user_version = 24')
+      } catch (error) {
+        console.log('AI video library migration skipped (may already exist)')
+        this.db.pragma('user_version = 24')
+      }
+    }
   }
   
   private initializeSchema() {
@@ -1770,6 +2012,57 @@ class DatabaseManager {
           summary_json TEXT NOT NULL,
           notes TEXT,
           created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS generated_video_assets (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          status TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model_id TEXT NOT NULL,
+          prompt TEXT NOT NULL,
+          style_prompt TEXT,
+          negative_prompt TEXT,
+          reference_image_path TEXT,
+          source_job_id TEXT,
+          file_path TEXT,
+          thumbnail_path TEXT,
+          duration_seconds REAL,
+          aspect_ratio TEXT NOT NULL,
+          width INTEGER,
+          height INTEGER,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS generated_video_jobs (
+          id TEXT PRIMARY KEY,
+          asset_id TEXT,
+          provider TEXT NOT NULL,
+          model_id TEXT NOT NULL,
+          prompt TEXT NOT NULL,
+          style_prompt TEXT,
+          negative_prompt TEXT,
+          reference_image_path TEXT,
+          aspect_ratio TEXT NOT NULL,
+          duration_seconds REAL NOT NULL,
+          input_json TEXT NOT NULL DEFAULT '{}',
+          output_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL,
+          progress INTEGER NOT NULL DEFAULT 0,
+          error_message TEXT,
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS clip_visual_sources (
+          clip_id TEXT PRIMARY KEY,
+          source_type TEXT NOT NULL,
+          generated_video_asset_id TEXT,
+          updated_at TEXT NOT NULL
       );
     `
 
@@ -2087,6 +2380,194 @@ class DatabaseManager {
       ORDER BY start_time ASC
     `)
     return stmt.all(episodeId)
+  }
+
+  upsertGeneratedVideoAsset(asset: GeneratedVideoAsset) {
+    const stmt = this.db.prepare(`
+      INSERT INTO generated_video_assets (
+        id, name, status, provider, model_id, prompt, style_prompt, negative_prompt,
+        reference_image_path, source_job_id, file_path, thumbnail_path, duration_seconds,
+        aspect_ratio, width, height, metadata_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        status = excluded.status,
+        provider = excluded.provider,
+        model_id = excluded.model_id,
+        prompt = excluded.prompt,
+        style_prompt = excluded.style_prompt,
+        negative_prompt = excluded.negative_prompt,
+        reference_image_path = excluded.reference_image_path,
+        source_job_id = excluded.source_job_id,
+        file_path = excluded.file_path,
+        thumbnail_path = excluded.thumbnail_path,
+        duration_seconds = excluded.duration_seconds,
+        aspect_ratio = excluded.aspect_ratio,
+        width = excluded.width,
+        height = excluded.height,
+        metadata_json = excluded.metadata_json,
+        updated_at = excluded.updated_at
+    `)
+
+    return stmt.run(
+      asset.id,
+      asset.name,
+      asset.status,
+      asset.provider,
+      asset.modelId,
+      asset.prompt,
+      asset.stylePrompt ?? null,
+      asset.negativePrompt ?? null,
+      asset.referenceImagePath ?? null,
+      asset.sourceJobId ?? null,
+      asset.filePath ?? null,
+      asset.thumbnailPath ?? null,
+      asset.durationSeconds ?? null,
+      asset.aspectRatio,
+      asset.width ?? null,
+      asset.height ?? null,
+      JSON.stringify(asset.metadata ?? {}),
+      asset.createdAt,
+      asset.updatedAt
+    )
+  }
+
+  getGeneratedVideoAsset(assetId: string): GeneratedVideoAsset | undefined {
+    const stmt = this.db.prepare('SELECT * FROM generated_video_assets WHERE id = ? LIMIT 1')
+    const row = stmt.get(assetId)
+    return row ? this.toGeneratedVideoAsset(this.mapGeneratedVideoAsset(row)) : undefined
+  }
+
+  listGeneratedVideoAssets(statuses?: GeneratedVideoAssetStatus[]): GeneratedVideoAsset[] {
+    if (statuses?.length) {
+      const placeholders = statuses.map(() => '?').join(', ')
+      const stmt = this.db.prepare(`
+        SELECT *
+        FROM generated_video_assets
+        WHERE status IN (${placeholders})
+        ORDER BY updated_at DESC, created_at DESC
+      `)
+      return (stmt.all(...statuses) as any[]).map((row) =>
+        this.toGeneratedVideoAsset(this.mapGeneratedVideoAsset(row))
+      )
+    }
+
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM generated_video_assets
+      ORDER BY updated_at DESC, created_at DESC
+    `)
+    return (stmt.all() as any[]).map((row) => this.toGeneratedVideoAsset(this.mapGeneratedVideoAsset(row)))
+  }
+
+  upsertGeneratedVideoJob(job: GeneratedVideoJob) {
+    const stmt = this.db.prepare(`
+      INSERT INTO generated_video_jobs (
+        id, asset_id, provider, model_id, prompt, style_prompt, negative_prompt,
+        reference_image_path, aspect_ratio, duration_seconds, input_json, output_json,
+        status, progress, error_message, created_at, started_at, completed_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        asset_id = excluded.asset_id,
+        provider = excluded.provider,
+        model_id = excluded.model_id,
+        prompt = excluded.prompt,
+        style_prompt = excluded.style_prompt,
+        negative_prompt = excluded.negative_prompt,
+        reference_image_path = excluded.reference_image_path,
+        aspect_ratio = excluded.aspect_ratio,
+        duration_seconds = excluded.duration_seconds,
+        input_json = excluded.input_json,
+        output_json = excluded.output_json,
+        status = excluded.status,
+        progress = excluded.progress,
+        error_message = excluded.error_message,
+        started_at = excluded.started_at,
+        completed_at = excluded.completed_at,
+        updated_at = excluded.updated_at
+    `)
+
+    return stmt.run(
+      job.id,
+      job.assetId ?? null,
+      job.provider,
+      job.modelId,
+      job.prompt,
+      job.stylePrompt ?? null,
+      job.negativePrompt ?? null,
+      job.referenceImagePath ?? null,
+      job.aspectRatio,
+      job.durationSeconds,
+      JSON.stringify(job.input ?? {}),
+      JSON.stringify(job.output ?? {}),
+      job.status,
+      job.progress,
+      job.errorMessage ?? null,
+      job.createdAt,
+      job.startedAt ?? null,
+      job.completedAt ?? null,
+      job.updatedAt
+    )
+  }
+
+  getGeneratedVideoJob(jobId: string): GeneratedVideoJob | undefined {
+    const stmt = this.db.prepare('SELECT * FROM generated_video_jobs WHERE id = ? LIMIT 1')
+    const row = stmt.get(jobId)
+    return row ? this.toGeneratedVideoJob(this.mapGeneratedVideoJob(row)) : undefined
+  }
+
+  listGeneratedVideoJobs(assetId?: string): GeneratedVideoJob[] {
+    if (assetId) {
+      const stmt = this.db.prepare(`
+        SELECT *
+        FROM generated_video_jobs
+        WHERE asset_id = ?
+        ORDER BY created_at DESC
+      `)
+      return (stmt.all(assetId) as any[]).map((row) => this.toGeneratedVideoJob(this.mapGeneratedVideoJob(row)))
+    }
+
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM generated_video_jobs
+      ORDER BY created_at DESC
+    `)
+    return (stmt.all() as any[]).map((row) => this.toGeneratedVideoJob(this.mapGeneratedVideoJob(row)))
+  }
+
+  upsertClipVisualSource(source: ClipVisualSource) {
+    const stmt = this.db.prepare(`
+      INSERT INTO clip_visual_sources (
+        clip_id, source_type, generated_video_asset_id, updated_at
+      ) VALUES (?, ?, ?, ?)
+      ON CONFLICT(clip_id) DO UPDATE SET
+        source_type = excluded.source_type,
+        generated_video_asset_id = excluded.generated_video_asset_id,
+        updated_at = excluded.updated_at
+    `)
+
+    return stmt.run(
+      source.clipId,
+      source.sourceType,
+      source.generatedVideoAssetId ?? null,
+      source.updatedAt
+    )
+  }
+
+  getClipVisualSource(clipId: string): ClipVisualSource | undefined {
+    const stmt = this.db.prepare('SELECT * FROM clip_visual_sources WHERE clip_id = ? LIMIT 1')
+    const row = stmt.get(clipId)
+    return row ? this.toClipVisualSource(this.mapClipVisualSource(row)) : undefined
+  }
+
+  listClipVisualSourcesForAsset(assetId: string): ClipVisualSource[] {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM clip_visual_sources
+      WHERE generated_video_asset_id = ?
+      ORDER BY updated_at DESC
+    `)
+    return (stmt.all(assetId) as any[]).map((row) => this.toClipVisualSource(this.mapClipVisualSource(row)))
   }
 
   // Content package operations

@@ -83,6 +83,11 @@ export class CommandProcessor {
       case 'assets':
         this.context.navigate('/asset-library')
         return { success: true, message: 'Opening asset library', action: 'navigate' }
+      case 'video library':
+      case 'video-library':
+      case 'videos':
+        this.context.navigate('/video-library')
+        return { success: true, message: 'Opening video library', action: 'navigate' }
       case 'calendar':
         this.context.navigate('/calendar')
         return { success: true, message: 'Opening calendar', action: 'navigate' }
@@ -111,13 +116,13 @@ export class CommandProcessor {
         const helpText = this.getContextualHelp()
         return { success: true, message: helpText, action: 'execute' }
       default:
-        return { success: false, message: `Command "/${cmd}" not recognized. Try /home, /brand template, /asset library, /calendar, /analytics, or /help`, action: 'error' }
+        return { success: false, message: `Command "/${cmd}" not recognized. Try /home, /brand template, /asset library, /video library, /calendar, /analytics, or /help`, action: 'error' }
     }
   }
 
   private isNavigationCommand(command: string): boolean {
     const navPatterns = [
-      /^(go to|goto|navigate to|open)\s+(home|upload|brand template|brand|asset library|assets|calendar|analytics|review|export|settings)/,
+      /^(go to|goto|navigate to|open)\s+(home|upload|brand template|brand|asset library|assets|video library|videos|calendar|analytics|review|export|settings)/,
       /^(next|continue|proceed)$/,
       /^(back|previous|return)$/,
       /^(home|start over)$/
@@ -127,7 +132,7 @@ export class CommandProcessor {
 
   private handleNavigation(command: string): CommandResult {
     // Go to specific screen
-    const gotoMatch = command.match(/^(go to|goto|navigate to|open)\s+(home|upload|brand template|brand|asset library|assets|calendar|analytics|review|export|settings)/)
+    const gotoMatch = command.match(/^(go to|goto|navigate to|open)\s+(home|upload|brand template|brand|asset library|assets|video library|videos|calendar|analytics|review|export|settings)/)
     if (gotoMatch) {
       const screen = gotoMatch[2]
       switch (screen) {
@@ -143,6 +148,10 @@ export class CommandProcessor {
         case 'assets':
           this.context.navigate('/asset-library')
           return { success: true, message: 'Opening asset library', action: 'navigate' }
+        case 'video library':
+        case 'videos':
+          this.context.navigate('/video-library')
+          return { success: true, message: 'Opening video library', action: 'navigate' }
         case 'calendar':
           this.context.navigate('/calendar')
           return { success: true, message: 'Opening calendar', action: 'navigate' }

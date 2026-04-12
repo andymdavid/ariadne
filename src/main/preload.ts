@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  ClipVisualSource,
+  GeneratedVideoAsset,
+  GeneratedVideoJobEvent,
+  GeneratedVideoJob,
+  ResolvedClipVideoSource
+} from '@shared/types'
+import type {
   BrandTemplate,
   BrandTemplatePreset,
   CalendarSlot,
@@ -203,6 +210,46 @@ const electronAPI = {
   getPublicationHistory: (publicationId: string) =>
     ipcRenderer.invoke('get-publication-history', publicationId) as Promise<PublicationHistoryEvent[]>,
   getBrandTemplate: () => ipcRenderer.invoke('get-brand-template'),
+  importVideoReferenceImage: () =>
+    ipcRenderer.invoke('import-video-reference-image') as Promise<string | null>,
+  listGeneratedVideoAssets: (statuses?: GeneratedVideoAsset['status'][]) =>
+    ipcRenderer.invoke('list-generated-video-assets', statuses) as Promise<GeneratedVideoAsset[]>,
+  getGeneratedVideoAsset: (assetId: string) =>
+    ipcRenderer.invoke('get-generated-video-asset', assetId) as Promise<GeneratedVideoAsset | undefined>,
+  saveGeneratedVideoAsset: (asset: GeneratedVideoAsset) =>
+    ipcRenderer.invoke('save-generated-video-asset', asset) as Promise<GeneratedVideoAsset>,
+  listGeneratedVideoJobs: (assetId?: string) =>
+    ipcRenderer.invoke('list-generated-video-jobs', assetId) as Promise<GeneratedVideoJob[]>,
+  getGeneratedVideoJob: (jobId: string) =>
+    ipcRenderer.invoke('get-generated-video-job', jobId) as Promise<GeneratedVideoJob | undefined>,
+  saveGeneratedVideoJob: (job: GeneratedVideoJob) =>
+    ipcRenderer.invoke('save-generated-video-job', job) as Promise<GeneratedVideoJob>,
+  startGeneratedVideoJob: (jobId: string) =>
+    ipcRenderer.invoke('start-generated-video-job', jobId) as Promise<GeneratedVideoJob>,
+  createGeneratedVideoDraft: (input: {
+    name?: string | null
+    prompt: string
+    stylePrompt?: string | null
+    negativePrompt?: string | null
+    referenceImagePath?: string | null
+    modelId?: GeneratedVideoAsset['modelId']
+    aspectRatio?: GeneratedVideoAsset['aspectRatio']
+    durationSeconds?: number
+  }) =>
+    ipcRenderer.invoke('create-generated-video-draft', input) as Promise<{
+      asset: GeneratedVideoAsset
+      job: GeneratedVideoJob
+    }>,
+  getClipVisualSource: (clipId: string) =>
+    ipcRenderer.invoke('get-clip-visual-source', clipId) as Promise<ClipVisualSource>,
+  setClipVisualSource: (
+    clipId: string,
+    sourceType: ClipVisualSource['sourceType'],
+    generatedVideoAssetId?: string | null
+  ) =>
+    ipcRenderer.invoke('set-clip-visual-source', clipId, sourceType, generatedVideoAssetId) as Promise<ClipVisualSource>,
+  resolveClipVideoSource: (clipId: string) =>
+    ipcRenderer.invoke('resolve-clip-video-source', clipId) as Promise<ResolvedClipVideoSource>,
   updateBrandTemplate: (template: Partial<BrandTemplate>) =>
     ipcRenderer.invoke('update-brand-template', template),
   getBrandTemplatePresets: () => ipcRenderer.invoke('get-brand-template-presets') as Promise<{
@@ -311,6 +358,12 @@ const electronAPI = {
     const listener = (_: Electron.IpcRendererEvent, job: ExportProgressEventDTO) => callback(job);
     ipcRenderer.on('export-progress', listener);
     return () => ipcRenderer.removeListener('export-progress', listener);
+  },
+
+  onVideoGenerationProgress: (callback: (event: GeneratedVideoJobEvent) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, event: GeneratedVideoJobEvent) => callback(event);
+    ipcRenderer.on('video-generation-progress', listener);
+    return () => ipcRenderer.removeListener('video-generation-progress', listener);
   },
 
   onDatabaseCleaned: (callback: (result: any) => void) => {
@@ -430,6 +483,7 @@ declare global {
       onProcessingError: (callback: (error: ProcessingErrorEventDTO) => void) => () => void;
       onClipExtractionProgress: (callback: (data: any) => void) => () => void;
       onExportProgress: (callback: (job: ExportJobDTO) => void) => () => void;
+      onVideoGenerationProgress: (callback: (event: GeneratedVideoJobEvent) => void) => () => void;
       onDatabaseCleaned: (callback: (result: any) => void) => () => void;
     };
   }

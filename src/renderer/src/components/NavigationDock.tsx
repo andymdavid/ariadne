@@ -4,6 +4,7 @@ import {
   IoHome, 
   IoCreate, 
   IoLibrary,
+  IoFilmOutline,
   IoCalendar,
   IoAnalytics,
   IoSettings,
@@ -78,6 +79,12 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
       route: '/asset-library'
     },
     {
+      id: 'video-library',
+      icon: IoFilmOutline,
+      label: 'Video Library',
+      route: '/video-library'
+    },
+    {
       id: 'calendar',
       icon: IoCalendar,
       label: 'Calendar',
@@ -108,6 +115,8 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
       screen = 'brand-template'
     } else if (path === '/asset-library') {
       screen = 'asset-library'
+    } else if (path === '/video-library') {
+      screen = 'video-library'
     } else if (path === '/calendar') {
       screen = 'calendar'
     } else if (path === '/analytics') {
@@ -234,6 +243,7 @@ export function NavigationDock({ onSearchTrigger: _onSearchTrigger, onCommandMod
       home: ['select file', 'browse files', 'open recent project'],
       'brand-template': ['caption defaults', 'overlay defaults', 'music defaults'],
       'asset-library': ['logos', 'music', 'fonts'],
+      'video-library': ['generate video', 'reference image', 'library assets'],
       calendar: ['schedule post', 'upload local video'],
       analytics: ['top clips', 'best hooks', 'performance summary']
     }
