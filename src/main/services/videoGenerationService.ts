@@ -250,7 +250,7 @@ export class VideoGenerationService {
         throw new Error('OpenRouter video generation completed without a downloadable URL')
       }
 
-      const downloadedVideoPath = await this.downloadVideo(jobId, asset.id, downloadUrl)
+      const downloadedVideoPath = await this.downloadVideo(jobId, asset.id, apiKey, submitResponse.id, downloadUrl)
       const thumbnailPath = await this.generateThumbnail(asset.id, downloadedVideoPath)
       const finishedAt = new Date().toISOString()
 
@@ -400,8 +400,23 @@ export class VideoGenerationService {
     throw new Error('OpenRouter video generation timed out while polling')
   }
 
-  private async downloadVideo(jobId: string, assetId: string, downloadUrl: string) {
-    const response = await fetch(downloadUrl)
+  private async downloadVideo(
+    jobId: string,
+    assetId: string,
+    apiKey: string,
+    openrouterJobId: string,
+    fallbackDownloadUrl?: string
+  ) {
+    let response = await fetch(`https://openrouter.ai/api/v1/videos/${openrouterJobId}/content?index=0`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      }
+    })
+
+    if (!response.ok && fallbackDownloadUrl) {
+      response = await fetch(fallbackDownloadUrl)
+    }
+
     if (!response.ok || !response.body) {
       throw new Error(`Failed to download generated video: ${response.status}`)
     }
