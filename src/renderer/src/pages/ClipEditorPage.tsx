@@ -387,20 +387,32 @@ export function ClipEditorPage() {
 
         const template = brandTemplate as BrandTemplate | null
         const savedEdits = clipEdits as Record<string, any> | null
-        const mappedSegments: EditableTranscriptLine[] = (segments || []).map((segment: any) => ({
-          id: segment.id,
-          start: Number(segment.start_time ?? segment.start ?? 0),
-          end: Number(segment.end_time ?? segment.end ?? 0),
-          text: segment.text || '',
-          episodeSegmentIndex: Number(segment.episode_segment_index ?? 0),
-          words: Array.isArray(segment.words)
-            ? segment.words.map((word: any) => ({
-                word: word.word || '',
-                start: Number(word.start ?? 0),
-                end: Number(word.end ?? 0)
-              }))
+        const clipStart = mappedClip.startTime
+        const clipEnd = mappedClip.endTime
+        const mappedSegments: EditableTranscriptLine[] = (segments || []).map((segment: any) => {
+          const segmentStart = Number(segment.start_time ?? segment.start ?? 0)
+          const segmentEnd = Number(segment.end_time ?? segment.end ?? 0)
+          const rawWords = Array.isArray(segment.words)
+            ? segment.words
+                .map((word: any) => ({
+                  word: word.word || '',
+                  start: Number(word.start ?? 0),
+                  end: Number(word.end ?? 0)
+                }))
+                .filter((word: any) => word.end > clipStart && word.start < clipEnd)
             : undefined
-        }))
+
+          return {
+            id: segment.id,
+            start: rawWords?.length ? Math.max(clipStart, rawWords[0].start) : Math.max(segmentStart, clipStart),
+            end: rawWords?.length
+              ? Math.min(clipEnd, rawWords[rawWords.length - 1].end)
+              : Math.min(segmentEnd, clipEnd),
+            text: segment.text || '',
+            episodeSegmentIndex: Number(segment.episode_segment_index ?? 0),
+            words: rawWords
+          }
+        })
         const initialPreviewCanvas = getCanonicalPreviewCanvas(template?.frame.aspectRatio ?? '9:16')
         const initialLayout = getCaptionLayoutConfig(template?.caption.presetId ?? null)
         const initialFontSize = clamp(
