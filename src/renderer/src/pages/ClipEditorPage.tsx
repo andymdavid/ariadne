@@ -11,13 +11,14 @@ import {
   IoMusicalNotesOutline,
   IoPlay,
   IoPause,
+  IoRefreshOutline,
   IoRemoveOutline,
   IoResizeOutline,
   IoScanOutline,
   IoTextOutline,
   IoVolumeHighOutline
 } from 'react-icons/io5'
-import type { BrandTemplate } from '@shared/types'
+import type { BrandTemplate, ClipVisualSource, GeneratedVideoAsset, ResolvedClipVideoSource } from '@shared/types'
 import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '@shared/previewCanvas'
 import {
   buildCaptionCues,
@@ -226,6 +227,9 @@ export function ClipEditorPage() {
   const { id: episodeId, clipId } = useParams<{ id: string; clipId: string }>()
   const [clip, setClip] = useState<ClipRecord | null>(null)
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
+  const [resolvedVideoSource, setResolvedVideoSource] = useState<ResolvedClipVideoSource | null>(null)
+  const [clipVisualSource, setClipVisualSource] = useState<ClipVisualSource | null>(null)
+  const [generatedVideoAssets, setGeneratedVideoAssets] = useState<GeneratedVideoAsset[]>([])
   const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([])
   const [isTranscriptOnly, setIsTranscriptOnly] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -244,6 +248,7 @@ export function ClipEditorPage() {
   const [dragGuides, setDragGuides] = useState({ horizontal: false, vertical: false })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isUpdatingVideoSource, setIsUpdatingVideoSource] = useState(false)
   const [isSavingClip, setIsSavingClip] = useState(false)
   const [saveClipFeedback, setSaveClipFeedback] = useState<'idle' | 'saved'>('idle')
   const [timelineZoom, setTimelineZoom] = useState(1.15)
@@ -314,9 +319,11 @@ export function ClipEditorPage() {
         setLoading(true)
         setError(null)
 
-        const [rawClip, mediaSource, segments, brandTemplate, clipEdits] = await Promise.all([
+        const [rawClip, resolvedSource, visualSource, completedAssets, segments, brandTemplate, clipEdits] = await Promise.all([
           window.electronAPI?.getClip?.(clipId),
-          window.electronAPI?.getEpisodeMediaSource?.(episodeId),
+          window.electronAPI?.resolveClipVideoSource?.(clipId),
+          window.electronAPI?.getClipVisualSource?.(clipId),
+          window.electronAPI?.listGeneratedVideoAssets?.(['completed']),
           window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => []),
           window.electronAPI?.getBrandTemplate?.().catch(() => null),
           window.electronAPI?.getClipEdits?.(clipId).catch(() => null)
@@ -376,7 +383,17 @@ export function ClipEditorPage() {
         })
 
         setClip(mappedClip)
-        setMediaUrl(mediaSource?.mediaUrl ?? null)
+        setGeneratedVideoAssets(completedAssets ?? [])
+        setClipVisualSource(
+          visualSource ?? {
+            clipId,
+            sourceType: 'original',
+            generatedVideoAssetId: null,
+            updatedAt: new Date(0).toISOString()
+          }
+        )
+        setResolvedVideoSource(resolvedSource ?? null)
+        setMediaUrl(resolvedSource?.sourcePath ? `app-file://${resolvedSource.sourcePath}` : null)
         setTranscriptLines(mappedSegments)
         setCurrentTime(mappedClip.startTime)
         const activeCaptionText =
@@ -463,6 +480,33 @@ export function ClipEditorPage() {
 
     void loadEditor()
   }, [clipId, episodeId])
+
+  const handleVideoSourceChange = async (value: string) => {
+    if (!clipId) return
+
+    const [sourceType, generatedVideoAssetIdRaw] = value.split(':')
+    const generatedVideoAssetId = generatedVideoAssetIdRaw || null
+
+    try {
+      setIsUpdatingVideoSource(true)
+      stopPlayback(true)
+      const nextVisualSource = await window.electronAPI?.setClipVisualSource?.(
+        clipId,
+        sourceType as ClipVisualSource['sourceType'],
+        generatedVideoAssetId
+      )
+      const nextResolvedSource = await window.electronAPI?.resolveClipVideoSource?.(clipId)
+
+      setClipVisualSource(nextVisualSource ?? null)
+      setResolvedVideoSource(nextResolvedSource ?? null)
+      setMediaUrl(nextResolvedSource?.sourcePath ? `app-file://${nextResolvedSource.sourcePath}` : null)
+      setTimelineThumbnails({})
+    } catch (sourceError) {
+      console.error('Failed to update clip video source:', sourceError)
+    } finally {
+      setIsUpdatingVideoSource(false)
+    }
+  }
 
   const syncAudioToVideo = (videoTime: number, forceSeek = false) => {
     const audio = audioRef.current
@@ -1039,6 +1083,33 @@ export function ClipEditorPage() {
               <h1 className="app-page-title">Clip Workspace</h1>
             </div>
             <div className="app-page-header-actions clip-editor-header-actions">
+              <div className="flex items-center gap-2">
+                <select
+                  value={
+                    clipVisualSource?.sourceType === 'generated_video' && clipVisualSource.generatedVideoAssetId
+                      ? `generated_video:${clipVisualSource.generatedVideoAssetId}`
+                      : 'original:'
+                  }
+                  onChange={(event) => void handleVideoSourceChange(event.target.value)}
+                  className="brand-control-select min-w-[220px]"
+                  disabled={isUpdatingVideoSource}
+                >
+                  <option value="original:">Original clip video</option>
+                  {generatedVideoAssets.map((asset) => (
+                    <option key={asset.id} value={`generated_video:${asset.id}`}>
+                      Library: {asset.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => navigate('/video-library')}
+                  className="app-action-secondary clip-editor-header-action"
+                >
+                  <IoFilmOutline size={16} />
+                  Video library
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => navigate(`/review/${episodeId}`)}
@@ -1102,6 +1173,12 @@ export function ClipEditorPage() {
 
           <section className="clip-editor-preview-stage">
             <div className="clip-editor-preview-meta">
+              <div className="clip-editor-preview-meta-item clip-editor-preview-control">
+                <IoRefreshOutline size={15} />
+                {resolvedVideoSource?.sourceType === 'generated_video'
+                  ? `Library video${resolvedVideoSource.asset?.name ? `: ${resolvedVideoSource.asset.name}` : ''}`
+                  : 'Original video'}
+              </div>
               <button
                 type="button"
                 className="clip-editor-preview-meta-item clip-editor-preview-control"
