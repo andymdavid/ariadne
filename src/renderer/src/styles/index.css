@@ -1864,6 +1864,59 @@
     min-width: 0;
   }
 
+  .brand-control-select,
+  .brand-control-textarea,
+  .brand-control-input {
+    width: 100%;
+    border: 1px solid #1d1d1d;
+    border-radius: 4px;
+    background: #121212;
+    color: rgba(240, 246, 252, 0.94);
+    font-size: 14px;
+    line-height: 1.45;
+    transition:
+      border-color 0.18s ease,
+      background 0.18s ease,
+      color 0.18s ease,
+      box-shadow 0.18s ease;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .brand-control-select,
+  .brand-control-input {
+    min-height: 36px;
+    padding: 0 12px;
+  }
+
+  .brand-control-textarea {
+    min-height: 92px;
+    resize: vertical;
+    padding: 12px;
+  }
+
+  .brand-control-select:hover,
+  .brand-control-textarea:hover,
+  .brand-control-input:hover {
+    border-color: #262626;
+    background: #151515;
+  }
+
+  .brand-control-select:focus,
+  .brand-control-textarea:focus,
+  .brand-control-input:focus {
+    outline: none;
+    border-color: #313131;
+    background: #151515;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03);
+  }
+
+  .brand-control-select::placeholder,
+  .brand-control-textarea::placeholder,
+  .brand-control-input::placeholder {
+    color: rgba(240, 246, 252, 0.34);
+  }
+
   .template-form-color {
     width: 40px;
     height: 40px;
