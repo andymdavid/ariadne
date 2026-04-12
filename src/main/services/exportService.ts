@@ -731,10 +731,14 @@ class ExportService {
       musicPath,
       volume: clipEdits?.music_volume ?? brandTemplate.music.volume ?? 0.3,
       duckVolume: clipEdits?.music_duck_volume ?? 0.1,
-      duckEnabled: clipEdits?.music_duck_enabled === 1,
+      // Do not silently duck Brand Template music just because a clip_edits row exists.
+      // Match the current preview behavior unless ducking was explicitly configured.
+      duckEnabled: clipEdits?.music_duck_enabled != null
+        ? clipEdits.music_duck_enabled === 1
+        : false,
       fadeIn: clipEdits?.music_fade_in ?? 1.0,
       fadeOut: clipEdits?.music_fade_out ?? 1.0,
-      loop: clipEdits?.music_loop === 1
+      loop: clipEdits?.music_loop != null ? clipEdits.music_loop === 1 : true
     }
   }
 
