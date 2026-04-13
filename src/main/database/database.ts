@@ -2266,7 +2266,12 @@ class DatabaseManager {
     }))
   }
 
-  updateTranscriptSegment(episodeId: string, segmentIndex: number, text: string) {
+  updateTranscriptSegment(
+    episodeId: string,
+    segmentIndex: number,
+    text: string,
+    words?: Array<{ word: string; start: number; end: number }>
+  ) {
     // Get all segments for the episode to find the segment by index
     const segments = this.getTranscriptSegments(episodeId)
     if (!segments || segmentIndex >= segments.length) {
@@ -2276,10 +2281,16 @@ class DatabaseManager {
     const segment = segments[segmentIndex] as any
     const stmt = this.db.prepare(`
       UPDATE transcript_segments
-      SET text = ?, words = NULL
+      SET text = ?, words = ?
       WHERE episode_id = ? AND start_time = ? AND end_time = ?
     `)
-    return stmt.run(text, episodeId, segment.start_time, segment.end_time)
+    return stmt.run(
+      text,
+      Array.isArray(words) && words.length > 0 ? JSON.stringify(words) : null,
+      episodeId,
+      segment.start_time,
+      segment.end_time
+    )
   }
 
   // Clip operations

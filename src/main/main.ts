@@ -774,9 +774,18 @@ ipcMain.handle('get-transcript-segments', (event, episodeId: string) => {
   return database.getTranscriptSegments(episodeId);
 });
 
-ipcMain.handle('update-transcript-segment', (event, episodeId: string, segmentIndex: number, text: string) => {
-  return database.updateTranscriptSegment(episodeId, segmentIndex, text);
-});
+ipcMain.handle(
+  'update-transcript-segment',
+  (
+    event,
+    episodeId: string,
+    segmentIndex: number,
+    text: string,
+    words?: Array<{ word: string; start: number; end: number }>
+  ) => {
+    return database.updateTranscriptSegment(episodeId, segmentIndex, text, words);
+  }
+);
 
 // Settings handlers
 ipcMain.handle('get-config', () => {

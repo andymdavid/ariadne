@@ -605,24 +605,50 @@ class ExportService {
         : undefined
     const fontSize = Number(brandTemplate.caption.fontSize ?? 30)
     const fontWeight = Number(brandTemplate.caption.fontWeight ?? 700)
-    const cueLines: CaptionCueLine[] = transcriptSegments.map((segment, index) => ({
-      id: `${clipId}-segment-${index}`,
-      start: Math.max(0, Number(segment.start_time ?? segment.start ?? 0) - clipStartTime),
-      end: Math.max(
-        0,
-        Number(segment.end_time ?? segment.end ?? segment.start_time ?? segment.start ?? 0) - clipStartTime
+    const clipDuration = Math.max(
+      ...transcriptSegments.map((segment) =>
+        Math.max(
+          0,
+          Number(segment.end_time ?? segment.end ?? segment.start_time ?? segment.start ?? 0) - clipStartTime
+        )
       ),
-      text: brandTemplate.caption.uppercase
-        ? String(segment.text || '').toUpperCase()
-        : String(segment.text || ''),
-      words: Array.isArray(segment.words)
-        ? segment.words.map((word) => ({
+      0
+    )
+    const cueLines: CaptionCueLine[] = transcriptSegments.map((segment, index) => {
+      const segmentStart = Number(segment.start_time ?? segment.start ?? 0)
+      const segmentEnd = Number(segment.end_time ?? segment.end ?? segment.start_time ?? segment.start ?? 0)
+      const rawWords = Array.isArray(segment.words)
+        ? segment.words
+            .map((word) => ({
+              word: String(word.word || ''),
+              start: Number(word.start ?? 0),
+              end: Number(word.end ?? 0)
+            }))
+            .filter((word) => word.end > clipStartTime && word.start < clipStartTime + clipDuration)
+        : []
+
+      const words = rawWords.length > 0
+        ? rawWords.map((word) => ({
             word: brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word,
             start: Math.max(0, word.start - clipStartTime),
             end: Math.max(0, word.end - clipStartTime)
           }))
         : undefined
-    }))
+
+      const textFromWords = words?.map((word) => word.word).join(' ').trim()
+
+      return {
+        id: `${clipId}-segment-${index}`,
+        start: words?.length ? Math.max(0, words[0].start) : Math.max(0, segmentStart - clipStartTime),
+        end: words?.length
+          ? Math.max(0, words[words.length - 1].end)
+          : Math.max(0, segmentEnd - clipStartTime),
+        text: brandTemplate.caption.uppercase
+          ? String(textFromWords || segment.text || '').toUpperCase()
+          : String(textFromWords || segment.text || ''),
+        words
+      }
+    })
 
     const cues = buildCaptionCues(cueLines, {
       maxWordsPerCue: 3,

@@ -156,8 +156,13 @@ const electronAPI = {
   getClip: (clipId: string) => ipcRenderer.invoke('get-clip', clipId),
   getClipTrimState: (clipId: string) => ipcRenderer.invoke('get-clip-trim-state', clipId),
   getTranscriptSegments: (episodeId: string) => ipcRenderer.invoke('get-transcript-segments', episodeId),
-  updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) =>
-    ipcRenderer.invoke('update-transcript-segment', episodeId, segmentIndex, text),
+  updateTranscriptSegment: (
+    episodeId: string,
+    segmentIndex: number,
+    text: string,
+    words?: Array<{ word: string; start: number; end: number }>
+  ) =>
+    ipcRenderer.invoke('update-transcript-segment', episodeId, segmentIndex, text, words),
   updateClipStatus: (clipId: string, status: string) =>
     ipcRenderer.invoke('update-clip-status', clipId, status),
   updateClipBoundaries: (clipId: string, startTime: number, endTime: number) =>

@@ -226,6 +226,57 @@ const getTimedClipCaptionWordState = (
   }
 }
 
+const rebuildEditedWords = (
+  text: string,
+  existingWords: Array<{ word: string; start: number; end: number }> | undefined,
+  lineStart: number,
+  lineEnd: number
+) => {
+  const nextWords = text.split(/\s+/).map((word) => word.trim()).filter(Boolean)
+  if (nextWords.length === 0) return undefined
+
+  const sourceWords = (existingWords || [])
+    .filter((word) => word.word?.trim() && Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start)
+
+  if (sourceWords.length === 0) {
+    const totalDuration = Math.max(lineEnd - lineStart, 0.01)
+    const wordDuration = totalDuration / nextWords.length
+    return nextWords.map((word, index) => ({
+      word,
+      start: lineStart + index * wordDuration,
+      end: index === nextWords.length - 1 ? lineEnd : lineStart + (index + 1) * wordDuration
+    }))
+  }
+
+  if (sourceWords.length === nextWords.length) {
+    return nextWords.map((word, index) => ({
+      word,
+      start: sourceWords[index].start,
+      end: sourceWords[index].end
+    }))
+  }
+
+  return nextWords.map((word, index) => {
+    const startSourceIndex = Math.min(
+      sourceWords.length - 1,
+      Math.floor((index * sourceWords.length) / nextWords.length)
+    )
+    const endSourceIndex = Math.min(
+      sourceWords.length - 1,
+      Math.max(
+        startSourceIndex,
+        Math.ceil(((index + 1) * sourceWords.length) / nextWords.length) - 1
+      )
+    )
+
+    return {
+      word,
+      start: sourceWords[startSourceIndex].start,
+      end: sourceWords[endSourceIndex].end
+    }
+  })
+}
+
 const isUpdatedAfter = (candidate?: string | null, baseline?: string | null) => {
   const candidateTime = candidate ? Date.parse(candidate) : Number.NaN
   const baselineTime = baseline ? Date.parse(baseline) : Number.NaN
@@ -1046,7 +1097,10 @@ export function ClipEditorPage() {
     return sourceLines.map((line, index) => ({
       ...line,
       text: chunks[index] ?? '',
-      words: (chunks[index] ?? '') !== line.text ? undefined : line.words
+      words:
+        (chunks[index] ?? '') !== line.text
+          ? rebuildEditedWords(chunks[index] ?? '', line.words, line.start, line.end)
+          : line.words
     }))
   }
 
@@ -1064,7 +1118,17 @@ export function ClipEditorPage() {
       for (const line of linesToSave) {
         if (!line.text.trim()) continue
         setSavingTranscriptLineId(line.id)
-        await window.electronAPI?.updateTranscriptSegment?.(episodeId, line.episodeSegmentIndex, line.text)
+        await window.electronAPI?.updateTranscriptSegment?.(
+          episodeId,
+          line.episodeSegmentIndex,
+          line.text,
+          line.words
+        )
+      }
+      if (clipId) {
+        await window.electronAPI?.saveClipEdits?.(clipId, {
+          caption_segments: null
+        })
       }
       setTranscriptLines(linesToSave)
       setTranscriptDraft(linesToSave.map((line) => line.text).join('\n\n'))

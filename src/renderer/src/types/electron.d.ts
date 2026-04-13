@@ -77,7 +77,12 @@ declare global {
       getClip: (clipId: string) => Promise<any>;
       getClipTrimState: (clipId: string) => Promise<ClipTrimState | undefined>;
       getTranscriptSegments: (episodeId: string) => Promise<any[]>;
-      updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) => Promise<any>;
+      updateTranscriptSegment: (
+        episodeId: string,
+        segmentIndex: number,
+        text: string,
+        words?: Array<{ word: string; start: number; end: number }>
+      ) => Promise<any>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;
       updateClipBoundaries: (clipId: string, startTime: number, endTime: number) => Promise<any>;
       saveClipTrimState: (
