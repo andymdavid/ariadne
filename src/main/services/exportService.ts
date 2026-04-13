@@ -11,6 +11,7 @@ import { videoLibraryService } from './videoLibraryService'
 import type { BrandTemplate } from '@shared/types'
 import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '../../shared/previewCanvas'
 import {
+  alignWordsToTranscriptText,
   buildCaptionCues,
   type CaptionCueLine
 } from '../../shared/captionCues'
@@ -627,15 +628,18 @@ class ExportService {
             .filter((word) => word.end > clipStartTime && word.start < clipStartTime + clipDuration)
         : []
 
-      const words = rawWords.length > 0
-        ? rawWords.map((word) => ({
-            word: brandTemplate.caption.uppercase ? word.word.toUpperCase() : word.word,
-            start: Math.max(0, word.start - clipStartTime),
-            end: Math.max(0, word.end - clipStartTime)
-          }))
-        : undefined
-
-      const textFromWords = words?.map((word) => word.word).join(' ').trim()
+      const words = alignWordsToTranscriptText(
+        String(segment.text || ''),
+        rawWords.length > 0
+          ? rawWords.map((word) => ({
+              word: word.word,
+              start: Math.max(0, word.start - clipStartTime),
+              end: Math.max(0, word.end - clipStartTime)
+            }))
+          : undefined,
+        Math.max(0, segmentStart - clipStartTime),
+        Math.max(0, segmentEnd - clipStartTime)
+      )
 
       return {
         id: `${clipId}-segment-${index}`,
@@ -644,8 +648,8 @@ class ExportService {
           ? Math.max(0, words[words.length - 1].end)
           : Math.max(0, segmentEnd - clipStartTime),
         text: brandTemplate.caption.uppercase
-          ? String(textFromWords || segment.text || '').toUpperCase()
-          : String(textFromWords || segment.text || ''),
+          ? String(segment.text || '').toUpperCase()
+          : String(segment.text || ''),
         words
       }
     })

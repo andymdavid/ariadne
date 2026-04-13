@@ -29,6 +29,11 @@ export type CaptionCueBuildOptions = {
   fontWeight?: number | string
 }
 
+const normalizeWordToken = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/^[^a-z0-9']+|[^a-z0-9']+$/gi, '')
+
 export const normalizeCaptionText = (text: string) =>
   text.replace(/\s+([,.!?;:])/g, '$1').trim()
 
@@ -87,6 +92,105 @@ export const splitCaptionWords = (
   }
 
   return chunks
+}
+
+export const alignWordsToTranscriptText = (
+  text: string,
+  sourceWords: CaptionCueWord[] | undefined,
+  lineStart: number,
+  lineEnd: number
+): CaptionCueWord[] | undefined => {
+  const targetWords = text
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean)
+
+  if (targetWords.length === 0) return undefined
+
+  const usableSourceWords = (sourceWords || []).filter(
+    (word) =>
+      word.word?.trim() &&
+      Number.isFinite(word.start) &&
+      Number.isFinite(word.end) &&
+      word.end > word.start
+  )
+
+  if (usableSourceWords.length === 0) {
+    const totalDuration = Math.max(lineEnd - lineStart, 0.01)
+    const wordDuration = totalDuration / targetWords.length
+    return targetWords.map((word, index) => ({
+      word,
+      start: lineStart + index * wordDuration,
+      end: index === targetWords.length - 1 ? lineEnd : lineStart + (index + 1) * wordDuration
+    }))
+  }
+
+  const matches = new Array<number>(targetWords.length).fill(-1)
+  let sourceIndex = 0
+
+  targetWords.forEach((word, targetIndex) => {
+    const normalizedTarget = normalizeWordToken(word)
+    while (sourceIndex < usableSourceWords.length) {
+      const normalizedSource = normalizeWordToken(usableSourceWords[sourceIndex].word)
+      const matched = normalizedTarget.length > 0 && normalizedTarget === normalizedSource
+      if (matched) {
+        matches[targetIndex] = sourceIndex
+        sourceIndex += 1
+        return
+      }
+      sourceIndex += 1
+    }
+  })
+
+  return targetWords.map((word, targetIndex) => {
+    const matchedSourceIndex = matches[targetIndex]
+    if (matchedSourceIndex >= 0) {
+      const matchedWord = usableSourceWords[matchedSourceIndex]
+      return {
+        word,
+        start: matchedWord.start,
+        end: matchedWord.end
+      }
+    }
+
+    let previousMatchedTarget = targetIndex - 1
+    while (previousMatchedTarget >= 0 && matches[previousMatchedTarget] < 0) {
+      previousMatchedTarget -= 1
+    }
+
+    let nextMatchedTarget = targetIndex + 1
+    while (nextMatchedTarget < matches.length && matches[nextMatchedTarget] < 0) {
+      nextMatchedTarget += 1
+    }
+
+    const gapStart =
+      previousMatchedTarget >= 0
+        ? usableSourceWords[matches[previousMatchedTarget]].end
+        : lineStart
+    const gapEnd =
+      nextMatchedTarget < matches.length
+        ? usableSourceWords[matches[nextMatchedTarget]].start
+        : lineEnd
+
+    const unmatchedStart = previousMatchedTarget + 1
+    const unmatchedEndExclusive =
+      nextMatchedTarget < matches.length ? nextMatchedTarget : targetWords.length
+    const unmatchedCount = Math.max(1, unmatchedEndExclusive - unmatchedStart)
+    const unmatchedIndex = targetIndex - unmatchedStart
+    const sliceDuration = Math.max(gapEnd - gapStart, 0.01)
+    const wordDuration = sliceDuration / unmatchedCount
+    const start = gapStart + unmatchedIndex * wordDuration
+    const end =
+      targetIndex === unmatchedEndExclusive - 1
+        ? gapEnd
+        : Math.min(gapEnd, start + wordDuration)
+
+    return {
+      word,
+      start,
+      end: Math.max(end, start + 0.01)
+    }
+  })
 }
 
 export const buildCaptionCues = (

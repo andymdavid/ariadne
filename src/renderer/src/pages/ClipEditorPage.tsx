@@ -21,6 +21,7 @@ import {
 import type { BrandTemplate, ClipVisualSource, GeneratedVideoAsset, ResolvedClipVideoSource } from '@shared/types'
 import { getCanonicalPreviewCanvas, getCaptionLayoutConfig } from '@shared/previewCanvas'
 import {
+  alignWordsToTranscriptText,
   buildCaptionCues,
   estimateCaptionTextWidth,
   type CaptionCue,
@@ -226,57 +227,6 @@ const getTimedClipCaptionWordState = (
   }
 }
 
-const rebuildEditedWords = (
-  text: string,
-  existingWords: Array<{ word: string; start: number; end: number }> | undefined,
-  lineStart: number,
-  lineEnd: number
-) => {
-  const nextWords = text.split(/\s+/).map((word) => word.trim()).filter(Boolean)
-  if (nextWords.length === 0) return undefined
-
-  const sourceWords = (existingWords || [])
-    .filter((word) => word.word?.trim() && Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start)
-
-  if (sourceWords.length === 0) {
-    const totalDuration = Math.max(lineEnd - lineStart, 0.01)
-    const wordDuration = totalDuration / nextWords.length
-    return nextWords.map((word, index) => ({
-      word,
-      start: lineStart + index * wordDuration,
-      end: index === nextWords.length - 1 ? lineEnd : lineStart + (index + 1) * wordDuration
-    }))
-  }
-
-  if (sourceWords.length === nextWords.length) {
-    return nextWords.map((word, index) => ({
-      word,
-      start: sourceWords[index].start,
-      end: sourceWords[index].end
-    }))
-  }
-
-  return nextWords.map((word, index) => {
-    const startSourceIndex = Math.min(
-      sourceWords.length - 1,
-      Math.floor((index * sourceWords.length) / nextWords.length)
-    )
-    const endSourceIndex = Math.min(
-      sourceWords.length - 1,
-      Math.max(
-        startSourceIndex,
-        Math.ceil(((index + 1) * sourceWords.length) / nextWords.length) - 1
-      )
-    )
-
-    return {
-      word,
-      start: sourceWords[startSourceIndex].start,
-      end: sourceWords[endSourceIndex].end
-    }
-  })
-}
-
 const isUpdatedAfter = (candidate?: string | null, baseline?: string | null) => {
   const candidateTime = candidate ? Date.parse(candidate) : Number.NaN
   const baselineTime = baseline ? Date.parse(baseline) : Number.NaN
@@ -461,7 +411,14 @@ export function ClipEditorPage() {
               : Math.min(segmentEnd, clipEnd),
             text: segment.text || '',
             episodeSegmentIndex: Number(segment.episode_segment_index ?? 0),
-            words: rawWords
+            words: alignWordsToTranscriptText(
+              segment.text || '',
+              rawWords,
+              rawWords?.length ? Math.max(clipStart, rawWords[0].start) : Math.max(segmentStart, clipStart),
+              rawWords?.length
+                ? Math.min(clipEnd, rawWords[rawWords.length - 1].end)
+                : Math.min(segmentEnd, clipEnd)
+            )
           }
         })
         const initialPreviewCanvas = getCanonicalPreviewCanvas(template?.frame.aspectRatio ?? '9:16')
@@ -1099,7 +1056,7 @@ export function ClipEditorPage() {
       text: chunks[index] ?? '',
       words:
         (chunks[index] ?? '') !== line.text
-          ? rebuildEditedWords(chunks[index] ?? '', line.words, line.start, line.end)
+          ? alignWordsToTranscriptText(chunks[index] ?? '', line.words, line.start, line.end)
           : line.words
     }))
   }
