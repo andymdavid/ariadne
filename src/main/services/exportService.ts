@@ -723,12 +723,7 @@ class ExportService {
       (
         clipEdits?.music_enabled != null ||
         clipEdits?.music_path != null ||
-        clipEdits?.music_volume != null ||
-        clipEdits?.music_duck_volume != null ||
-        clipEdits?.music_duck_enabled != null ||
-        clipEdits?.music_fade_in != null ||
-        clipEdits?.music_fade_out != null ||
-        clipEdits?.music_loop != null
+        clipEdits?.music_volume != null
       )
 
     const enabled = useMusicOverride
