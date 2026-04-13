@@ -83,6 +83,7 @@ declare global {
         text: string,
         words?: Array<{ word: string; start: number; end: number }>
       ) => Promise<any>;
+      realignClipTranscript: (clipId: string) => Promise<any[]>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;
       updateClipBoundaries: (clipId: string, startTime: number, endTime: number) => Promise<any>;
       saveClipTrimState: (

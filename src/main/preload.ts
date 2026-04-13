@@ -163,6 +163,8 @@ const electronAPI = {
     words?: Array<{ word: string; start: number; end: number }>
   ) =>
     ipcRenderer.invoke('update-transcript-segment', episodeId, segmentIndex, text, words),
+  realignClipTranscript: (clipId: string) =>
+    ipcRenderer.invoke('realign-clip-transcript', clipId),
   updateClipStatus: (clipId: string, status: string) =>
     ipcRenderer.invoke('update-clip-status', clipId, status),
   updateClipBoundaries: (clipId: string, startTime: number, endTime: number) =>

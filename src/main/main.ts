@@ -17,6 +17,7 @@ import { schedulingService } from './services/schedulingService';
 import { youtubePublishingService } from './services/youtubePublishingService';
 import { videoLibraryService } from './services/videoLibraryService';
 import { videoGenerationService } from './services/videoGenerationService';
+import { transcriptAlignmentService } from './services/transcriptAlignmentService';
 import type {
   BrandTemplate,
   ClipVisualSource,
@@ -786,6 +787,10 @@ ipcMain.handle(
     return database.updateTranscriptSegment(episodeId, segmentIndex, text, words);
   }
 );
+
+ipcMain.handle('realign-clip-transcript', (event, clipId: string) => {
+  return transcriptAlignmentService.realignClipTranscript(clipId);
+});
 
 // Settings handlers
 ipcMain.handle('get-config', () => {

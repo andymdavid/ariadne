@@ -1066,7 +1066,7 @@ export function ClipEditorPage() {
     setTranscriptLines((currentLines) => applyTranscriptDraftToLines(nextDraft, currentLines))
   }
 
-  const persistTranscriptDraft = async () => {
+  const persistTranscriptDraft = async (options?: { realign?: boolean }) => {
     if (!episodeId) return
 
     const linesToSave = applyTranscriptDraftToLines(transcriptDraft, transcriptLines)
@@ -1087,8 +1087,38 @@ export function ClipEditorPage() {
           caption_segments: null
         })
       }
-      setTranscriptLines(linesToSave)
-      setTranscriptDraft(linesToSave.map((line) => line.text).join('\n\n'))
+      let nextLines = linesToSave
+
+      if (options?.realign && clipId) {
+        const realignedSegments = await window.electronAPI?.realignClipTranscript?.(clipId)
+        if (Array.isArray(realignedSegments) && realignedSegments.length > 0) {
+          nextLines = realignedSegments.map((segment: any) => {
+            const rawWords = Array.isArray(segment.words)
+              ? segment.words
+                  .map((word: any) => ({
+                    word: word.word || '',
+                    start: Number(word.start ?? 0),
+                    end: Number(word.end ?? 0)
+                  }))
+                  .filter((word: any) => word.word?.trim() && word.end > word.start)
+              : undefined
+
+            return {
+              id: segment.id,
+              start: rawWords?.length ? rawWords[0].start : Number(segment.start_time ?? segment.start ?? 0),
+              end: rawWords?.length
+                ? rawWords[rawWords.length - 1].end
+                : Number(segment.end_time ?? segment.end ?? segment.start_time ?? segment.start ?? 0),
+              text: segment.text || '',
+              episodeSegmentIndex: Number(segment.episode_segment_index ?? 0),
+              words: rawWords
+            }
+          })
+        }
+      }
+
+      setTranscriptLines(nextLines)
+      setTranscriptDraft(nextLines.map((line) => line.text).join('\n\n'))
     } catch (transcriptError) {
       console.error('Failed to save transcript draft:', transcriptError)
     } finally {
@@ -1110,7 +1140,7 @@ export function ClipEditorPage() {
     setSaveClipFeedback('idle')
 
     try {
-      await persistTranscriptDraft()
+      await persistTranscriptDraft({ realign: true })
       await window.electronAPI?.saveClipEdits?.(clipId, {
         ...clipEditPayload
       })
