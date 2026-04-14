@@ -191,7 +191,13 @@ class ExportOverlayService {
       document.open();
       document.write(${htmlJson});
       document.close();
-      document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true);
+      (async () => {
+        if (document.fonts) {
+          await document.fonts.ready;
+        }
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        return true;
+      })();
     `)
     const image = await window.webContents.capturePage({ x: 0, y: 0, width: resolution.width, height: resolution.height })
     writeFileSync(outputPath, image.toPNG())
@@ -204,8 +210,9 @@ class ExportOverlayService {
     const window = await this.getRenderWindow(previewCanvas)
     await window.webContents.executeJavaScript(`
       document.open();
-      document.write('<!doctype html><html><body style="margin:0;width:${previewCanvas.width}px;height:${previewCanvas.height}px;background:transparent;"></body></html>');
+      document.write('<!doctype html><html style="margin:0;width:${previewCanvas.width}px;height:${previewCanvas.height}px;background:transparent;"><body style="margin:0;width:${previewCanvas.width}px;height:${previewCanvas.height}px;background:transparent;"></body></html>');
       document.close();
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     `)
     const image = await window.webContents.capturePage({ x: 0, y: 0, width: previewCanvas.width, height: previewCanvas.height })
     writeFileSync(outputPath, image.toPNG())
@@ -219,6 +226,7 @@ class ExportOverlayService {
         show: false,
         frame: false,
         transparent: true,
+        backgroundColor: '#00000000',
         webPreferences: {
           backgroundThrottling: false
         }
