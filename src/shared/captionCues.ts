@@ -29,6 +29,9 @@ export type CaptionCueBuildOptions = {
   fontWeight?: number | string
 }
 
+const HARD_TIMED_WORD_GAP_SPLIT_SECONDS = 0.45
+const PUNCTUATION_TIMED_WORD_GAP_SPLIT_SECONDS = 0.18
+
 const normalizeWordToken = (value: string) =>
   value
     .toLowerCase()
@@ -85,6 +88,75 @@ export const splitCaptionWords = (
     }
 
     currentChunk = candidateChunk
+  })
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk)
+  }
+
+  return chunks
+}
+
+const shouldSplitTimedCue = (
+  currentChunk: CaptionCueWord[],
+  nextWord: CaptionCueWord,
+  maxWordsPerCue: number,
+  maxTextWidth?: number,
+  fontSize = 16,
+  fontWeight: number | string = 700
+) => {
+  if (!currentChunk.length) return false
+
+  const previousWord = currentChunk[currentChunk.length - 1]
+  const gap = Math.max(0, nextWord.start - previousWord.end)
+  const previousToken = previousWord.word.trim()
+  const punctuationBoundary =
+    /[.!?]$/.test(previousToken) && gap >= PUNCTUATION_TIMED_WORD_GAP_SPLIT_SECONDS
+
+  if (gap >= HARD_TIMED_WORD_GAP_SPLIT_SECONDS || punctuationBoundary) {
+    return true
+  }
+
+  const candidateChunk = [...currentChunk, nextWord]
+  if (candidateChunk.length > maxWordsPerCue) {
+    return true
+  }
+
+  if (!maxTextWidth || maxTextWidth <= 0) {
+    return false
+  }
+
+  const candidateText = normalizeCaptionText(candidateChunk.map((word) => word.word.trim()).join(' '))
+  return estimateCaptionTextWidth(candidateText, fontSize, Number(fontWeight)) > maxTextWidth
+}
+
+const splitTimedCaptionWords = (
+  words: CaptionCueWord[],
+  maxWordsPerCue: number,
+  maxTextWidth?: number,
+  fontSize = 16,
+  fontWeight: number | string = 700
+) => {
+  if (!words.length) return []
+
+  const chunks: CaptionCueWord[][] = []
+  let currentChunk: CaptionCueWord[] = []
+
+  words.forEach((rawWord) => {
+    const word = {
+      ...rawWord,
+      word: rawWord.word.trim()
+    }
+
+    if (!word.word) return
+
+    if (shouldSplitTimedCue(currentChunk, word, maxWordsPerCue, maxTextWidth, fontSize, fontWeight)) {
+      chunks.push(currentChunk)
+      currentChunk = [word]
+      return
+    }
+
+    currentChunk = [...currentChunk, word]
   })
 
   if (currentChunk.length > 0) {
@@ -216,26 +288,22 @@ export const buildCaptionCues = (
     )
 
     if (timedWords.length > 0) {
-      const timedChunks = splitCaptionWords(
-        timedWords.map((word) => word.word),
+      const timedChunks = splitTimedCaptionWords(
+        timedWords,
         maxWordsPerCue,
         maxTextWidth,
         fontSize,
-        fontFamily,
         fontWeight
       )
-      let timedWordIndex = 0
 
-      timedChunks.forEach((chunk, chunkIndex) => {
-        if (!chunk.length) return
-        const timedChunk = timedWords.slice(timedWordIndex, timedWordIndex + chunk.length)
-        timedWordIndex += chunk.length
+      timedChunks.forEach((timedChunk, chunkIndex) => {
+        if (!timedChunk.length) return
         cues.push({
           id: `${line.id}-cue-${chunkIndex}`,
           lineId: line.id,
           start: timedChunk[0].start,
           end: timedChunk[timedChunk.length - 1].end,
-          text: normalizeCaptionText(chunk.join(' ')),
+          text: normalizeCaptionText(timedChunk.map((word) => word.word).join(' ')),
           words: timedChunk.map((word) => ({
             word: word.word,
             start: word.start,
