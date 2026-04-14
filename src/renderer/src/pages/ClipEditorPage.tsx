@@ -308,6 +308,15 @@ export function ClipEditorPage() {
     () => getCanonicalPreviewCanvas(framePreview?.aspectRatio ?? '9:16'),
     [framePreview?.aspectRatio]
   )
+  const usesRelativeVideoTime = resolvedVideoSource?.sourceType === 'generated_video'
+  const toVideoTime = (absoluteClipTime: number) => {
+    if (!clip) return 0
+    return usesRelativeVideoTime ? Math.max(0, absoluteClipTime - clip.startTime) : absoluteClipTime
+  }
+  const toAbsoluteClipTime = (videoTime: number) => {
+    if (!clip) return 0
+    return usesRelativeVideoTime ? clip.startTime + videoTime : videoTime
+  }
 
   const captionCueBuildOptions = useMemo<CaptionCueBuildOptions>(() => {
     const presetId = captionPreview?.presetId ?? null
@@ -586,7 +595,7 @@ export function ClipEditorPage() {
     const audio = audioRef.current
     if (!audio || !musicEnabled || !musicAssetPath || !clip) return
 
-    const expectedAudioTime = Math.max(videoTime - clip.startTime, 0)
+    const expectedAudioTime = Math.max(toAbsoluteClipTime(videoTime) - clip.startTime, 0)
     if (forceSeek || Math.abs(audio.currentTime - expectedAudioTime) > 0.2) {
       audio.currentTime = expectedAudioTime
     }
@@ -605,8 +614,8 @@ export function ClipEditorPage() {
     audio?.pause()
 
     if (resetToStart && clip && video) {
-      video.currentTime = clip.startTime
-      syncAudioToVideo(clip.startTime, true)
+      video.currentTime = toVideoTime(clip.startTime)
+      syncAudioToVideo(video.currentTime, true)
       if (audio) {
         audio.currentTime = 0
       }
@@ -623,8 +632,8 @@ export function ClipEditorPage() {
       width: video.videoWidth,
       height: video.videoHeight
     })
-    video.currentTime = clip.startTime
-    syncAudioToVideo(clip.startTime, true)
+    video.currentTime = toVideoTime(clip.startTime)
+    syncAudioToVideo(video.currentTime, true)
     setCurrentTime(clip.startTime)
   }
 
@@ -632,14 +641,14 @@ export function ClipEditorPage() {
     const video = videoRef.current
     if (!video || !clip) return
 
-    const nextTime = video.currentTime
+    const nextTime = toAbsoluteClipTime(video.currentTime)
     if (nextTime >= clip.endTime) {
       stopPlayback(true)
       return
     }
 
     setCurrentTime(nextTime)
-    syncAudioToVideo(nextTime)
+    syncAudioToVideo(video.currentTime)
   }
 
   const handleVideoPlay = () => {
@@ -660,12 +669,13 @@ export function ClipEditorPage() {
         return
       }
 
-      if (video.currentTime >= clip.endTime) {
+      const absoluteVideoTime = toAbsoluteClipTime(video.currentTime)
+      if (absoluteVideoTime >= clip.endTime) {
         stopPlayback(true)
         return
       }
 
-      setCurrentTime(video.currentTime)
+      setCurrentTime(absoluteVideoTime)
       syncAudioToVideo(video.currentTime)
       playbackFrameRef.current = window.requestAnimationFrame(tick)
     }
@@ -789,7 +799,7 @@ export function ClipEditorPage() {
           transcriptLines.map(async (line) => {
             const sampleTime = clamp(line.start + 0.08, clip.startTime, Math.max(clip.startTime, line.end - 0.05))
             try {
-              await captureFrame(captureVideo, sampleTime)
+              await captureFrame(captureVideo, toVideoTime(sampleTime))
               context.clearRect(0, 0, canvas.width, canvas.height)
               context.drawImage(captureVideo, 0, 0, canvas.width, canvas.height)
               return [line.id, canvas.toDataURL('image/jpeg', 0.72)] as const
@@ -844,8 +854,9 @@ export function ClipEditorPage() {
       return
     }
 
-    if (video.currentTime < clip.startTime || video.currentTime >= clip.endTime) {
-      video.currentTime = clip.startTime
+    const absoluteVideoTime = toAbsoluteClipTime(video.currentTime)
+    if (absoluteVideoTime < clip.startTime || absoluteVideoTime >= clip.endTime) {
+      video.currentTime = toVideoTime(clip.startTime)
       setCurrentTime(clip.startTime)
     }
 
@@ -866,10 +877,10 @@ export function ClipEditorPage() {
     const audio = audioRef.current
 
     const clampedTime = Math.min(Math.max(nextTime, clip.startTime), clip.endTime)
-    video.currentTime = clampedTime
+    video.currentTime = toVideoTime(clampedTime)
     setCurrentTime(clampedTime)
     if (audio && musicEnabled && musicAssetPath) {
-      syncAudioToVideo(clampedTime, true)
+      syncAudioToVideo(video.currentTime, true)
     }
   }
 
