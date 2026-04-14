@@ -282,6 +282,7 @@ export function ClipEditorPage() {
   const [error, setError] = useState<string | null>(null)
   const [savingTranscriptLineId, setSavingTranscriptLineId] = useState<string | null>(null)
   const [isUpdatingVideoSource, setIsUpdatingVideoSource] = useState(false)
+  const [isVideoSourceMenuOpen, setIsVideoSourceMenuOpen] = useState(false)
   const [isSavingClip, setIsSavingClip] = useState(false)
   const [isSavingAllClips, setIsSavingAllClips] = useState(false)
   const [saveClipFeedback, setSaveClipFeedback] = useState<'idle' | 'saved'>('idle')
@@ -573,6 +574,7 @@ export function ClipEditorPage() {
       setMediaUrl(nextResolvedSource?.sourcePath ? `app-file://${nextResolvedSource.sourcePath}` : null)
       setVideoMetadata(null)
       setTimelineThumbnails({})
+      setIsVideoSourceMenuOpen(false)
     } catch (sourceError) {
       console.error('Failed to update clip video source:', sourceError)
     } finally {
@@ -1550,78 +1552,68 @@ export function ClipEditorPage() {
           </section>
 
           <section className="clip-editor-preview-stage">
-            <div className="clip-editor-source-panel">
-              <div className="clip-editor-source-summary">
-                <div className="clip-editor-source-label">Video source</div>
-                <div className="clip-editor-source-name">
-                  {resolvedVideoSource?.sourceType === 'generated_video'
-                    ? selectedGeneratedVideoAsset?.name || 'Library video'
-                    : 'Original clip video'}
-                </div>
-                <div className="clip-editor-source-copy">
-                  {resolvedVideoSource?.sourceType === 'generated_video'
-                    ? `Using reusable library video${selectedGeneratedVideoAsset?.modelId ? ` • ${selectedGeneratedVideoAsset.modelId}` : ''}`
-                    : 'Using the original episode source for this clip'}
-                </div>
-              </div>
-
-              <div className="clip-editor-source-options">
+            <div className="clip-editor-preview-meta">
+              <div className="clip-editor-source-picker">
                 <button
                   type="button"
-                  className={`clip-editor-source-option ${clipVisualSource?.sourceType !== 'generated_video' ? 'is-active' : ''}`}
-                  onClick={() => void handleVideoSourceChange('original:')}
-                  disabled={isUpdatingVideoSource}
+                  className={`clip-editor-preview-meta-item clip-editor-preview-control ${isVideoSourceMenuOpen ? 'is-open' : ''}`}
+                  onClick={() => setIsVideoSourceMenuOpen((current) => !current)}
                 >
-                  <div className="clip-editor-source-thumb clip-editor-source-thumb-placeholder">
-                    <IoFilmOutline size={18} />
-                  </div>
-                  <div className="clip-editor-source-option-body">
-                    <div className="clip-editor-source-option-title">Original</div>
-                    <div className="clip-editor-source-option-copy">Episode source video</div>
-                  </div>
+                  <IoFilmOutline size={15} />
+                  {resolvedVideoSource?.sourceType === 'generated_video'
+                    ? selectedGeneratedVideoAsset?.name || 'Library video'
+                    : 'Original video'}
                 </button>
-
-                {generatedVideoAssets.map((asset) => (
-                  <button
-                    key={asset.id}
-                    type="button"
-                    className={`clip-editor-source-option ${
-                      clipVisualSource?.sourceType === 'generated_video' && clipVisualSource.generatedVideoAssetId === asset.id
-                        ? 'is-active'
-                        : ''
-                    }`}
-                    onClick={() => void handleVideoSourceChange(`generated_video:${asset.id}`)}
-                    disabled={isUpdatingVideoSource}
-                  >
-                    {asset.thumbnailPath ? (
-                      <img
-                        src={`app-file://${asset.thumbnailPath}`}
-                        alt={asset.name}
-                        className="clip-editor-source-thumb object-cover"
-                      />
-                    ) : (
-                      <div className="clip-editor-source-thumb clip-editor-source-thumb-placeholder">
-                        <IoFilmOutline size={18} />
+                {isVideoSourceMenuOpen ? (
+                  <div className="clip-editor-source-popover">
+                    <button
+                      type="button"
+                      className={`clip-editor-source-row ${clipVisualSource?.sourceType !== 'generated_video' ? 'is-active' : ''}`}
+                      onClick={() => void handleVideoSourceChange('original:')}
+                      disabled={isUpdatingVideoSource}
+                    >
+                      <div className="clip-editor-source-row-thumb clip-editor-source-thumb-placeholder">
+                        <IoFilmOutline size={16} />
                       </div>
-                    )}
-                    <div className="clip-editor-source-option-body">
-                      <div className="clip-editor-source-option-title">{asset.name}</div>
-                      <div className="clip-editor-source-option-copy">
-                        {asset.modelId} • {asset.aspectRatio}
-                        {asset.durationSeconds ? ` • ${asset.durationSeconds}s` : ''}
+                      <div className="clip-editor-source-row-body">
+                        <div className="clip-editor-source-row-title">Original video</div>
+                        <div className="clip-editor-source-row-copy">Episode source video</div>
                       </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="clip-editor-preview-meta">
-              <div className="clip-editor-preview-meta-item clip-editor-preview-control">
-                <IoRefreshOutline size={15} />
-                {resolvedVideoSource?.sourceType === 'generated_video'
-                  ? `Library video${resolvedVideoSource.asset?.name ? `: ${resolvedVideoSource.asset.name}` : ''}`
-                  : 'Original video'}
+                    </button>
+                    {generatedVideoAssets.map((asset) => (
+                      <button
+                        key={asset.id}
+                        type="button"
+                        className={`clip-editor-source-row ${
+                          clipVisualSource?.sourceType === 'generated_video' && clipVisualSource.generatedVideoAssetId === asset.id
+                            ? 'is-active'
+                            : ''
+                        }`}
+                        onClick={() => void handleVideoSourceChange(`generated_video:${asset.id}`)}
+                        disabled={isUpdatingVideoSource}
+                      >
+                        {asset.thumbnailPath ? (
+                          <img
+                            src={`app-file://${asset.thumbnailPath}`}
+                            alt={asset.name}
+                            className="clip-editor-source-row-thumb object-cover"
+                          />
+                        ) : (
+                          <div className="clip-editor-source-row-thumb clip-editor-source-thumb-placeholder">
+                            <IoFilmOutline size={16} />
+                          </div>
+                        )}
+                        <div className="clip-editor-source-row-body">
+                          <div className="clip-editor-source-row-title">{asset.name}</div>
+                          <div className="clip-editor-source-row-copy">
+                            {asset.modelId} • {asset.aspectRatio}
+                            {asset.durationSeconds ? ` • ${asset.durationSeconds}s` : ''}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -1645,15 +1637,18 @@ export function ClipEditorPage() {
                 onClick={() => void adjustFrameZoom('out')}
               >
                 <IoRemoveOutline size={15} />
-                Zoom {Math.round((framePreview?.zoomLevel ?? 1) * 100)}%
+                Zoom out
               </button>
+              <div className="clip-editor-preview-meta-item clip-editor-preview-control clip-editor-preview-control-static">
+                Zoom {Math.round((framePreview?.zoomLevel ?? 1) * 100)}%
+              </div>
               <button
                 type="button"
                 className="clip-editor-preview-meta-item clip-editor-preview-control"
                 onClick={() => void adjustFrameZoom('in')}
               >
                 <IoAddOutline size={15} />
-                Scale
+                Zoom in
               </button>
               <button
                 type="button"
