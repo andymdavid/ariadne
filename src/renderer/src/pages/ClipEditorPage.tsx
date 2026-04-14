@@ -256,6 +256,7 @@ export function ClipEditorPage() {
   const { id: episodeId, clipId } = useParams<{ id: string; clipId: string }>()
   const [clip, setClip] = useState<ClipRecord | null>(null)
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
+  const [sourceAudioUrl, setSourceAudioUrl] = useState<string | null>(null)
   const [resolvedVideoSource, setResolvedVideoSource] = useState<ResolvedClipVideoSource | null>(null)
   const [clipVisualSource, setClipVisualSource] = useState<ClipVisualSource | null>(null)
   const [generatedVideoAssets, setGeneratedVideoAssets] = useState<GeneratedVideoAsset[]>([])
@@ -292,6 +293,7 @@ export function ClipEditorPage() {
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
+  const sourceAudioRef = useRef<HTMLAudioElement>(null)
   const transcriptScrollerRef = useRef<HTMLDivElement>(null)
   const previewFrameRef = useRef<HTMLDivElement>(null)
   const saveFeedbackTimeoutRef = useRef<number | null>(null)
@@ -373,14 +375,15 @@ export function ClipEditorPage() {
         setLoading(true)
         setError(null)
 
-        const [rawClip, resolvedSource, visualSource, completedAssets, segments, brandTemplate, clipEdits] = await Promise.all([
+        const [rawClip, resolvedSource, visualSource, completedAssets, segments, brandTemplate, clipEdits, episodeMediaSource] = await Promise.all([
           window.electronAPI?.getClip?.(clipId),
           window.electronAPI?.resolveClipVideoSource?.(clipId),
           window.electronAPI?.getClipVisualSource?.(clipId),
           window.electronAPI?.listGeneratedVideoAssets?.(['completed']),
           window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => []),
           window.electronAPI?.getBrandTemplate?.().catch(() => null),
-          window.electronAPI?.getClipEdits?.(clipId).catch(() => null)
+          window.electronAPI?.getClipEdits?.(clipId).catch(() => null),
+          window.electronAPI?.getEpisodeMediaSource?.(episodeId).catch(() => null)
         ])
 
         if (!rawClip) {
@@ -468,6 +471,7 @@ export function ClipEditorPage() {
         )
         setResolvedVideoSource(resolvedSource ?? null)
         setMediaUrl(resolvedSource?.sourcePath ? `app-file://${resolvedSource.sourcePath}` : null)
+        setSourceAudioUrl(episodeMediaSource?.mediaUrl ?? null)
         setVideoMetadata(null)
         setTranscriptLines(mappedSegments)
         setTranscriptDraft(mappedSegments.map((segment) => segment.text).join('\n\n'))
@@ -592,18 +596,27 @@ export function ClipEditorPage() {
   }
 
   const syncAudioToVideo = (videoTime: number, forceSeek = false) => {
-    const audio = audioRef.current
-    if (!audio || !musicEnabled || !musicAssetPath || !clip) return
+    const musicAudio = audioRef.current
+    if (musicAudio && musicEnabled && musicAssetPath && clip) {
+      const expectedAudioTime = Math.max(toAbsoluteClipTime(videoTime) - clip.startTime, 0)
+      if (forceSeek || Math.abs(musicAudio.currentTime - expectedAudioTime) > 0.2) {
+        musicAudio.currentTime = expectedAudioTime
+      }
+    }
 
-    const expectedAudioTime = Math.max(toAbsoluteClipTime(videoTime) - clip.startTime, 0)
-    if (forceSeek || Math.abs(audio.currentTime - expectedAudioTime) > 0.2) {
-      audio.currentTime = expectedAudioTime
+    const sourceAudio = sourceAudioRef.current
+    if (usesRelativeVideoTime && sourceAudio && sourceAudioUrl && clip) {
+      const expectedSourceAudioTime = Math.max(toAbsoluteClipTime(videoTime), 0)
+      if (forceSeek || Math.abs(sourceAudio.currentTime - expectedSourceAudioTime) > 0.2) {
+        sourceAudio.currentTime = expectedSourceAudioTime
+      }
     }
   }
 
   const stopPlayback = (resetToStart = false) => {
     const video = videoRef.current
     const audio = audioRef.current
+    const sourceAudio = sourceAudioRef.current
 
     if (playbackFrameRef.current != null) {
       window.cancelAnimationFrame(playbackFrameRef.current)
@@ -612,12 +625,16 @@ export function ClipEditorPage() {
 
     video?.pause()
     audio?.pause()
+    sourceAudio?.pause()
 
     if (resetToStart && clip && video) {
       video.currentTime = toVideoTime(clip.startTime)
       syncAudioToVideo(video.currentTime, true)
       if (audio) {
         audio.currentTime = 0
+      }
+      if (sourceAudio) {
+        sourceAudio.currentTime = clip.startTime
       }
       setCurrentTime(clip.startTime)
     }
@@ -690,6 +707,7 @@ export function ClipEditorPage() {
     }
     const audio = audioRef.current
     audio?.pause()
+    sourceAudioRef.current?.pause()
     setIsPlaying(false)
   }
 
@@ -848,6 +866,7 @@ export function ClipEditorPage() {
     const video = videoRef.current
     if (!video || !clip) return
     const audio = audioRef.current
+    const sourceAudio = sourceAudioRef.current
 
     if (!video.paused && !video.ended) {
       stopPlayback(false)
@@ -868,6 +887,13 @@ export function ClipEditorPage() {
       })
     }
 
+    if (usesRelativeVideoTime && sourceAudio && sourceAudioUrl) {
+      syncAudioToVideo(video.currentTime, true)
+      void sourceAudio.play().catch(() => {
+        // ignore source audio playback failures; visual preview should still work
+      })
+    }
+
     void video.play()
   }
 
@@ -875,11 +901,15 @@ export function ClipEditorPage() {
     const video = videoRef.current
     if (!video || !clip) return
     const audio = audioRef.current
+    const sourceAudio = sourceAudioRef.current
 
     const clampedTime = Math.min(Math.max(nextTime, clip.startTime), clip.endTime)
     video.currentTime = toVideoTime(clampedTime)
     setCurrentTime(clampedTime)
     if (audio && musicEnabled && musicAssetPath) {
+      syncAudioToVideo(video.currentTime, true)
+    }
+    if (usesRelativeVideoTime && sourceAudio && sourceAudioUrl) {
       syncAudioToVideo(video.currentTime, true)
     }
   }
@@ -2169,6 +2199,11 @@ export function ClipEditorPage() {
         <audio
           ref={audioRef}
           src={musicAssetPath ? `app-file://${musicAssetPath}` : undefined}
+          preload="auto"
+        />
+        <audio
+          ref={sourceAudioRef}
+          src={usesRelativeVideoTime ? sourceAudioUrl ?? undefined : undefined}
           preload="auto"
         />
       </div>
