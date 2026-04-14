@@ -133,7 +133,13 @@ class ExportOverlayService {
       ffmpeg()
         .input(manifestPath)
         .inputOptions(['-f concat', '-safe 0'])
-        .outputOptions(['-vsync vfr', '-pix_fmt argb'])
+        .outputOptions([
+          '-vf fps=60',
+          '-r 60',
+          '-fps_mode cfr',
+          '-video_track_timescale 60000',
+          '-pix_fmt argb'
+        ])
         .videoCodec('qtrle')
         .output(videoPath)
         .on('end', () => resolve())
