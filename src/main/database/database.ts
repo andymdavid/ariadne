@@ -2610,6 +2610,31 @@ class DatabaseManager {
     return insertMany(titles)
   }
 
+  addClipTitle(clipId: string, title: string, select = true) {
+    const now = new Date().toISOString()
+    const normalizedTitle = title.trim()
+    if (!normalizedTitle) {
+      throw new Error('Title cannot be empty')
+    }
+
+    if (select) {
+      this.db.prepare('UPDATE clip_titles SET is_selected = 0 WHERE clip_id = ?').run(clipId)
+    }
+
+    const stmt = this.db.prepare(`
+      INSERT INTO clip_titles (id, clip_id, title, is_selected, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      `${clipId}-title-manual-${Date.now()}`,
+      clipId,
+      normalizedTitle,
+      select ? 1 : 0,
+      now
+    )
+  }
+
   getClipTitles(clipId: string) {
     const stmt = this.db.prepare(`
       SELECT * FROM clip_titles
@@ -2641,6 +2666,32 @@ class DatabaseManager {
       description,
       platform,
       1, // Selected by default
+      now
+    )
+  }
+
+  addClipDescription(clipId: string, description: string, platform: string = 'general', select = true) {
+    const now = new Date().toISOString()
+    const normalizedDescription = description.trim()
+    if (!normalizedDescription) {
+      throw new Error('Description cannot be empty')
+    }
+
+    if (select) {
+      this.db.prepare('UPDATE clip_descriptions SET is_selected = 0 WHERE clip_id = ?').run(clipId)
+    }
+
+    const stmt = this.db.prepare(`
+      INSERT INTO clip_descriptions (id, clip_id, description, platform, is_selected, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+
+    return stmt.run(
+      `${clipId}-desc-${platform}-manual-${Date.now()}`,
+      clipId,
+      normalizedDescription,
+      platform,
+      select ? 1 : 0,
       now
     )
   }

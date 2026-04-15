@@ -18,6 +18,7 @@ import { youtubePublishingService } from './services/youtubePublishingService';
 import { videoLibraryService } from './services/videoLibraryService';
 import { videoGenerationService } from './services/videoGenerationService';
 import { transcriptAlignmentService } from './services/transcriptAlignmentService';
+import AIService from './services/aiService';
 import type {
   BrandTemplate,
   ClipVisualSource,
@@ -1228,6 +1229,78 @@ ipcMain.handle('select-clip-thumbnail', (_event, thumbnailId: string, clipId: st
   const result = database.selectClipThumbnail(thumbnailId, clipId)
   schedulingService.reconcileScheduledPublicationsForClip(clipId)
   return result
+})
+
+ipcMain.handle('generate-clip-content-package', async (_event, clipId: string) => {
+  const clip = database.getClip(clipId) as any
+  if (!clip) {
+    throw new Error('Clip not found')
+  }
+
+  const apiConfig = configService.getApiConfig()
+  if (!apiConfig.openRouterKey) {
+    throw new Error('OpenRouter API key not configured')
+  }
+
+  const transcriptSegments = database.getClipTranscriptSegments(clipId) as Array<{ text?: string }>
+  const transcriptText = transcriptSegments
+    .map((segment) => segment.text?.trim() || '')
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+
+  if (!transcriptText) {
+    throw new Error('Clip transcript is empty')
+  }
+
+  const aiService = new AIService(apiConfig)
+  const brandVoiceExamples = configService.getBrandVoice().examples
+  const contentPackage = await aiService.generateContentPackage(
+    transcriptText,
+    clip.content_type || clip.contentType || 'insight',
+    brandVoiceExamples.length > 0 ? brandVoiceExamples : undefined
+  )
+
+  const titles = Array.from(
+    new Set(
+      (contentPackage.titles || [])
+        .map((title) => title.trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 5)
+
+  if (titles.length > 0) {
+    database.insertClipTitles(clipId, titles)
+  }
+
+  if (contentPackage.description?.trim()) {
+    database.insertClipDescription(clipId, contentPackage.description.trim(), 'youtube')
+  }
+
+  schedulingService.reconcileScheduledPublicationsForClip(clipId)
+
+  return {
+    titles: database.getClipTitles(clipId),
+    descriptions: database.getClipDescriptions(clipId)
+  }
+})
+
+ipcMain.handle('save-clip-title', (_event, clipId: string, title: string) => {
+  const result = database.addClipTitle(clipId, title, true)
+  schedulingService.reconcileScheduledPublicationsForClip(clipId)
+  return {
+    result,
+    titles: database.getClipTitles(clipId)
+  }
+})
+
+ipcMain.handle('save-clip-description', (_event, clipId: string, description: string, platform = 'youtube') => {
+  const result = database.addClipDescription(clipId, description, platform, true)
+  schedulingService.reconcileScheduledPublicationsForClip(clipId)
+  return {
+    result,
+    descriptions: database.getClipDescriptions(clipId)
+  }
 })
 
 // Clip edits handlers (for Editor screen)

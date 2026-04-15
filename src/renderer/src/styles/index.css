@@ -1087,6 +1087,7 @@
     flex: 1 1 auto;
     flex-direction: column;
     overflow: hidden;
+    gap: 20px;
   }
 
   .clip-editor-transcript-editor {
@@ -1105,6 +1106,146 @@
 
   .clip-editor-transcript-editor::placeholder {
     color: rgba(216, 219, 226, 0.4);
+  }
+
+  .clip-editor-content-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    border-top: 1px solid #1d1d1d;
+    padding-top: 18px;
+  }
+
+  .clip-editor-content-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .clip-editor-content-title {
+    font-size: 18px;
+    line-height: 1.1;
+    font-weight: 600;
+    color: #f3f5f7;
+  }
+
+  .clip-editor-content-copy {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(240, 246, 252, 0.46);
+  }
+
+  .clip-editor-content-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .clip-editor-content-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    padding: 0 14px;
+    border-radius: 5px;
+    border: 1px solid #1d1d1d;
+    background: #151515;
+    color: #f3f5f7;
+    font-size: 13px;
+    transition: background 0.18s ease, border-color 0.18s ease;
+  }
+
+  .clip-editor-content-button:hover:not(:disabled) {
+    background: #171717;
+    border-color: #262626;
+  }
+
+  .clip-editor-content-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .clip-editor-content-button.is-primary {
+    background: #f3f5f7;
+    color: #0f1115;
+    border-color: transparent;
+  }
+
+  .clip-editor-content-button.is-primary:hover:not(:disabled) {
+    background: #ffffff;
+  }
+
+  .clip-editor-content-field {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .clip-editor-content-label {
+    font-size: 11px;
+    line-height: 1.2;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(240, 246, 252, 0.36);
+  }
+
+  .clip-editor-content-input {
+    width: 100%;
+    resize: vertical;
+    border-radius: 5px;
+    border: 1px solid #1d1d1d;
+    background: #151515;
+    color: #d8dbe2;
+    padding: 12px 14px;
+    font-size: 14px;
+    line-height: 1.6;
+    outline: none;
+  }
+
+  .clip-editor-content-input:focus {
+    border-color: #2b2b2b;
+    background: #171717;
+  }
+
+  .clip-editor-content-input-title {
+    min-height: 82px;
+  }
+
+  .clip-editor-content-input-description {
+    min-height: 140px;
+  }
+
+  .clip-editor-content-option-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .clip-editor-content-option {
+    display: block;
+    width: 100%;
+    border-radius: 5px;
+    border: 1px solid #1d1d1d;
+    background: #151515;
+    color: rgba(240, 246, 252, 0.8);
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    text-align: left;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  }
+
+  .clip-editor-content-option:hover {
+    background: #171717;
+    border-color: #262626;
+  }
+
+  .clip-editor-content-option.is-selected {
+    border-color: #303030;
+    background: #1a1a1a;
+    color: #ffffff;
   }
 
   .clip-editor-header-action {

@@ -122,6 +122,19 @@ type EditableTranscriptLine = TranscriptLine & {
   episodeSegmentIndex: number
 }
 
+type ClipTitleOption = {
+  id: string
+  title: string
+  is_selected?: number
+}
+
+type ClipDescriptionOption = {
+  id: string
+  description: string
+  is_selected?: number
+  platform?: string
+}
+
 type PreviewCaptionState = {
   presetId?: string | null
   text: string
@@ -262,6 +275,10 @@ export function ClipEditorPage() {
   const [generatedVideoAssets, setGeneratedVideoAssets] = useState<GeneratedVideoAsset[]>([])
   const [transcriptLines, setTranscriptLines] = useState<EditableTranscriptLine[]>([])
   const [transcriptDraft, setTranscriptDraft] = useState('')
+  const [titleOptions, setTitleOptions] = useState<ClipTitleOption[]>([])
+  const [descriptionOptions, setDescriptionOptions] = useState<ClipDescriptionOption[]>([])
+  const [titleDraft, setTitleDraft] = useState('')
+  const [descriptionDraft, setDescriptionDraft] = useState('')
   const [isTranscriptOnly, setIsTranscriptOnly] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -286,6 +303,8 @@ export function ClipEditorPage() {
   const [isVideoSourceMenuOpen, setIsVideoSourceMenuOpen] = useState(false)
   const [isSavingClip, setIsSavingClip] = useState(false)
   const [isSavingAllClips, setIsSavingAllClips] = useState(false)
+  const [isGeneratingContent, setIsGeneratingContent] = useState(false)
+  const [isSavingContent, setIsSavingContent] = useState(false)
   const [saveClipFeedback, setSaveClipFeedback] = useState<'idle' | 'saved'>('idle')
   const [timelineZoom, setTimelineZoom] = useState(1.15)
   const [timelineWaveform, setTimelineWaveform] = useState<number[]>([])
@@ -375,7 +394,7 @@ export function ClipEditorPage() {
         setLoading(true)
         setError(null)
 
-        const [rawClip, resolvedSource, visualSource, completedAssets, segments, brandTemplate, clipEdits, episodeMediaSource] = await Promise.all([
+        const [rawClip, resolvedSource, visualSource, completedAssets, segments, brandTemplate, clipEdits, episodeMediaSource, rawTitles, rawDescriptions] = await Promise.all([
           window.electronAPI?.getClip?.(clipId),
           window.electronAPI?.resolveClipVideoSource?.(clipId),
           window.electronAPI?.getClipVisualSource?.(clipId),
@@ -383,7 +402,9 @@ export function ClipEditorPage() {
           window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => []),
           window.electronAPI?.getBrandTemplate?.().catch(() => null),
           window.electronAPI?.getClipEdits?.(clipId).catch(() => null),
-          window.electronAPI?.getEpisodeMediaSource?.(episodeId).catch(() => null)
+          window.electronAPI?.getEpisodeMediaSource?.(episodeId).catch(() => null),
+          window.electronAPI?.getClipTitles?.(clipId).catch(() => []),
+          window.electronAPI?.getClipDescriptions?.(clipId).catch(() => [])
         ])
 
         if (!rawClip) {
@@ -475,6 +496,20 @@ export function ClipEditorPage() {
         setVideoMetadata(null)
         setTranscriptLines(mappedSegments)
         setTranscriptDraft(mappedSegments.map((segment) => segment.text).join('\n\n'))
+        const nextTitleOptions = (rawTitles || []) as ClipTitleOption[]
+        const nextDescriptionOptions = (rawDescriptions || []) as ClipDescriptionOption[]
+        setTitleOptions(nextTitleOptions)
+        setDescriptionOptions(nextDescriptionOptions)
+        setTitleDraft(
+          nextTitleOptions.find((option) => option.is_selected)?.title ||
+            nextTitleOptions[0]?.title ||
+            mappedClip.keyQuote
+        )
+        setDescriptionDraft(
+          nextDescriptionOptions.find((option) => option.is_selected)?.description ||
+            nextDescriptionOptions[0]?.description ||
+            ''
+        )
         setCurrentTime(mappedClip.startTime)
         const activeCaptionText =
           initialCaptionCues.find((cue) => mappedClip.startTime >= cue.start && mappedClip.startTime <= cue.end)?.text ||
@@ -943,6 +978,89 @@ export function ClipEditorPage() {
       null
     )
   }, [generatedVideoAssets, resolvedVideoSource])
+
+  const refreshClipContentPackage = async () => {
+    if (!clipId) return
+    const [nextTitles, nextDescriptions] = await Promise.all([
+      window.electronAPI?.getClipTitles?.(clipId).catch(() => []),
+      window.electronAPI?.getClipDescriptions?.(clipId).catch(() => [])
+    ])
+    const normalizedTitles = (nextTitles || []) as ClipTitleOption[]
+    const normalizedDescriptions = (nextDescriptions || []) as ClipDescriptionOption[]
+    setTitleOptions(normalizedTitles)
+    setDescriptionOptions(normalizedDescriptions)
+    setTitleDraft(
+      normalizedTitles.find((option) => option.is_selected)?.title ||
+        normalizedTitles[0]?.title ||
+        clip?.keyQuote ||
+        ''
+    )
+    setDescriptionDraft(
+      normalizedDescriptions.find((option) => option.is_selected)?.description ||
+        normalizedDescriptions[0]?.description ||
+        ''
+    )
+  }
+
+  const handleGenerateClipContent = async () => {
+    if (!clipId) return
+
+    try {
+      setIsGeneratingContent(true)
+      const result = await window.electronAPI?.generateClipContentPackage?.(clipId)
+      const nextTitles = (result?.titles || []) as ClipTitleOption[]
+      const nextDescriptions = (result?.descriptions || []) as ClipDescriptionOption[]
+      setTitleOptions(nextTitles)
+      setDescriptionOptions(nextDescriptions)
+      setTitleDraft(nextTitles.find((option) => option.is_selected)?.title || nextTitles[0]?.title || '')
+      setDescriptionDraft(
+        nextDescriptions.find((option) => option.is_selected)?.description || nextDescriptions[0]?.description || ''
+      )
+    } catch (contentError) {
+      console.error('Failed to generate clip content package:', contentError)
+    } finally {
+      setIsGeneratingContent(false)
+    }
+  }
+
+  const handleSaveClipContent = async () => {
+    if (!clipId) return
+
+    try {
+      setIsSavingContent(true)
+      const [savedTitles, savedDescriptions] = await Promise.all([
+        window.electronAPI?.saveClipTitle?.(clipId, titleDraft),
+        window.electronAPI?.saveClipDescription?.(clipId, descriptionDraft, 'youtube')
+      ])
+      setTitleOptions((savedTitles?.titles || []) as ClipTitleOption[])
+      setDescriptionOptions((savedDescriptions?.descriptions || []) as ClipDescriptionOption[])
+      await refreshClipContentPackage()
+    } catch (contentSaveError) {
+      console.error('Failed to save clip content package:', contentSaveError)
+    } finally {
+      setIsSavingContent(false)
+    }
+  }
+
+  const handleSelectTitleOption = async (titleId: string) => {
+    if (!clipId) return
+    try {
+      await window.electronAPI?.selectClipTitle?.(titleId, clipId)
+      await refreshClipContentPackage()
+    } catch (selectionError) {
+      console.error('Failed to select clip title option:', selectionError)
+    }
+  }
+
+  const handleSelectDescriptionOption = async (descriptionId: string) => {
+    if (!clipId) return
+    try {
+      await window.electronAPI?.selectClipDescription?.(descriptionId, clipId)
+      await refreshClipContentPackage()
+    } catch (selectionError) {
+      console.error('Failed to select clip description option:', selectionError)
+    }
+  }
 
   const timelineRulerMarks = useMemo(() => {
     if (!clip || clip.duration <= 0) return []
@@ -1588,6 +1706,87 @@ export function ClipEditorPage() {
                   onBlur={() => void handleTranscriptDraftBlur()}
                   className="clip-editor-transcript-editor"
                 />
+              </div>
+
+              <div className="clip-editor-content-panel">
+                <div className="clip-editor-content-header">
+                  <div>
+                    <div className="clip-editor-content-title">Content</div>
+                    <div className="clip-editor-content-copy">
+                      Generate and edit the clip title and description used for publishing.
+                    </div>
+                  </div>
+                  <div className="clip-editor-content-actions">
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerateClipContent()}
+                      disabled={isGeneratingContent}
+                      className="clip-editor-content-button"
+                    >
+                      {isGeneratingContent ? 'Generating…' : titleOptions.length > 0 || descriptionOptions.length > 0 ? 'Regenerate' : 'Generate'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveClipContent()}
+                      disabled={isSavingContent}
+                      className="clip-editor-content-button is-primary"
+                    >
+                      {isSavingContent ? 'Saving…' : 'Save content'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="clip-editor-content-field">
+                  <label className="clip-editor-content-label">Title</label>
+                  <textarea
+                    value={titleDraft}
+                    onChange={(event) => setTitleDraft(event.target.value)}
+                    className="clip-editor-content-input clip-editor-content-input-title"
+                    placeholder="Generate or write a short YouTube title"
+                  />
+                  {titleOptions.length > 0 ? (
+                    <div className="clip-editor-content-option-list">
+                      {titleOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`clip-editor-content-option ${
+                            option.is_selected ? 'is-selected' : ''
+                          }`}
+                          onClick={() => void handleSelectTitleOption(option.id)}
+                        >
+                          {option.title}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="clip-editor-content-field">
+                  <label className="clip-editor-content-label">Description</label>
+                  <textarea
+                    value={descriptionDraft}
+                    onChange={(event) => setDescriptionDraft(event.target.value)}
+                    className="clip-editor-content-input clip-editor-content-input-description"
+                    placeholder="Generate or write a short description for YouTube"
+                  />
+                  {descriptionOptions.length > 0 ? (
+                    <div className="clip-editor-content-option-list">
+                      {descriptionOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`clip-editor-content-option ${
+                            option.is_selected ? 'is-selected' : ''
+                          }`}
+                          onClick={() => void handleSelectDescriptionOption(option.id)}
+                        >
+                          {option.description}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
           </section>
