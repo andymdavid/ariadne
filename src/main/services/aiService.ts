@@ -495,40 +495,74 @@ Return JSON only. No explanations outside the JSON structure.
   ): Promise<ContentPackage> {
     onProgress?.(10)
     
-    const prompt = this.buildContentGenerationPrompt(clipTranscript, contentType, brandVoiceExamples)
-    
-    try {
-      onProgress?.(30)
-      
-      const response = await this.callOpenRouter({
-        model: this.getModelId(this.config.model),
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are an expert YouTube Shorts content strategist. Generate short, accurate, high-curiosity titles and concise descriptions that match the creator\'s authentic voice. Never return transcript sentences as titles.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 1000,
-        temperature: 0.7
-      })
-      
-      onProgress?.(70)
-      
-      const contentPackage = this.parseContentResponse(response.content)
-      
-      onProgress?.(100)
-      
-      return contentPackage
-      
-    } catch (error) {
-      console.error('Content generation failed:', error)
-      throw new Error(`Content generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    const strategies = [
+      {
+        name: 'standard',
+        systemMessage:
+          'You are an expert YouTube Shorts content strategist. Generate short, accurate, high-curiosity titles and concise descriptions that match the creator\'s authentic voice. Never return transcript sentences as titles.',
+        prompt: this.buildContentGenerationPrompt(clipTranscript, contentType, brandVoiceExamples)
+      },
+      {
+        name: 'strict-json',
+        systemMessage:
+          'Return valid JSON only. Generate short YouTube Shorts titles and one concise description. Never return transcript sentences as titles.',
+        prompt: `${this.buildContentGenerationPrompt(clipTranscript, contentType, brandVoiceExamples)}\n\nRespond with JSON only. No markdown, no commentary.`
+      },
+      {
+        name: 'minimal',
+        systemMessage:
+          'Return valid JSON only with 3 short YouTube Shorts titles and 1 concise description.',
+        prompt: `
+CLIP TRANSCRIPT:
+${clipTranscript}
+
+RETURN JSON ONLY:
+{
+  "titles": ["title one", "title two", "title three"],
+  "description": "two concise sentences"
+}
+        `.trim()
+      }
+    ]
+
+    const maxRetries = strategies.length
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        onProgress?.(30 + attempt * 15)
+
+        const strategy = strategies[attempt]
+        const response = await this.callOpenRouter({
+          model: this.getModelId(this.config.model),
+          messages: [
+            {
+              role: 'system',
+              content: strategy.systemMessage
+            },
+            {
+              role: 'user',
+              content: strategy.prompt
+            }
+          ],
+          max_tokens: 1000,
+          temperature: attempt === 0 ? 0.7 : 0.2
+        })
+
+        onProgress?.(70 + attempt * 5)
+
+        const contentPackage = this.parseContentResponse(response.content)
+        onProgress?.(100)
+        return contentPackage
+      } catch (error) {
+        console.error(`Content generation attempt ${attempt + 1}/${maxRetries} failed:`, error)
+        if (attempt === maxRetries - 1) {
+          console.error('Content generation failed:', error)
+          throw new Error(`Content generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+      }
     }
+
+    throw new Error('Content generation failed unexpectedly')
   }
   
   private buildCandidateRankingPrompt(candidates: ClipCandidate[], duration: number, mode: 'balanced' | 'strict' | 'minimal'): string {
@@ -715,7 +749,28 @@ Return JSON only.
       throw new Error('Invalid API response structure')
     }
     
-    return { content: data.choices[0].message.content }
+    const message = data.choices[0].message
+    let content = ''
+
+    if (typeof message.content === 'string') {
+      content = message.content
+    } else if (Array.isArray(message.content)) {
+      content = message.content
+        .map((part: any) => {
+          if (typeof part === 'string') return part
+          if (typeof part?.text === 'string') return part.text
+          if (typeof part?.content === 'string') return part.content
+          return ''
+        })
+        .join('\n')
+        .trim()
+    }
+
+    if (!content && typeof message.reasoning === 'string') {
+      content = message.reasoning.trim()
+    }
+
+    return { content }
   }
   
   private parseAnalysisResponse(content: string, candidates: ClipCandidate[]): TranscriptAnalysis {
@@ -904,35 +959,47 @@ Return JSON only.
   
   private parseContentResponse(content: string): ContentPackage {
     try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        throw new Error('No JSON found in response')
+      if (!content || content.trim().length === 0) {
+        throw new Error('Empty content response')
       }
-      
-      const parsed = JSON.parse(jsonMatch[0])
+
+      const jsonString = this.extractJSON(content)
+      const parsed = jsonString ? JSON.parse(jsonString) : null
       const sanitizedTitles: string[] = Array.from(
         new Set(
-          (Array.isArray(parsed.titles) ? parsed.titles : [])
+          (Array.isArray(parsed?.titles) ? parsed.titles : [])
             .map((title: unknown) => (typeof title === 'string' ? title.trim() : ''))
             .map((title: string) => title.replace(/\s+/g, ' ').replace(/[.]+$/, '').trim())
             .filter((title: string) => title.length > 0 && title.length <= 70 && title.split(' ').length <= 12)
         )
       )
       const description =
-        typeof parsed.description === 'string' && parsed.description.trim().length > 0
+        typeof parsed?.description === 'string' && parsed.description.trim().length > 0
           ? parsed.description.trim()
-          : 'Generated description'
+          : this.extractDescriptionFromText(content)
       
       return {
         titles: sanitizedTitles.length > 0 ? sanitizedTitles : ['Generated title'],
         description,
-        thumbnailTimestamp: parsed.thumbnail_timestamp
+        thumbnailTimestamp: parsed?.thumbnail_timestamp
       }
     } catch (error) {
       console.error('Failed to parse content response:', error)
       console.error('Content:', content)
       throw new Error('Failed to parse content generation response')
     }
+  }
+
+  private extractDescriptionFromText(content: string): string {
+    const normalized = content.replace(/\s+/g, ' ').trim()
+    if (!normalized) return 'Generated description'
+
+    const descriptionMatch = normalized.match(/description["']?\s*[:\-]\s*(.+)$/i)
+    if (descriptionMatch?.[1]) {
+      return descriptionMatch[1].trim()
+    }
+
+    return normalized.slice(0, 240)
   }
 
   private parseThoughtSegmentationResponse(
