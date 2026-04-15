@@ -505,7 +505,8 @@ Return JSON only. No explanations outside the JSON structure.
         messages: [
           {
             role: 'system',
-            content: 'You are an expert social media content strategist who creates engaging titles and descriptions that match the creator\'s authentic voice.'
+            content:
+              'You are an expert YouTube Shorts content strategist. Generate short, accurate, high-curiosity titles and concise descriptions that match the creator\'s authentic voice. Never return transcript sentences as titles.'
           },
           {
             role: 'user',
@@ -599,8 +600,13 @@ CLIP TRANSCRIPT: ${clipTranscript}${voiceSection}
 REQUIREMENTS:
 1. Create 5 title options that are:
    - Accurate to the content (no clickbait)
-   - Intriguing enough to encourage viewing
-   - Under 60 characters
+   - Written for YouTube Shorts
+   - High-curiosity and skimmable
+   - Under 55 characters
+   - Ideally 3-8 words
+   - Not a verbatim transcript sentence
+   - No full stops at the end
+   - No quotation marks
    - Match the creator's authentic voice
 
 2. Write a natural, engaging description that:
@@ -609,7 +615,19 @@ REQUIREMENTS:
    - Avoids marketing speak or excessive emojis
    - Provides context for why this matters
    - Encourages engagement without being pushy
-   - 2-3 sentences, under 150 words
+   - 2-3 sentences, under 120 words
+
+3. Prefer titles in patterns like:
+   - strong claim
+   - contrarian insight
+   - surprising takeaway
+   - direct framing of the topic
+
+4. Avoid titles that:
+   - start mid-thought
+   - read like a paragraph
+   - depend on missing context
+   - include filler phrases
 
 OUTPUT FORMAT (JSON):
 {
@@ -892,10 +910,22 @@ Return JSON only.
       }
       
       const parsed = JSON.parse(jsonMatch[0])
+      const sanitizedTitles: string[] = Array.from(
+        new Set(
+          (Array.isArray(parsed.titles) ? parsed.titles : [])
+            .map((title: unknown) => (typeof title === 'string' ? title.trim() : ''))
+            .map((title: string) => title.replace(/\s+/g, ' ').replace(/[.]+$/, '').trim())
+            .filter((title: string) => title.length > 0 && title.length <= 70 && title.split(' ').length <= 12)
+        )
+      )
+      const description =
+        typeof parsed.description === 'string' && parsed.description.trim().length > 0
+          ? parsed.description.trim()
+          : 'Generated description'
       
       return {
-        titles: parsed.titles || ['Generated title'],
-        description: parsed.description || 'Generated description',
+        titles: sanitizedTitles.length > 0 ? sanitizedTitles : ['Generated title'],
+        description,
         thumbnailTimestamp: parsed.thumbnail_timestamp
       }
     } catch (error) {

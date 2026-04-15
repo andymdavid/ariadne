@@ -503,7 +503,7 @@ export function ClipEditorPage() {
         setTitleDraft(
           nextTitleOptions.find((option) => option.is_selected)?.title ||
             nextTitleOptions[0]?.title ||
-            mappedClip.keyQuote
+            ''
         )
         setDescriptionDraft(
           nextDescriptionOptions.find((option) => option.is_selected)?.description ||
@@ -989,12 +989,11 @@ export function ClipEditorPage() {
     const normalizedDescriptions = (nextDescriptions || []) as ClipDescriptionOption[]
     setTitleOptions(normalizedTitles)
     setDescriptionOptions(normalizedDescriptions)
-    setTitleDraft(
-      normalizedTitles.find((option) => option.is_selected)?.title ||
+      setTitleDraft(
+        normalizedTitles.find((option) => option.is_selected)?.title ||
         normalizedTitles[0]?.title ||
-        clip?.keyQuote ||
         ''
-    )
+      )
     setDescriptionDraft(
       normalizedDescriptions.find((option) => option.is_selected)?.description ||
         normalizedDescriptions[0]?.description ||
@@ -1710,12 +1709,6 @@ export function ClipEditorPage() {
 
               <div className="clip-editor-content-panel">
                 <div className="clip-editor-content-header">
-                  <div>
-                    <div className="clip-editor-content-title">Content</div>
-                    <div className="clip-editor-content-copy">
-                      Generate and edit the clip title and description used for publishing.
-                    </div>
-                  </div>
                   <div className="clip-editor-content-actions">
                     <button
                       type="button"

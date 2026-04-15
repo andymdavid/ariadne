@@ -1090,6 +1090,11 @@
     gap: 20px;
   }
 
+  .clip-editor-transcript-scroll > .min-h-0.flex-1 {
+    flex: 1 1 50%;
+    min-height: 0;
+  }
+
   .clip-editor-transcript-editor {
     width: 100%;
     height: 100%;
@@ -1111,30 +1116,19 @@
   .clip-editor-content-panel {
     display: flex;
     flex-direction: column;
+    flex: 1 1 50%;
+    min-height: 0;
     gap: 16px;
     border-top: 1px solid #1d1d1d;
     padding-top: 18px;
+    overflow: hidden;
   }
 
   .clip-editor-content-header {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-  }
-
-  .clip-editor-content-title {
-    font-size: 18px;
-    line-height: 1.1;
-    font-weight: 600;
-    color: #f3f5f7;
-  }
-
-  .clip-editor-content-copy {
-    margin-top: 6px;
-    font-size: 12px;
-    line-height: 1.5;
-    color: rgba(240, 246, 252, 0.46);
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
   }
 
   .clip-editor-content-actions {
@@ -1181,6 +1175,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    min-height: 0;
   }
 
   .clip-editor-content-label {
@@ -1210,17 +1205,18 @@
   }
 
   .clip-editor-content-input-title {
-    min-height: 82px;
+    min-height: 76px;
   }
 
   .clip-editor-content-input-description {
-    min-height: 140px;
+    min-height: 96px;
   }
 
   .clip-editor-content-option-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    overflow-y: auto;
   }
 
   .clip-editor-content-option {
