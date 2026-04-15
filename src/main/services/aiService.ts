@@ -1048,41 +1048,97 @@ Return JSON only.
     const firstSentence = cleanSentence(sentences[0] || clipTranscript)
     const secondSentence = cleanSentence(sentences[1] || '')
     const stopWords = new Set([
-      'that', 'this', 'with', 'from', 'they', 'them', 'have', 'what', 'your', 'about', 'there',
-      'their', 'would', 'could', 'should', 'just', 'into', 'because', 'being', 'really', 'right',
-      'then', 'than', 'when', 'where', 'which', 'while', 'we’re', 'were', 'going', 'some', 'here',
-      'soon', 'little', 'acorns', 'think', 'used', 'like', 'have', 'been', 'much', 'more'
+      'a', 'an', 'and', 'are', 'as', 'at', 'be', 'because', 'been', 'being', 'but', 'by', 'for',
+      'from', 'have', 'here', 'into', 'is', 'it', 'its', 'just', 'like', 'more', 'much', 'of',
+      'on', 'or', 'our', 'really', 'right', 'so', 'some', 'than', 'that', 'the', 'their', 'them',
+      'there', 'they', 'this', 'to', 'used', 'was', 'we', 'were', 'what', 'when', 'where', 'which',
+      'while', 'with', 'would', 'your'
     ])
 
-    const keywordPool = clipTranscript
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .map((word) => word.trim().toLowerCase())
-      .filter((word) => word.length > 3 && !stopWords.has(word) && !/^\d+$/.test(word))
+    const normalizeLeadClause = (value: string) =>
+      cleanSentence(value)
+        .replace(/^that\s+(was|is)\s+/i, '')
+        .replace(/^it('| i)?s\s+like\s+/i, '')
+        .replace(/^i\s+(just\s+)?think\s+/i, '')
+        .replace(/^to\s+me\s+/i, '')
+        .replace(/\s+(and|but|because|so)\s+.*$/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
 
-    const uniqueKeywords = Array.from(new Set(keywordPool))
-    const keywordSlice = uniqueKeywords.slice(0, 5)
-    const titleBase = keywordSlice.slice(0, 4).join(' ').trim() || `${contentType} clip`
-    const titleCase = (value: string) =>
+    const splitClauses = (value: string) =>
+      cleanSentence(value)
+        .split(/[,;:]+|\s+(?:and|but|because|so)\s+/i)
+        .map((clause) => normalizeLeadClause(clause))
+        .filter((clause) => {
+          const wordCount = clause.split(/\s+/).filter(Boolean).length
+          return wordCount >= 3 && wordCount <= 10
+        })
+
+    const smartTitleCase = (value: string) =>
       value
         .split(/\s+/)
         .filter(Boolean)
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .map((word) => {
+          if (/[0-9]/.test(word) || /^[A-Z0-9.]+$/.test(word)) return word
+          if (word.toLowerCase() === 'web') return 'Web'
+          if (word.toLowerCase() === 'twitter') return 'Twitter'
+          return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+        })
         .join(' ')
+        .replace(/\s+/g, ' ')
         .slice(0, 55)
         .trim()
 
+    const extractPhraseCandidates = (value: string) => {
+      const tokens = cleanSentence(value)
+        .split(/\s+/)
+        .map((token) => token.replace(/[^\w.]/g, '').trim())
+        .filter(Boolean)
+
+      const phrases: string[] = []
+      for (let index = 0; index < tokens.length - 1; index += 1) {
+        const pair = tokens.slice(index, index + 2)
+        if (pair.every((token) => token.length > 2 && !stopWords.has(token.toLowerCase()))) {
+          phrases.push(pair.join(' '))
+        }
+      }
+
+      return Array.from(new Set(phrases)).slice(0, 4)
+    }
+
+    const clauseCandidates = Array.from(
+      new Set([
+        normalizeLeadClause(firstSentence),
+        ...splitClauses(firstSentence),
+        normalizeLeadClause(secondSentence),
+        ...splitClauses(secondSentence)
+      ].filter((clause) => clause.length > 0))
+    )
+
+    const phraseCandidates = Array.from(
+      new Set([
+        ...extractPhraseCandidates(firstSentence),
+        ...extractPhraseCandidates(secondSentence)
+      ])
+    )
+
     const rawTitles = [
-      titleCase(titleBase),
-      titleCase(`Why ${keywordSlice.slice(0, 3).join(' ')}`),
-      titleCase(`The truth about ${keywordSlice.slice(0, 3).join(' ')}`),
-      titleCase(`What changed with ${keywordSlice.slice(0, 3).join(' ')}`),
-      titleCase(`The real problem with ${keywordSlice.slice(0, 2).join(' ')}`)
+      clauseCandidates[0],
+      clauseCandidates[1] ? `Why ${clauseCandidates[1]}` : '',
+      phraseCandidates[0] && phraseCandidates[1]
+        ? `${phraseCandidates[0]} ${phraseCandidates[1]}`
+        : phraseCandidates[0]
+          ? phraseCandidates[0]
+          : '',
+      phraseCandidates[0] ? `The Truth About ${phraseCandidates[0]}` : '',
+      clauseCandidates[2] || ''
     ]
 
     const titles = Array.from(
       new Set(
-        rawTitles.filter((title) => title.length >= 8 && title.split(' ').length <= 10)
+        rawTitles
+          .map((title) => smartTitleCase(title))
+          .filter((title) => title.length >= 8 && title.split(' ').length <= 10)
       )
     ).slice(0, 5)
 
