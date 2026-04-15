@@ -556,13 +556,14 @@ RETURN JSON ONLY:
       } catch (error) {
         console.error(`Content generation attempt ${attempt + 1}/${maxRetries} failed:`, error)
         if (attempt === maxRetries - 1) {
-          console.error('Content generation failed:', error)
-          throw new Error(`Content generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          console.error('Content generation failed, using fallback package:', error)
+          onProgress?.(100)
+          return this.buildFallbackContentPackage(clipTranscript, contentType)
         }
       }
     }
 
-    throw new Error('Content generation failed unexpectedly')
+    return this.buildFallbackContentPackage(clipTranscript, contentType)
   }
   
   private buildCandidateRankingPrompt(candidates: ClipCandidate[], duration: number, mode: 'balanced' | 'strict' | 'minimal'): string {
@@ -768,6 +769,16 @@ Return JSON only.
 
     if (!content && typeof message.reasoning === 'string') {
       content = message.reasoning.trim()
+    }
+
+    if (!content) {
+      console.warn('[AIService] OpenRouter returned empty content', {
+        model: payload.model,
+        finishReason: data.choices?.[0]?.finish_reason,
+        hasMessage: Boolean(message),
+        messageKeys: message ? Object.keys(message) : [],
+        usage: data.usage
+      })
     }
 
     return { content }
@@ -1000,6 +1011,62 @@ Return JSON only.
     }
 
     return normalized.slice(0, 240)
+  }
+
+  private buildFallbackContentPackage(clipTranscript: string, contentType: string): ContentPackage {
+    const sentences = clipTranscript
+      .replace(/\s+/g, ' ')
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean)
+
+    const cleanSentence = (value: string) =>
+      value
+        .replace(/^[^a-zA-Z0-9]+/, '')
+        .replace(/\b(um+|uh+|ah+|like)\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    const firstSentence = cleanSentence(sentences[0] || clipTranscript)
+    const secondSentence = cleanSentence(sentences[1] || '')
+    const meaningfulWords = firstSentence
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length > 3)
+
+    const titleBase = meaningfulWords.slice(0, 6).join(' ').trim() || `${contentType} clip`
+    const titleCase = (value: string) =>
+      value
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
+        .slice(0, 55)
+        .trim()
+
+    const rawTitles = [
+      titleCase(titleBase),
+      titleCase(`Why ${meaningfulWords.slice(0, 4).join(' ')}`),
+      titleCase(`The truth about ${meaningfulWords.slice(0, 4).join(' ')}`),
+      titleCase(`What changed with ${meaningfulWords.slice(0, 4).join(' ')}`),
+      titleCase(`The real problem with ${meaningfulWords.slice(0, 3).join(' ')}`)
+    ]
+
+    const titles = Array.from(
+      new Set(
+        rawTitles.filter((title) => title.length >= 8 && title.split(' ').length <= 10)
+      )
+    ).slice(0, 5)
+
+    const descriptionParts = [firstSentence, secondSentence].filter(Boolean)
+    const description = descriptionParts.join(' ').slice(0, 240).trim() || cleanSentence(clipTranscript).slice(0, 240)
+
+    return {
+      titles: titles.length > 0 ? titles : ['Clip Breakdown'],
+      description,
+      thumbnailTimestamp: undefined
+    }
   }
 
   private parseThoughtSegmentationResponse(
