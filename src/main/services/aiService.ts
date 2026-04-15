@@ -975,24 +975,42 @@ Return JSON only.
       }
 
       const jsonString = this.extractJSON(content)
-      const parsed = jsonString ? JSON.parse(jsonString) : null
+      if (!jsonString) {
+        throw new Error('No JSON found in content response')
+      }
+
+      const parsed = JSON.parse(jsonString)
       const sanitizedTitles: string[] = Array.from(
         new Set(
-          (Array.isArray(parsed?.titles) ? parsed.titles : [])
+          (Array.isArray(parsed.titles) ? parsed.titles : [])
             .map((title: unknown) => (typeof title === 'string' ? title.trim() : ''))
             .map((title: string) => title.replace(/\s+/g, ' ').replace(/[.]+$/, '').trim())
-            .filter((title: string) => title.length > 0 && title.length <= 70 && title.split(' ').length <= 12)
+            .filter(
+              (title: string) =>
+                title.length > 0 &&
+                title.length <= 70 &&
+                title.split(' ').length <= 12 &&
+                !/^generated title$/i.test(title)
+            )
         )
       )
       const description =
-        typeof parsed?.description === 'string' && parsed.description.trim().length > 0
+        typeof parsed.description === 'string' && parsed.description.trim().length > 0
           ? parsed.description.trim()
-          : this.extractDescriptionFromText(content)
+          : ''
+
+      if (
+        sanitizedTitles.length === 0 ||
+        !description ||
+        /^(i('|’)ve just finished generating|here are|title options)/i.test(description)
+      ) {
+        throw new Error('Structured content response did not contain usable titles and description')
+      }
       
       return {
-        titles: sanitizedTitles.length > 0 ? sanitizedTitles : ['Generated title'],
+        titles: sanitizedTitles,
         description,
-        thumbnailTimestamp: parsed?.thumbnail_timestamp
+        thumbnailTimestamp: parsed.thumbnail_timestamp
       }
     } catch (error) {
       console.error('Failed to parse content response:', error)
@@ -1029,13 +1047,22 @@ Return JSON only.
 
     const firstSentence = cleanSentence(sentences[0] || clipTranscript)
     const secondSentence = cleanSentence(sentences[1] || '')
-    const meaningfulWords = firstSentence
+    const stopWords = new Set([
+      'that', 'this', 'with', 'from', 'they', 'them', 'have', 'what', 'your', 'about', 'there',
+      'their', 'would', 'could', 'should', 'just', 'into', 'because', 'being', 'really', 'right',
+      'then', 'than', 'when', 'where', 'which', 'while', 'we’re', 'were', 'going', 'some', 'here',
+      'soon', 'little', 'acorns', 'think', 'used', 'like', 'have', 'been', 'much', 'more'
+    ])
+
+    const keywordPool = clipTranscript
       .replace(/[^\w\s]/g, ' ')
       .split(/\s+/)
-      .map((word) => word.trim())
-      .filter((word) => word.length > 3)
+      .map((word) => word.trim().toLowerCase())
+      .filter((word) => word.length > 3 && !stopWords.has(word) && !/^\d+$/.test(word))
 
-    const titleBase = meaningfulWords.slice(0, 6).join(' ').trim() || `${contentType} clip`
+    const uniqueKeywords = Array.from(new Set(keywordPool))
+    const keywordSlice = uniqueKeywords.slice(0, 5)
+    const titleBase = keywordSlice.slice(0, 4).join(' ').trim() || `${contentType} clip`
     const titleCase = (value: string) =>
       value
         .split(/\s+/)
@@ -1047,10 +1074,10 @@ Return JSON only.
 
     const rawTitles = [
       titleCase(titleBase),
-      titleCase(`Why ${meaningfulWords.slice(0, 4).join(' ')}`),
-      titleCase(`The truth about ${meaningfulWords.slice(0, 4).join(' ')}`),
-      titleCase(`What changed with ${meaningfulWords.slice(0, 4).join(' ')}`),
-      titleCase(`The real problem with ${meaningfulWords.slice(0, 3).join(' ')}`)
+      titleCase(`Why ${keywordSlice.slice(0, 3).join(' ')}`),
+      titleCase(`The truth about ${keywordSlice.slice(0, 3).join(' ')}`),
+      titleCase(`What changed with ${keywordSlice.slice(0, 3).join(' ')}`),
+      titleCase(`The real problem with ${keywordSlice.slice(0, 2).join(' ')}`)
     ]
 
     const titles = Array.from(
