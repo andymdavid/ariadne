@@ -259,6 +259,40 @@ function endsWithClausePunctuation(text: string) {
   return /[,;:]["']?\s*$/.test(text.trim())
 }
 
+function endsWithDanglingPhrase(text: string) {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return false
+
+  if (
+    /\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/.test(normalized) ||
+    /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any)\s*$/.test(normalized) ||
+    /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
+    /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized)
+  ) {
+    return true
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean)
+  const lastWord = words[words.length - 1] || ''
+  return lastWord.length <= 2
+}
+
+function looksLikeCompleteThought(text: string) {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+
+  if (endsWithDanglingPhrase(trimmed)) {
+    return false
+  }
+
+  if (endsWithTerminalPunctuation(trimmed)) {
+    return true
+  }
+
+  const words = trimmed.split(/\s+/).filter(Boolean)
+  return words.length >= 10
+}
+
 function shouldBreakEditorialUnit(
   currentText: string,
   nextText: string,
@@ -266,13 +300,16 @@ function shouldBreakEditorialUnit(
   currentWordCount: number,
   gap: number
 ) {
+  const nextLooksContinuous = startsLikeContinuation(nextText)
+  const currentLooksComplete = looksLikeCompleteThought(currentText)
+
   if (gap >= EDITORIAL_UNIT_HARD_BREAK_GAP_SECONDS) {
     return true
   }
 
   if (
     endsWithTerminalPunctuation(currentText) &&
-    (gap >= 0.16 || !startsLikeContinuation(nextText))
+    (gap >= 0.16 || !nextLooksContinuous)
   ) {
     return true
   }
@@ -280,18 +317,25 @@ function shouldBreakEditorialUnit(
   if (
     endsWithClausePunctuation(currentText) &&
     currentWordCount >= EDITORIAL_UNIT_CLAUSE_BREAK_MIN_WORDS &&
-    !startsLikeContinuation(nextText)
+    !nextLooksContinuous &&
+    currentLooksComplete
   ) {
     return true
   }
 
-  if (gap >= EDITORIAL_UNIT_SOFT_BREAK_GAP_SECONDS && currentWordCount >= 8) {
+  if (
+    gap >= EDITORIAL_UNIT_SOFT_BREAK_GAP_SECONDS &&
+    currentWordCount >= 8 &&
+    currentLooksComplete &&
+    !nextLooksContinuous
+  ) {
     return true
   }
 
   if (
-    currentDuration >= EDITORIAL_UNIT_MAX_DURATION_SECONDS ||
-    currentWordCount >= EDITORIAL_UNIT_MAX_WORDS
+    (currentDuration >= EDITORIAL_UNIT_MAX_DURATION_SECONDS ||
+      currentWordCount >= EDITORIAL_UNIT_MAX_WORDS) &&
+    (currentLooksComplete || !nextLooksContinuous)
   ) {
     return true
   }

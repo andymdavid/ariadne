@@ -1071,7 +1071,7 @@ Return JSON only.
           : null
       
       if (!selectedCandidates) {
-        const recoveredClips = this.extractCandidateSelectionsFromText(content, candidates)
+        const recoveredClips = this.extractValidatedCandidateSelectionsFromText(content, candidates)
         if (recoveredClips.length > 0) {
           return { potentialClips: recoveredClips }
         }
@@ -1124,7 +1124,7 @@ Return JSON only.
         potentialClips: filteredClips
       }
     } catch (error) {
-      const recoveredClips = this.extractCandidateSelectionsFromText(content, candidates)
+      const recoveredClips = this.extractValidatedCandidateSelectionsFromText(content, candidates)
       if (recoveredClips.length > 0) {
         console.warn('Recovered AI analysis from non-JSON response using candidate-id extraction.')
         return { potentialClips: recoveredClips }
@@ -2353,6 +2353,53 @@ Return JSON only.
         }
       })
       .filter((clip): clip is NonNullable<typeof clip> => Boolean(clip))
+  }
+
+  private extractValidatedCandidateSelectionsFromText(
+    content: string,
+    candidates: ClipCandidate[]
+  ): TranscriptAnalysis['potentialClips'] {
+    const candidateMap = new Map(candidates.map((candidate) => [candidate.id, candidate]))
+    const matches = [...content.matchAll(/candidate_\d+_\d+|candidate_seg_\d+_\d+_\d+|candidate_sb_\d+_\d+_\d+_\d+/g)]
+      .map((match) => match[0])
+    const uniqueIds = Array.from(new Set(matches))
+
+    const recoveredSelections: RankedClipSelection[] = uniqueIds
+      .map((candidateId, index) => {
+        const candidate = candidateMap.get(candidateId)
+        if (!candidate) {
+          return null
+        }
+
+        const selection: RankedClipSelection = {
+          id: `recovered_${index + 1}`,
+          candidateId,
+          startTime: candidate.startTime,
+          endTime: candidate.endTime,
+          duration: candidate.duration,
+          contentType: 'insight' as const,
+          shareabilityScore: this.heuristicToShareability(candidate.heuristicScore),
+          keyQuote: this.resolveKeyQuote(undefined, candidate.text),
+          reason: 'Recovered from non-JSON AI ranking response.',
+          contextNeeded: 'low' as const,
+          transcriptText: candidate.text,
+          naturalStart: candidate.naturalStart,
+          naturalEnd: candidate.naturalEnd,
+          heuristicScore: candidate.heuristicScore,
+          validationScore: 0
+        }
+
+        return selection
+      })
+      .filter((clip): clip is RankedClipSelection => Boolean(clip))
+      .filter((clip) => clip.duration >= 30 && clip.duration <= 90)
+
+    let filteredClips = clipValidationService.validateAndRank(recoveredSelections, candidates)
+    if (filteredClips.length < 5) {
+      filteredClips = this.supplementFromHeuristics(filteredClips, candidates, 8)
+    }
+
+    return filteredClips
   }
 
   private supplementFromHeuristics(
