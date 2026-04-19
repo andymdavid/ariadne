@@ -1087,7 +1087,8 @@
     flex: 1 1 auto;
     flex-direction: column;
     overflow: hidden;
-    gap: 20px;
+    gap: 12px;
+    padding-bottom: 12px;
   }
 
   .clip-editor-transcript-scroll > .min-h-0.flex-1 {
@@ -1118,9 +1119,9 @@
     flex-direction: column;
     flex: 1 1 50%;
     min-height: 0;
-    gap: 16px;
+    gap: 12px;
     border-top: 1px solid #1d1d1d;
-    padding-top: 18px;
+    padding-top: 12px;
     overflow: hidden;
   }
 
