@@ -1205,35 +1205,45 @@ Return JSON only.
     }
 
     const jsonString = this.extractJSON(content)
-    if (!jsonString) {
+    if (jsonString) {
+      const parsed = JSON.parse(jsonString)
+      const asTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+      const asStringArray = (value: unknown) =>
+        Array.isArray(value)
+          ? value.map((item) => asTrimmedString(item)).filter(Boolean)
+          : []
+
+      const primaryTopic = asTrimmedString(parsed.primary_topic)
+      const coreClaim = asTrimmedString(parsed.core_claim)
+
+      if (!primaryTopic || !coreClaim) {
+        throw new Error('Metadata analysis missing required fields')
+      }
+
+      return {
+        primaryTopic,
+        coreClaim,
+        supportingPoints: asStringArray(parsed.supporting_points).slice(0, 4),
+        audienceAngle: asTrimmedString(parsed.audience_angle),
+        whyItMatters: asTrimmedString(parsed.why_it_matters),
+        tone: asTrimmedString(parsed.tone) || 'direct',
+        keyEntities: asStringArray(parsed.key_entities).slice(0, 8),
+        riskFlags: asStringArray(parsed.risk_flags).slice(0, 6),
+        sourceExcerptRefs: asStringArray(parsed.source_excerpt_refs).slice(0, 6)
+      }
+    }
+
+    const salvaged = this.salvagePartialMetadataAnalysisResponse(content)
+    if (!salvaged.primaryTopic || !salvaged.coreClaim) {
       throw new Error('No JSON found in metadata analysis response')
     }
 
-    const parsed = JSON.parse(jsonString)
-    const asTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
-    const asStringArray = (value: unknown) =>
-      Array.isArray(value)
-        ? value.map((item) => asTrimmedString(item)).filter(Boolean)
-        : []
+    console.warn('[AIService] Salvaged partial metadata analysis response', {
+      primaryTopic: salvaged.primaryTopic,
+      hasWhyItMatters: Boolean(salvaged.whyItMatters)
+    })
 
-    const primaryTopic = asTrimmedString(parsed.primary_topic)
-    const coreClaim = asTrimmedString(parsed.core_claim)
-
-    if (!primaryTopic || !coreClaim) {
-      throw new Error('Metadata analysis missing required fields')
-    }
-
-    return {
-      primaryTopic,
-      coreClaim,
-      supportingPoints: asStringArray(parsed.supporting_points).slice(0, 4),
-      audienceAngle: asTrimmedString(parsed.audience_angle),
-      whyItMatters: asTrimmedString(parsed.why_it_matters),
-      tone: asTrimmedString(parsed.tone) || 'direct',
-      keyEntities: asStringArray(parsed.key_entities).slice(0, 8),
-      riskFlags: asStringArray(parsed.risk_flags).slice(0, 6),
-      sourceExcerptRefs: asStringArray(parsed.source_excerpt_refs).slice(0, 6)
-    }
+    return salvaged
   }
 
   private parseDescriptionResponse(content: string): string {
@@ -1285,6 +1295,45 @@ Return JSON only.
           )
       )
     )
+  }
+
+  private salvagePartialMetadataAnalysisResponse(content: string): Partial<ClipMetadataAnalysisDraft> {
+    const block = this.extractJSONishBlock(content)
+    const primaryTopic = this.extractPossiblyTruncatedStringField(block, 'primary_topic')
+    const coreClaim = this.extractPossiblyTruncatedStringField(block, 'core_claim')
+    const audienceAngle = this.extractPossiblyTruncatedStringField(block, 'audience_angle')
+    const whyItMatters = this.extractPossiblyTruncatedStringField(block, 'why_it_matters')
+    const tone = this.extractPossiblyTruncatedStringField(block, 'tone')
+
+    return {
+      primaryTopic: primaryTopic ? this.cleanMetadataField(primaryTopic) : '',
+      coreClaim: coreClaim ? this.cleanMetadataField(coreClaim) : '',
+      supportingPoints: this.extractQuotedArrayValues(block, 'supporting_points').map((value) => this.cleanMetadataField(value)).filter(Boolean).slice(0, 4),
+      audienceAngle: audienceAngle ? this.cleanMetadataField(audienceAngle) : '',
+      whyItMatters: whyItMatters ? this.cleanMetadataField(whyItMatters) : '',
+      tone: tone ? this.cleanMetadataField(tone) : 'direct',
+      keyEntities: this.extractQuotedArrayValues(block, 'key_entities').map((value) => this.cleanMetadataField(value)).filter(Boolean).slice(0, 8),
+      riskFlags: this.extractQuotedArrayValues(block, 'risk_flags').map((value) => this.cleanMetadataField(value)).filter(Boolean).slice(0, 6),
+      sourceExcerptRefs: this.extractQuotedArrayValues(block, 'source_excerpt_refs').map((value) => this.cleanMetadataField(value)).filter(Boolean).slice(0, 6)
+    }
+  }
+
+  private extractPossiblyTruncatedStringField(content: string, key: string): string {
+    const quotedMatch = content.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`, 'i'))
+    if (quotedMatch?.[1]) {
+      return quotedMatch[1].replace(/\\"/g, '"').trim()
+    }
+
+    const lineMatch = content.match(new RegExp(`"${key}"\\s*:\\s*([^\\n\\r,}]+)`, 'i'))
+    return lineMatch?.[1]?.replace(/^"/, '').trim() || ''
+  }
+
+  private cleanMetadataField(value: string): string {
+    return value
+      .replace(/\s+/g, ' ')
+      .replace(/^[^a-zA-Z0-9]+/, '')
+      .replace(/[",\]}]+$/, '')
+      .trim()
   }
 
   private filterTitlesAgainstAnalysis(
@@ -1432,30 +1481,118 @@ Return JSON only.
     contentType: string,
     keyQuote?: string
   ): ClipMetadataAnalysisDraft {
-    const signals = this.buildMetadataSignals(clipTranscript, keyQuote)
+    const meaning = this.extractDeterministicMeaning(clipTranscript, contentType, keyQuote)
+    const signals = this.buildMetadataSignals(clipTranscript, keyQuote, {
+      primaryTopic: meaning.primaryTopic,
+      coreClaim: meaning.coreClaim,
+      supportingPoints: meaning.supportingPoints,
+      audienceAngle: meaning.audienceAngle,
+      whyItMatters: meaning.whyItMatters,
+      tone: meaning.tone,
+      keyEntities: meaning.keyEntities,
+      riskFlags: meaning.riskFlags,
+      sourceExcerptRefs: meaning.sourceExcerptRefs,
+      provider: 'deterministic',
+      modelId: 'fallback',
+      rawResponseJson: null
+    })
     const keyEntities = Array.from(
       new Set(
         [
-          signals.topicPhrase,
-          ...this.extractKeyEntities(clipTranscript)
+          meaning.primaryTopic,
+          ...meaning.keyEntities
         ].filter(Boolean)
       )
     ).slice(0, 8)
 
     return {
-      primaryTopic: signals.topicPhrase || this.smartTitleCase(contentType),
-      coreClaim: signals.focusSentence || clipTranscript.replace(/\s+/g, ' ').trim().slice(0, 180),
-      supportingPoints: [signals.supportingSentence].filter(Boolean),
-      audienceAngle: this.inferAudienceAngle(clipTranscript, contentType, signals.topicPhrase),
-      whyItMatters: this.inferWhyItMatters(clipTranscript, signals),
-      tone: this.inferMetadataTone(clipTranscript),
+      primaryTopic: meaning.primaryTopic || signals.topicPhrase || this.smartTitleCase(contentType),
+      coreClaim: meaning.coreClaim || signals.focusSentence || clipTranscript.replace(/\s+/g, ' ').trim().slice(0, 180),
+      supportingPoints: meaning.supportingPoints.length > 0 ? meaning.supportingPoints : [signals.supportingSentence].filter(Boolean),
+      audienceAngle: meaning.audienceAngle || this.inferAudienceAngle(clipTranscript, contentType, signals.topicPhrase),
+      whyItMatters: meaning.whyItMatters || this.inferWhyItMatters(clipTranscript, signals),
+      tone: meaning.tone || this.inferMetadataTone(clipTranscript),
       keyEntities,
-      riskFlags: this.inferRiskFlags(clipTranscript),
-      sourceExcerptRefs: [keyQuote || '', signals.focusSentence, signals.supportingSentence].filter(Boolean).slice(0, 4),
+      riskFlags: meaning.riskFlags.length > 0 ? meaning.riskFlags : this.inferRiskFlags(clipTranscript),
+      sourceExcerptRefs: meaning.sourceExcerptRefs.length > 0 ? meaning.sourceExcerptRefs : [keyQuote || '', signals.focusSentence, signals.supportingSentence].filter(Boolean).slice(0, 4),
       provider: 'deterministic',
       modelId: 'fallback',
       rawResponseJson: null
     }
+  }
+
+  private extractDeterministicMeaning(
+    clipTranscript: string,
+    contentType: string,
+    keyQuote?: string
+  ): Omit<ClipMetadataAnalysisDraft, 'provider' | 'modelId' | 'rawResponseJson'> {
+    const units = clipTranscript
+      .split(/\n+/)
+      .map((unit) => unit.trim())
+      .filter(Boolean)
+      .flatMap((unit) =>
+        unit
+          .split(/(?<=[.!?])\s+|,\s+(?=[A-ZI][a-z]|(but|and|so|because|if|when|while)\b)/)
+          .map((part) => part.trim())
+          .filter(Boolean)
+      )
+
+    const metaphorPattern = /\b(barrels?|forest fire|acorns?|soil)\b/i
+    const signalPattern = /\b(ai|business|provider|anthropic|claude|open source|cloud|local|privacy|data|models?|network effects?|econom(?:y|ies) of scale|twitter|web 2\.?0|switching costs?)\b/i
+    const claimPattern = /\b(controls?|matters?|means|beats|wins|destroys?|changing|dead|dying|better|problem|tradeoff|risk|convenience|should|shouldn'?t|all in)\b/i
+
+    const scoreUnit = (unit: string) => {
+      const lower = unit.toLowerCase()
+      const words = unit.split(/\s+/).filter(Boolean)
+      let score = 0
+      if (words.length >= 6 && words.length <= 24) score += 5
+      if (signalPattern.test(lower)) score += 10
+      if (claimPattern.test(lower)) score += 8
+      if (/^(and|but|so|because)\b/i.test(lower)) score -= 6
+      if (/\b(i think|it'?s like|to me|we'?re going to|gonna|kind of|sort of)\b/i.test(lower)) score -= 10
+      if (metaphorPattern.test(lower)) score -= 15
+      if (keyQuote && lower.includes(keyQuote.toLowerCase())) score += 4
+      return score
+    }
+
+    const rankedUnits = [...units].sort((a, b) => scoreUnit(b) - scoreUnit(a))
+    const bestClaim = rankedUnits.find((unit) => scoreUnit(unit) >= 8) || ''
+    const supporting = rankedUnits.filter((unit) => unit !== bestClaim && scoreUnit(unit) >= 6).slice(0, 2)
+
+    const entities = this.extractKeyEntities(clipTranscript)
+    const strongEntity = entities.find((entity) => !metaphorPattern.test(entity)) || ''
+    const primaryTopic = strongEntity || this.deriveTopicFromClaim(bestClaim, contentType)
+
+    return {
+      primaryTopic,
+      coreClaim: this.cleanMetadataField(bestClaim || clipTranscript.replace(/\s+/g, ' ').trim().slice(0, 180)),
+      supportingPoints: supporting.map((value) => this.cleanMetadataField(value)).filter(Boolean),
+      audienceAngle: this.inferAudienceAngle(clipTranscript, contentType, primaryTopic),
+      whyItMatters: this.cleanMetadataField(this.inferWhyItMatters(clipTranscript, {
+        focusSentence: bestClaim,
+        supportingSentence: supporting[0] || '',
+        topicPhrase: primaryTopic,
+        themePhrase: this.buildThemePhrase(bestClaim, primaryTopic)
+      })),
+      tone: this.inferMetadataTone(clipTranscript),
+      keyEntities: entities.filter((entity) => !metaphorPattern.test(entity)).slice(0, 8),
+      riskFlags: this.inferRiskFlags(clipTranscript),
+      sourceExcerptRefs: [keyQuote || '', bestClaim, supporting[0] || ''].filter(Boolean).slice(0, 4)
+    }
+  }
+
+  private deriveTopicFromClaim(claim: string, contentType: string): string {
+    const cleaned = claim
+      .replace(/\b(i think|it'?s like|to me|we'?re going to|gonna|kind of|sort of)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const explicitMatches = cleaned.match(/\b(AI|Anthropic|Claude|Twitter|Web 2\.?0|network effects?|econom(?:y|ies) of scale|switching costs?|cloud|local models?|open source|provider|business)\b/gi)
+    if (explicitMatches?.length) {
+      return this.smartTitleCase(explicitMatches[0])
+    }
+
+    return this.smartTitleCase(contentType)
   }
 
   private buildMetadataSignals(
@@ -1827,6 +1964,9 @@ Return JSON only.
       .toLowerCase()
 
     if (/\b(barrels?|forest fire|acorns?|soil)\b/i.test(lower)) return false
+    if (/\b(ai|anthropic|claude|business|provider|privacy|cloud|local|models?|open source)\b/i.test(lower)) {
+      return true
+    }
     return lower.split(/\s+/).some((token) => token.length > 3 && signalTerms.includes(token))
   }
 
@@ -1837,6 +1977,9 @@ Return JSON only.
     if (!this.isUsableDescription(description)) return false
     const lower = description.toLowerCase()
     if (/\b(barrels?|forest fire|acorns?|soil)\b/i.test(lower)) return false
+    if (/\b(ai|anthropic|claude|business|provider|privacy|cloud|local|models?|open source)\b/i.test(lower)) {
+      return true
+    }
 
     const signalTerms = [
       metadataAnalysis.primaryTopic,
