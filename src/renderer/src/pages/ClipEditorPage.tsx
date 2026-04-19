@@ -1041,26 +1041,6 @@ export function ClipEditorPage() {
     }
   }
 
-  const handleSelectTitleOption = async (titleId: string) => {
-    if (!clipId) return
-    try {
-      await window.electronAPI?.selectClipTitle?.(titleId, clipId)
-      await refreshClipContentPackage()
-    } catch (selectionError) {
-      console.error('Failed to select clip title option:', selectionError)
-    }
-  }
-
-  const handleSelectDescriptionOption = async (descriptionId: string) => {
-    if (!clipId) return
-    try {
-      await window.electronAPI?.selectClipDescription?.(descriptionId, clipId)
-      await refreshClipContentPackage()
-    } catch (selectionError) {
-      console.error('Failed to select clip description option:', selectionError)
-    }
-  }
-
   const timelineRulerMarks = useMemo(() => {
     if (!clip || clip.duration <= 0) return []
     const totalSeconds = Math.max(1, Math.ceil(clip.duration))
@@ -1737,22 +1717,6 @@ export function ClipEditorPage() {
                     className="clip-editor-content-input clip-editor-content-input-title"
                     placeholder="Generate or write a short YouTube title"
                   />
-                  {titleOptions.length > 0 ? (
-                    <div className="clip-editor-content-option-list">
-                      {titleOptions.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className={`clip-editor-content-option ${
-                            option.is_selected ? 'is-selected' : ''
-                          }`}
-                          onClick={() => void handleSelectTitleOption(option.id)}
-                        >
-                          {option.title}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
 
                 <div className="clip-editor-content-field">
@@ -1763,22 +1727,6 @@ export function ClipEditorPage() {
                     className="clip-editor-content-input clip-editor-content-input-description"
                     placeholder="Generate or write a short description for YouTube"
                   />
-                  {descriptionOptions.length > 0 ? (
-                    <div className="clip-editor-content-option-list">
-                      {descriptionOptions.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className={`clip-editor-content-option ${
-                            option.is_selected ? 'is-selected' : ''
-                          }`}
-                          onClick={() => void handleSelectDescriptionOption(option.id)}
-                        >
-                          {option.description}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
               </div>
             </div>
