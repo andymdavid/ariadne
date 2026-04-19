@@ -1174,16 +1174,18 @@
   .clip-editor-content-field {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     min-height: 0;
   }
 
   .clip-editor-content-label {
+    display: block;
     font-size: 11px;
     line-height: 1.2;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: rgba(240, 246, 252, 0.36);
+    margin-bottom: 2px;
   }
 
   .clip-editor-content-input {
@@ -1205,7 +1207,7 @@
   }
 
   .clip-editor-content-input-title {
-    min-height: 76px;
+    min-height: 58px;
   }
 
   .clip-editor-content-input-description {
