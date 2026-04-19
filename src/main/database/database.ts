@@ -2594,8 +2594,16 @@ class DatabaseManager {
       INSERT OR REPLACE INTO clip_titles (id, clip_id, title, is_selected, created_at)
       VALUES (?, ?, ?, ?, ?)
     `)
+    const deselectStmt = this.db.prepare('UPDATE clip_titles SET is_selected = 0 WHERE clip_id = ?')
+    const deleteGeneratedStmt = this.db.prepare(`
+      DELETE FROM clip_titles
+      WHERE clip_id = ?
+        AND id NOT LIKE ?
+    `)
 
     const insertMany = this.db.transaction((titlesToInsert: string[]) => {
+      deselectStmt.run(clipId)
+      deleteGeneratedStmt.run(clipId, `${clipId}-title-manual-%`)
       titlesToInsert.forEach((title, index) => {
         stmt.run(
           `${clipId}-title-${index}`,
@@ -2656,6 +2664,7 @@ class DatabaseManager {
 
   insertClipDescription(clipId: string, description: string, platform: string = 'general') {
     const now = new Date().toISOString()
+    this.db.prepare('UPDATE clip_descriptions SET is_selected = 0 WHERE clip_id = ?').run(clipId)
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO clip_descriptions (id, clip_id, description, platform, is_selected, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
