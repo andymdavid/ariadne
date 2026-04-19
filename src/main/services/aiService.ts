@@ -1121,18 +1121,22 @@ Return JSON only.
       .map((sentence) => cleanSentence(sentence))
       .filter(Boolean)
 
-    const allCandidates = [normalizeLeadClause(keyQuote || ''), ...sentences.map(normalizeLeadClause)].filter(Boolean)
+    const normalizedSentences = sentences.map(normalizeLeadClause).filter(Boolean)
+    const allCandidates = [normalizeLeadClause(keyQuote || ''), ...normalizedSentences].filter(Boolean)
+    const topicPhrase = this.extractTopicPhrase([normalizeLeadClause(keyQuote || ''), ...normalizedSentences, clipTranscript])
 
     const scoreSentence = (sentence: string) => {
       const lower = sentence.toLowerCase()
       const words = sentence.split(/\s+/).filter(Boolean)
       let score = 0
       if (words.length >= 4 && words.length <= 14) score += 4
-      if (/(econom(?:y|ies) of scale|network effects?|controls? your business|inside claude|switching costs?)/i.test(lower)) score += 8
-      if (/(is a lie|are getting destroyed|controls? your business|shouldn'?t|matters|changing)/i.test(lower)) score += 5
+      if (topicPhrase && lower.includes(topicPhrase.toLowerCase())) score += 8
+      if (/(econom(?:y|ies) of scale|network effects?|controls? your business|inside claude|switching costs?)/i.test(lower)) score += 10
+      if (/(is a lie|are getting destroyed|controls? your business|shouldn'?t|matters|changing|dead|dying|better to|always better)/i.test(lower)) score += 6
       if (/^(why|how|what|who)\b/i.test(sentence)) score += 2
-      if (/^(it|this|that|you|we)\b/i.test(sentence)) score -= 3
-      if (/\b(very|nice|thing|stuff|someone|something)\b/i.test(lower)) score -= 2
+      if (/^(it|this|that|you|we)\b/i.test(sentence)) score -= 4
+      if (/\b(very|nice|thing|stuff|someone|something|forest fire|acorns|soil)\b/i.test(lower)) score -= 4
+      if (/\b(to me|i think|it'?s like|that was like|we'?re going to)\b/i.test(lower)) score -= 5
       return score
     }
 
@@ -1143,7 +1147,6 @@ Return JSON only.
         .filter((sentence) => sentence && sentence !== focusSentence)
         .sort((a, b) => scoreSentence(b) - scoreSentence(a))[0] || ''
 
-    const topicPhrase = this.extractTopicPhrase([focusSentence, supportingSentence, cleanSentence(keyQuote || ''), clipTranscript])
     const themePhrase = this.buildThemePhrase(focusSentence, topicPhrase)
 
     return {
@@ -1213,6 +1216,12 @@ Return JSON only.
     if (/inside claude/i.test(focusSentence)) {
       return "Don't Build Your Business Inside Claude"
     }
+    if (/web 2\.?0/i.test(focusSentence) && /network effects?/i.test(focusSentence)) {
+      return 'Web 2.0 Network Effects Are Breaking'
+    }
+    if (/always better/i.test(focusSentence) && /small scale/i.test(focusSentence)) {
+      return 'Why Small Scale Wins'
+    }
 
     return this.smartTitleCase(focusSentence || topicPhrase)
   }
@@ -1237,9 +1246,19 @@ Return JSON only.
   private rankTitleCandidates(candidates: string[], clipTranscript: string, keyQuote?: string): string[] {
     const transcriptLower = clipTranscript.toLowerCase()
     const keyQuoteLower = (keyQuote || '').toLowerCase()
+    const normalizedTranscript = clipTranscript.replace(/\s+/g, ' ').trim()
+
+    const compressTitle = (title: string) =>
+      title
+        .replace(/^that\s+(was|is)\s+/i, '')
+        .replace(/^it('?s)?\s+like\s+/i, '')
+        .replace(/^to\s+me\s+/i, '')
+        .replace(/^i\s+(just\s+)?think\s+/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
 
     const scoreTitle = (title: string) => {
-      const normalized = title.replace(/\s+/g, ' ').trim()
+      const normalized = compressTitle(title)
       const lower = normalized.toLowerCase()
       const words = normalized.split(/\s+/).filter(Boolean)
       const uniqueWordCount = new Set(words.map((word) => word.toLowerCase())).size
@@ -1251,8 +1270,9 @@ Return JSON only.
       if (transcriptLower.includes(lower)) score += 3
       if (keyQuoteLower && keyQuoteLower.includes(lower)) score += 4
       if (/(econom(?:y|ies) of scale|network effects?|controls? your business|claude|twitter|web 2\.?0)/i.test(lower)) score += 6
-      if (/^(why it|why this|why that|you |it |this |that |and |but )/i.test(normalized)) score -= 6
-      if (/\b(very|nice|thing|stuff|something|someone)\b/i.test(lower)) score -= 4
+      if (/^(why it|why this|why that|you |it |this |that |and |but )/i.test(normalized)) score -= 8
+      if (/\b(very|nice|thing|stuff|something|someone|forest fire|acorns|soil)\b/i.test(lower)) score -= 5
+      if (/(i'm|i am|i just|to me|we're going to)/i.test(lower)) score -= 5
       if (/generated title/i.test(lower)) score -= 10
       return score
     }
@@ -1260,10 +1280,10 @@ Return JSON only.
     return Array.from(
       new Set(
         candidates
-          .map((candidate) => this.smartTitleCase(candidate))
+          .map((candidate) => this.smartTitleCase(compressTitle(candidate)))
           .filter((candidate) => candidate.length > 0)
           .sort((a, b) => scoreTitle(b) - scoreTitle(a))
-          .filter((candidate) => scoreTitle(candidate) >= 4)
+          .filter((candidate) => scoreTitle(candidate) >= 6)
       )
     )
   }
@@ -1271,6 +1291,7 @@ Return JSON only.
   private isUsableDescription(description: string): boolean {
     if (!description || description.length < 40) return false
     if (/^(i('|’)ve just finished generating|here are|title options)/i.test(description)) return false
+    if (/^(and|but|so|because)\b/i.test(description)) return false
     return true
   }
 
