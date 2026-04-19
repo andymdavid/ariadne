@@ -607,18 +607,26 @@ async function generateContentPackages(
     const clip = selectedClips[index]
     try {
       const clipText = extractClipText(transcription, clip)
+      const metadataAnalysis = await aiService.extractClipMetadataMeaning(
+        clipText,
+        clip.contentType,
+        brandVoiceExamples.length > 0 ? brandVoiceExamples : undefined,
+        clip.keyQuote
+      )
       const contentPackage = await aiService.generateContentPackage(
         clipText,
         clip.contentType,
         brandVoiceExamples.length > 0 ? brandVoiceExamples : undefined,
         undefined,
-        clip.keyQuote
+        clip.keyQuote,
+        metadataAnalysis
       )
 
       contentPackages.push({
         clipIndex: index,
         titles: contentPackage.titles,
-        description: contentPackage.description
+        description: contentPackage.description,
+        metadataAnalysis
       })
     } catch (error) {
       console.error(`Failed to generate content package for clip ${clip.id}:`, error)

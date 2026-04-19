@@ -90,6 +90,28 @@ export interface ContentPackage {
   createdAt: string;
 }
 
+export interface ClipMetadataAnalysisDraft {
+  primaryTopic: string;
+  coreClaim: string;
+  supportingPoints: string[];
+  audienceAngle: string;
+  whyItMatters: string;
+  tone: string;
+  keyEntities: string[];
+  riskFlags: string[];
+  sourceExcerptRefs: string[];
+  provider: string;
+  modelId: string;
+  rawResponseJson?: string | null;
+}
+
+export interface ClipMetadataAnalysis extends ClipMetadataAnalysisDraft {
+  id: string;
+  clipId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProcessingProgress {
   jobId?: string;
   stage: 'uploading' | 'extracting' | 'transcribing' | 'analyzing' | 'generating' | 'completed';

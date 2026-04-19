@@ -1255,12 +1255,20 @@ ipcMain.handle('generate-clip-content-package', async (_event, clipId: string) =
 
   const aiService = new AIService(apiConfig)
   const brandVoiceExamples = configService.getBrandVoice().examples
+  const metadataAnalysis = await aiService.extractClipMetadataMeaning(
+    transcriptText,
+    clip.content_type || clip.contentType || 'insight',
+    brandVoiceExamples.length > 0 ? brandVoiceExamples : undefined,
+    clip.key_quote || clip.keyQuote || undefined
+  )
+  database.upsertClipMetadataAnalysis(clipId, metadataAnalysis)
   const contentPackage = await aiService.generateContentPackage(
     transcriptText,
     clip.content_type || clip.contentType || 'insight',
     brandVoiceExamples.length > 0 ? brandVoiceExamples : undefined,
     undefined,
-    clip.key_quote || clip.keyQuote || undefined
+    clip.key_quote || clip.keyQuote || undefined,
+    metadataAnalysis
   )
 
   const titles = Array.from(

@@ -5,6 +5,8 @@ import { readFileSync, existsSync, mkdirSync, statSync } from 'fs'
 import type {
   CalendarSlot,
   CalendarSlotStatus,
+  ClipMetadataAnalysis,
+  ClipMetadataAnalysisDraft,
   ClipPublishPreferences,
   ClipVisualSource,
   ClipVisualSourceType,
@@ -319,6 +321,25 @@ interface ClipVisualSourceRecord {
   clipId: string
   sourceType: ClipVisualSourceType
   generatedVideoAssetId: string | null
+  updatedAt: string
+}
+
+interface ClipMetadataAnalysisRecord {
+  id: string
+  clipId: string
+  primaryTopic: string
+  coreClaim: string
+  supportingPointsJson: string
+  audienceAngle: string
+  whyItMatters: string
+  tone: string
+  keyEntitiesJson: string
+  riskFlagsJson: string
+  sourceExcerptRefsJson: string
+  provider: string
+  modelId: string
+  rawResponseJson: string | null
+  createdAt: string
   updatedAt: string
 }
 
@@ -687,6 +708,27 @@ class DatabaseManager {
     }
   }
 
+  private mapClipMetadataAnalysis(row: any): ClipMetadataAnalysisRecord {
+    return {
+      id: row.id,
+      clipId: row.clip_id,
+      primaryTopic: row.primary_topic,
+      coreClaim: row.core_claim,
+      supportingPointsJson: row.supporting_points_json ?? '[]',
+      audienceAngle: row.audience_angle,
+      whyItMatters: row.why_it_matters,
+      tone: row.tone,
+      keyEntitiesJson: row.key_entities_json ?? '[]',
+      riskFlagsJson: row.risk_flags_json ?? '[]',
+      sourceExcerptRefsJson: row.source_excerpt_refs_json ?? '[]',
+      provider: row.provider,
+      modelId: row.model_id,
+      rawResponseJson: row.raw_response_json ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }
+  }
+
   private parseJsonValue<T>(value: string | null | undefined, fallback: T): T {
     if (!value) {
       return fallback
@@ -848,6 +890,27 @@ class DatabaseManager {
       clipId: record.clipId,
       sourceType: record.sourceType,
       generatedVideoAssetId: record.generatedVideoAssetId,
+      updatedAt: record.updatedAt
+    }
+  }
+
+  private toClipMetadataAnalysis(record: ClipMetadataAnalysisRecord): ClipMetadataAnalysis {
+    return {
+      id: record.id,
+      clipId: record.clipId,
+      primaryTopic: record.primaryTopic,
+      coreClaim: record.coreClaim,
+      supportingPoints: this.parseJsonValue(record.supportingPointsJson, []),
+      audienceAngle: record.audienceAngle,
+      whyItMatters: record.whyItMatters,
+      tone: record.tone,
+      keyEntities: this.parseJsonValue(record.keyEntitiesJson, []),
+      riskFlags: this.parseJsonValue(record.riskFlagsJson, []),
+      sourceExcerptRefs: this.parseJsonValue(record.sourceExcerptRefsJson, []),
+      provider: record.provider,
+      modelId: record.modelId,
+      rawResponseJson: record.rawResponseJson,
+      createdAt: record.createdAt,
       updatedAt: record.updatedAt
     }
   }
@@ -1035,6 +1098,25 @@ class DatabaseManager {
         platform TEXT NOT NULL DEFAULT 'general',
         is_selected INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS clip_metadata_analysis (
+        id TEXT PRIMARY KEY,
+        clip_id TEXT NOT NULL UNIQUE,
+        primary_topic TEXT NOT NULL,
+        core_claim TEXT NOT NULL,
+        supporting_points_json TEXT NOT NULL DEFAULT '[]',
+        audience_angle TEXT NOT NULL,
+        why_it_matters TEXT NOT NULL,
+        tone TEXT NOT NULL,
+        key_entities_json TEXT NOT NULL DEFAULT '[]',
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        source_excerpt_refs_json TEXT NOT NULL DEFAULT '[]',
+        provider TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        raw_response_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
         FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
       );`,
       `CREATE TABLE IF NOT EXISTS clip_thumbnails (
@@ -1875,6 +1957,26 @@ class DatabaseManager {
           FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS clip_metadata_analysis (
+          id TEXT PRIMARY KEY,
+          clip_id TEXT NOT NULL UNIQUE,
+          primary_topic TEXT NOT NULL,
+          core_claim TEXT NOT NULL,
+          supporting_points_json TEXT NOT NULL DEFAULT '[]',
+          audience_angle TEXT NOT NULL,
+          why_it_matters TEXT NOT NULL,
+          tone TEXT NOT NULL,
+          key_entities_json TEXT NOT NULL DEFAULT '[]',
+          risk_flags_json TEXT NOT NULL DEFAULT '[]',
+          source_excerpt_refs_json TEXT NOT NULL DEFAULT '[]',
+          provider TEXT NOT NULL,
+          model_id TEXT NOT NULL,
+          raw_response_json TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS clip_thumbnails (
           id TEXT PRIMARY KEY,
           clip_id TEXT NOT NULL,
@@ -2588,6 +2690,76 @@ class DatabaseManager {
   }
 
   // Content package operations
+  upsertClipMetadataAnalysis(clipId: string, analysis: ClipMetadataAnalysisDraft) {
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare(`
+      INSERT INTO clip_metadata_analysis (
+        id,
+        clip_id,
+        primary_topic,
+        core_claim,
+        supporting_points_json,
+        audience_angle,
+        why_it_matters,
+        tone,
+        key_entities_json,
+        risk_flags_json,
+        source_excerpt_refs_json,
+        provider,
+        model_id,
+        raw_response_json,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(clip_id) DO UPDATE SET
+        primary_topic = excluded.primary_topic,
+        core_claim = excluded.core_claim,
+        supporting_points_json = excluded.supporting_points_json,
+        audience_angle = excluded.audience_angle,
+        why_it_matters = excluded.why_it_matters,
+        tone = excluded.tone,
+        key_entities_json = excluded.key_entities_json,
+        risk_flags_json = excluded.risk_flags_json,
+        source_excerpt_refs_json = excluded.source_excerpt_refs_json,
+        provider = excluded.provider,
+        model_id = excluded.model_id,
+        raw_response_json = excluded.raw_response_json,
+        updated_at = excluded.updated_at
+    `)
+
+    stmt.run(
+      `${clipId}-metadata-analysis`,
+      clipId,
+      analysis.primaryTopic,
+      analysis.coreClaim,
+      JSON.stringify(analysis.supportingPoints ?? []),
+      analysis.audienceAngle,
+      analysis.whyItMatters,
+      analysis.tone,
+      JSON.stringify(analysis.keyEntities ?? []),
+      JSON.stringify(analysis.riskFlags ?? []),
+      JSON.stringify(analysis.sourceExcerptRefs ?? []),
+      analysis.provider,
+      analysis.modelId,
+      analysis.rawResponseJson ?? null,
+      now,
+      now
+    )
+
+    return this.getClipMetadataAnalysis(clipId)
+  }
+
+  getClipMetadataAnalysis(clipId: string): ClipMetadataAnalysis | null {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM clip_metadata_analysis
+      WHERE clip_id = ?
+      LIMIT 1
+    `)
+    const row = stmt.get(clipId) as any
+    return row ? this.toClipMetadataAnalysis(this.mapClipMetadataAnalysis(row)) : null
+  }
+
   insertClipTitles(clipId: string, titles: string[]) {
     const now = new Date().toISOString()
     const stmt = this.db.prepare(`

@@ -720,6 +720,10 @@ class ProcessingPipeline {
         continue
       }
 
+      if (contentPackage.metadataAnalysis) {
+        database.upsertClipMetadataAnalysis(clip.id, contentPackage.metadataAnalysis)
+      }
+
       if (contentPackage.titles.length > 0) {
         database.insertClipTitles(clip.id, contentPackage.titles)
       }

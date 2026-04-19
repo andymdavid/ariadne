@@ -82,6 +82,26 @@ CREATE TABLE IF NOT EXISTS clip_descriptions (
     FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS clip_metadata_analysis (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL UNIQUE,
+    primary_topic TEXT NOT NULL,
+    core_claim TEXT NOT NULL,
+    supporting_points_json TEXT NOT NULL DEFAULT '[]',
+    audience_angle TEXT NOT NULL,
+    why_it_matters TEXT NOT NULL,
+    tone TEXT NOT NULL,
+    key_entities_json TEXT NOT NULL DEFAULT '[]',
+    risk_flags_json TEXT NOT NULL DEFAULT '[]',
+    source_excerpt_refs_json TEXT NOT NULL DEFAULT '[]',
+    provider TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    raw_response_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS clip_thumbnails (
     id TEXT PRIMARY KEY,
     clip_id TEXT NOT NULL,
@@ -438,6 +458,7 @@ CREATE INDEX IF NOT EXISTS idx_clips_status ON clips (status);
 CREATE INDEX IF NOT EXISTS idx_content_packages_clip_id ON content_packages (clip_id);
 CREATE INDEX IF NOT EXISTS idx_clip_titles_clip_id ON clip_titles (clip_id);
 CREATE INDEX IF NOT EXISTS idx_clip_descriptions_clip_id ON clip_descriptions (clip_id);
+CREATE INDEX IF NOT EXISTS idx_clip_metadata_analysis_clip_id ON clip_metadata_analysis (clip_id);
 CREATE INDEX IF NOT EXISTS idx_clip_thumbnails_clip_id ON clip_thumbnails (clip_id);
 CREATE INDEX IF NOT EXISTS idx_clip_trim_state_updated_at ON clip_trim_state (updated_at);
 CREATE INDEX IF NOT EXISTS idx_workflow_jobs_type_status ON workflow_jobs (job_type, status);

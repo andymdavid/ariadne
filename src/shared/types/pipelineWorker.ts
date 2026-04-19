@@ -1,4 +1,4 @@
-import type { APIConfig } from '@shared/types'
+import type { APIConfig, ClipMetadataAnalysisDraft } from '@shared/types'
 
 export type PipelineWorkerStageKey =
   | 'transcription'
@@ -76,6 +76,7 @@ export interface PipelineWorkerContentPackage {
   clipIndex: number
   titles: string[]
   description: string
+  metadataAnalysis: ClipMetadataAnalysisDraft | null
 }
 
 export interface StartPipelineWorkerCommand {

@@ -1,4 +1,4 @@
-import { APIConfig } from '@shared/types'
+import { APIConfig, ClipMetadataAnalysisDraft } from '@shared/types'
 import clipValidationService from './clipValidationService'
 import type { ClipCandidate, RankedClipSelection } from './clipSelectionTypes'
 
@@ -494,27 +494,80 @@ Return JSON only. No explanations outside the JSON structure.
   /**
    * Generate content package for a clip
    */
+  async extractClipMetadataMeaning(
+    clipTranscript: string,
+    contentType: string,
+    brandVoiceExamples?: string[],
+    keyQuote?: string
+  ): Promise<ClipMetadataAnalysisDraft> {
+    const fallback = this.buildDeterministicMetadataAnalysis(clipTranscript, contentType, keyQuote)
+
+    const strategies = [
+      {
+        systemMessage:
+          'You extract the central meaning from short-form transcript clips. Return valid JSON only.',
+        prompt: this.buildMetadataExtractionPrompt(clipTranscript, contentType, brandVoiceExamples, keyQuote)
+      },
+      {
+        systemMessage:
+          'Return valid JSON only. Identify the primary topic, core claim, supporting points, audience angle, why it matters, tone, entities, risks, and source excerpt references.',
+        prompt: `${this.buildMetadataExtractionPrompt(clipTranscript, contentType, brandVoiceExamples, keyQuote)}\n\nRespond with JSON only. No markdown, no commentary.`
+      }
+    ]
+
+    for (const strategy of strategies) {
+      try {
+        const response = await this.callOpenRouter({
+          model: this.getModelId(this.config.model),
+          messages: [
+            { role: 'system', content: strategy.systemMessage },
+            { role: 'user', content: strategy.prompt }
+          ],
+          max_tokens: 700,
+          temperature: 0.2
+        })
+
+        const parsed = this.parseMetadataAnalysisResponse(response.content)
+        return {
+          ...fallback,
+          ...parsed,
+          provider: 'openrouter',
+          modelId: this.getModelId(this.config.model),
+          rawResponseJson: response.content
+        }
+      } catch (error) {
+        console.error('Metadata meaning extraction attempt failed:', error)
+      }
+    }
+
+    return fallback
+  }
+
   async generateContentPackage(
     clipTranscript: string,
     contentType: string,
     brandVoiceExamples?: string[],
     onProgress?: (progress: number) => void,
-    keyQuote?: string
+    keyQuote?: string,
+    metadataAnalysis?: ClipMetadataAnalysisDraft
   ): Promise<ContentPackage> {
     onProgress?.(10)
+    const analysis =
+      metadataAnalysis ??
+      await this.extractClipMetadataMeaning(clipTranscript, contentType, brandVoiceExamples, keyQuote)
     
     const strategies = [
       {
         name: 'standard',
         systemMessage:
           'You are an expert YouTube Shorts content strategist. Generate short, accurate, high-curiosity titles and concise descriptions that match the creator\'s authentic voice. Never return transcript sentences as titles.',
-        prompt: this.buildContentGenerationPrompt(clipTranscript, contentType, brandVoiceExamples)
+        prompt: this.buildContentGenerationPrompt(clipTranscript, contentType, brandVoiceExamples, analysis)
       },
       {
         name: 'strict-json',
         systemMessage:
           'Return valid JSON only. Generate short YouTube Shorts titles and one concise description. Never return transcript sentences as titles.',
-        prompt: `${this.buildContentGenerationPrompt(clipTranscript, contentType, brandVoiceExamples)}\n\nRespond with JSON only. No markdown, no commentary.`
+        prompt: `${this.buildContentGenerationPrompt(clipTranscript, contentType, brandVoiceExamples, analysis)}\n\nRespond with JSON only. No markdown, no commentary.`
       },
       {
         name: 'minimal',
@@ -559,8 +612,8 @@ RETURN JSON ONLY:
         onProgress?.(70 + attempt * 5)
 
         const contentPackage = this.parseContentResponse(response.content)
-        const fallbackPackage = this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote)
-        const finalizedPackage = this.finalizeContentPackage(contentPackage, fallbackPackage, clipTranscript, keyQuote)
+        const fallbackPackage = this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote, analysis)
+        const finalizedPackage = this.finalizeContentPackage(contentPackage, fallbackPackage, clipTranscript, keyQuote, analysis)
         onProgress?.(100)
         return finalizedPackage
       } catch (error) {
@@ -568,12 +621,12 @@ RETURN JSON ONLY:
         if (attempt === maxRetries - 1) {
           console.error('Content generation failed, using fallback package:', error)
           onProgress?.(100)
-          return this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote)
+          return this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote, analysis)
         }
       }
     }
 
-    return this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote)
+    return this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote, analysis)
   }
   
   private buildCandidateRankingPrompt(candidates: ClipCandidate[], duration: number, mode: 'balanced' | 'strict' | 'minimal'): string {
@@ -631,16 +684,28 @@ Return 8-12 candidates if possible. Respond with JSON only.
   private buildContentGenerationPrompt(
     clipTranscript: string,
     contentType: string,
-    brandVoiceExamples?: string[]
+    brandVoiceExamples?: string[],
+    metadataAnalysis?: ClipMetadataAnalysisDraft
   ): string {
     const voiceSection = brandVoiceExamples && brandVoiceExamples.length > 0 
       ? `\nBRAND VOICE EXAMPLES:\n${brandVoiceExamples.join('\n\n')}`
+      : ''
+    const analysisSection = metadataAnalysis
+      ? `\nEXTRACTED MEANING:\n${JSON.stringify({
+        primary_topic: metadataAnalysis.primaryTopic,
+        core_claim: metadataAnalysis.coreClaim,
+        supporting_points: metadataAnalysis.supportingPoints,
+        audience_angle: metadataAnalysis.audienceAngle,
+        why_it_matters: metadataAnalysis.whyItMatters,
+        tone: metadataAnalysis.tone,
+        key_entities: metadataAnalysis.keyEntities
+      }, null, 2)}`
       : ''
     
     return `
 TASK: Generate a content package for this ${contentType} clip.
 
-CLIP TRANSCRIPT: ${clipTranscript}${voiceSection}
+CLIP TRANSCRIPT: ${clipTranscript}${analysisSection}${voiceSection}
 
 REQUIREMENTS:
 1. Create 5 title options that are:
@@ -685,6 +750,44 @@ OUTPUT FORMAT (JSON):
   ],
   "description": "Natural, engaging description in creator's voice...",
   "thumbnail_timestamp": 30.5
+}
+    `.trim()
+  }
+
+  private buildMetadataExtractionPrompt(
+    clipTranscript: string,
+    contentType: string,
+    brandVoiceExamples?: string[],
+    keyQuote?: string
+  ): string {
+    const voiceSection = brandVoiceExamples && brandVoiceExamples.length > 0
+      ? `\nCREATOR VOICE HINTS:\n${brandVoiceExamples.join('\n\n')}`
+      : ''
+    const keyQuoteSection = keyQuote ? `\nKEY QUOTE:\n${keyQuote}` : ''
+
+    return `
+TASK: Extract the core meaning of this ${contentType} clip.
+
+CLIP TRANSCRIPT:
+${clipTranscript}${keyQuoteSection}${voiceSection}
+
+RULES:
+- Focus on the main idea of the clip, not decorative metaphors or opening filler.
+- Identify what the speaker is really arguing.
+- Ignore setup language that is not the core point.
+- Keep all fields grounded in the transcript.
+
+RETURN JSON ONLY:
+{
+  "primary_topic": "short phrase",
+  "core_claim": "one sentence capturing the central argument",
+  "supporting_points": ["point one", "point two"],
+  "audience_angle": "who should care about this and why",
+  "why_it_matters": "why this point matters in practice",
+  "tone": "direct|contrarian|analytical|conversational",
+  "key_entities": ["entity one", "entity two"],
+  "risk_flags": ["optional risk or ambiguity"],
+  "source_excerpt_refs": ["exact short excerpt", "another short excerpt"]
 }
     `.trim()
   }
@@ -1024,6 +1127,43 @@ Return JSON only.
     }
   }
 
+  private parseMetadataAnalysisResponse(content: string): Partial<ClipMetadataAnalysisDraft> {
+    if (!content || !content.trim()) {
+      throw new Error('Empty metadata analysis response')
+    }
+
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error('No JSON found in metadata analysis response')
+    }
+
+    const parsed = JSON.parse(jsonString)
+    const asTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+    const asStringArray = (value: unknown) =>
+      Array.isArray(value)
+        ? value.map((item) => asTrimmedString(item)).filter(Boolean)
+        : []
+
+    const primaryTopic = asTrimmedString(parsed.primary_topic)
+    const coreClaim = asTrimmedString(parsed.core_claim)
+
+    if (!primaryTopic || !coreClaim) {
+      throw new Error('Metadata analysis missing required fields')
+    }
+
+    return {
+      primaryTopic,
+      coreClaim,
+      supportingPoints: asStringArray(parsed.supporting_points).slice(0, 4),
+      audienceAngle: asTrimmedString(parsed.audience_angle),
+      whyItMatters: asTrimmedString(parsed.why_it_matters),
+      tone: asTrimmedString(parsed.tone) || 'direct',
+      keyEntities: asStringArray(parsed.key_entities).slice(0, 8),
+      riskFlags: asStringArray(parsed.risk_flags).slice(0, 6),
+      sourceExcerptRefs: asStringArray(parsed.source_excerpt_refs).slice(0, 6)
+    }
+  }
+
   private extractDescriptionFromText(content: string): string {
     const normalized = content.replace(/\s+/g, ' ').trim()
     if (!normalized) return 'Generated description'
@@ -1115,18 +1255,26 @@ Return JSON only.
     return values
   }
 
-  private buildFallbackContentPackage(clipTranscript: string, contentType: string, keyQuote?: string): ContentPackage {
-    const signals = this.buildMetadataSignals(clipTranscript, keyQuote)
+  private buildFallbackContentPackage(
+    clipTranscript: string,
+    contentType: string,
+    keyQuote?: string,
+    metadataAnalysis?: ClipMetadataAnalysisDraft
+  ): ContentPackage {
+    const analysis = metadataAnalysis ?? this.buildDeterministicMetadataAnalysis(clipTranscript, contentType, keyQuote)
+    const signals = this.buildMetadataSignals(clipTranscript, keyQuote, analysis)
     const titles = this.rankTitleCandidates(
       [
+        analysis.coreClaim,
+        analysis.primaryTopic ? `Why ${analysis.primaryTopic}` : '',
+        analysis.primaryTopic ? `The Real Tradeoff In ${analysis.primaryTopic}` : '',
         signals.focusSentence,
-        signals.topicPhrase ? `Why ${signals.topicPhrase}` : '',
-        signals.topicPhrase ? `The Truth About ${signals.topicPhrase}` : '',
         signals.themePhrase,
-        signals.topicPhrase && /claude/i.test(clipTranscript) ? `Don't Build Your Business Inside Claude` : '',
-        signals.topicPhrase && /network effects?/i.test(clipTranscript) ? `Network Effects Are Breaking Down` : '',
-        signals.topicPhrase && /econom(?:y|ies) of scale/i.test(clipTranscript) ? `The Lie Of Economies Of Scale` : '',
-        signals.topicPhrase && /controls? your business/i.test(clipTranscript) ? `Who Really Controls Your Business` : ''
+        analysis.whyItMatters,
+        analysis.primaryTopic && /claude/i.test(clipTranscript) ? `Don't Build Your Business Inside Claude` : '',
+        analysis.primaryTopic && /network effects?/i.test(clipTranscript) ? `Network Effects Are Breaking Down` : '',
+        analysis.primaryTopic && /econom(?:y|ies) of scale/i.test(clipTranscript) ? `The Lie Of Economies Of Scale` : '',
+        analysis.primaryTopic && /controls? your business/i.test(clipTranscript) ? `Who Really Controls Your Business` : ''
       ],
       clipTranscript,
       keyQuote
@@ -1134,7 +1282,8 @@ Return JSON only.
     const description = this.buildFallbackDescription(
       clipTranscript,
       titles[0] || signals.themePhrase || signals.topicPhrase,
-      signals
+      signals,
+      analysis
     )
 
     return {
@@ -1148,7 +1297,8 @@ Return JSON only.
     aiPackage: ContentPackage,
     fallbackPackage: ContentPackage,
     clipTranscript: string,
-    keyQuote?: string
+    keyQuote?: string,
+    metadataAnalysis?: ClipMetadataAnalysisDraft
   ): ContentPackage {
     const titles = this.rankTitleCandidates(
       [...(aiPackage.titles || []), ...(fallbackPackage.titles || [])],
@@ -1159,7 +1309,12 @@ Return JSON only.
     const aiDescription = (aiPackage.description || '').trim()
     const description = this.isUsableDescription(aiDescription)
       ? aiDescription
-      : this.buildFallbackDescription(clipTranscript, titles[0], this.buildMetadataSignals(clipTranscript, keyQuote))
+      : this.buildFallbackDescription(
+          clipTranscript,
+          titles[0],
+          this.buildMetadataSignals(clipTranscript, keyQuote, metadataAnalysis),
+          metadataAnalysis
+        )
 
     return {
       titles: titles.length > 0 ? titles : fallbackPackage.titles,
@@ -1168,7 +1323,42 @@ Return JSON only.
     }
   }
 
-  private buildMetadataSignals(clipTranscript: string, keyQuote?: string): MetadataSignals {
+  private buildDeterministicMetadataAnalysis(
+    clipTranscript: string,
+    contentType: string,
+    keyQuote?: string
+  ): ClipMetadataAnalysisDraft {
+    const signals = this.buildMetadataSignals(clipTranscript, keyQuote)
+    const keyEntities = Array.from(
+      new Set(
+        [
+          signals.topicPhrase,
+          ...this.extractKeyEntities(clipTranscript)
+        ].filter(Boolean)
+      )
+    ).slice(0, 8)
+
+    return {
+      primaryTopic: signals.topicPhrase || this.smartTitleCase(contentType),
+      coreClaim: signals.focusSentence || clipTranscript.replace(/\s+/g, ' ').trim().slice(0, 180),
+      supportingPoints: [signals.supportingSentence].filter(Boolean),
+      audienceAngle: this.inferAudienceAngle(clipTranscript, contentType, signals.topicPhrase),
+      whyItMatters: this.inferWhyItMatters(clipTranscript, signals),
+      tone: this.inferMetadataTone(clipTranscript),
+      keyEntities,
+      riskFlags: this.inferRiskFlags(clipTranscript),
+      sourceExcerptRefs: [keyQuote || '', signals.focusSentence, signals.supportingSentence].filter(Boolean).slice(0, 4),
+      provider: 'deterministic',
+      modelId: 'fallback',
+      rawResponseJson: null
+    }
+  }
+
+  private buildMetadataSignals(
+    clipTranscript: string,
+    keyQuote?: string,
+    metadataAnalysis?: ClipMetadataAnalysisDraft
+  ): MetadataSignals {
     const cleanSentence = (value: string) =>
       value
         .replace(/^[^a-zA-Z0-9]+/, '')
@@ -1194,8 +1384,14 @@ Return JSON only.
       .filter(Boolean)
 
     const normalizedSentences = sentences.map(normalizeLeadClause).filter(Boolean)
-    const allCandidates = [normalizeLeadClause(keyQuote || ''), ...normalizedSentences].filter(Boolean)
-    const topicPhrase = this.extractTopicPhrase([normalizeLeadClause(keyQuote || ''), ...normalizedSentences, clipTranscript])
+    const allCandidates = [
+      metadataAnalysis?.coreClaim || '',
+      normalizeLeadClause(keyQuote || ''),
+      ...normalizedSentences
+    ].filter(Boolean)
+    const topicPhrase =
+      metadataAnalysis?.primaryTopic ||
+      this.extractTopicPhrase([normalizeLeadClause(keyQuote || ''), ...normalizedSentences, clipTranscript])
 
     const scoreSentence = (sentence: string) => {
       const lower = sentence.toLowerCase()
@@ -1273,6 +1469,53 @@ Return JSON only.
     }
 
     return this.smartTitleCase(phrases[0] || source.split(/\s+/).slice(0, 5).join(' '))
+  }
+
+  private extractKeyEntities(clipTranscript: string): string[] {
+    const matches = clipTranscript.match(/\b(AI|Claude|Anthropic|Twitter|Web 2\.?0|network effects?|econom(?:y|ies) of scale|switching costs?|cloud|local models?|open source)\b/gi) || []
+    return matches.map((match) => this.smartTitleCase(match))
+  }
+
+  private inferAudienceAngle(clipTranscript: string, contentType: string, topicPhrase: string): string {
+    const lower = clipTranscript.toLowerCase()
+    if (/\b(business|founder|company|product|operator|startup)\b/.test(lower)) {
+      return `Founders and operators deciding how to handle ${topicPhrase.toLowerCase() || 'this tradeoff'}`
+    }
+    if (/\b(ai|models?|claude|anthropic|open source|local)\b/.test(lower)) {
+      return 'People making practical AI adoption decisions'
+    }
+    return `People interested in this ${contentType} insight`
+  }
+
+  private inferWhyItMatters(clipTranscript: string, signals: MetadataSignals): string {
+    const lower = clipTranscript.toLowerCase()
+    if (/\b(controls? your business)\b/.test(lower)) {
+      return 'It changes who owns the leverage, risk, and long-term upside in your business.'
+    }
+    if (/\b(network effects?)\b/.test(lower)) {
+      return 'It changes how defensibility works and what kinds of products can hold value over time.'
+    }
+    if (/\b(privacy|cloud|local|open source|claude|anthropic)\b/.test(lower)) {
+      return 'It changes the tradeoff between convenience, control, and data risk.'
+    }
+    return signals.supportingSentence || signals.focusSentence
+  }
+
+  private inferMetadataTone(clipTranscript: string): string {
+    const lower = clipTranscript.toLowerCase()
+    if (/\b(lie|destroyed|dead|dying|problem|wrong)\b/.test(lower)) return 'contrarian'
+    if (/\b(think|maybe|probably|kind of|sort of)\b/.test(lower)) return 'conversational'
+    if (/\b(because|means|therefore|better|matters)\b/.test(lower)) return 'analytical'
+    return 'direct'
+  }
+
+  private inferRiskFlags(clipTranscript: string): string[] {
+    const flags: string[] = []
+    const lower = clipTranscript.toLowerCase()
+    if (/\b(it'?s like|to me|i think|kind of|sort of)\b/.test(lower)) flags.push('contains_metaphor_or_softening')
+    if (/\b(uh|um|ah)\b/.test(lower)) flags.push('contains_filler')
+    if (/\b(this|that|it)\b/.test(lower)) flags.push('may_need_context')
+    return flags
   }
 
   private buildThemePhrase(focusSentence: string, topicPhrase: string): string {
@@ -1363,7 +1606,8 @@ Return JSON only.
   private buildFallbackDescription(
     clipTranscript: string,
     preferredTitle?: string,
-    signals?: MetadataSignals
+    signals?: MetadataSignals,
+    metadataAnalysis?: ClipMetadataAnalysisDraft
   ): string {
     const transcriptUnits = clipTranscript
       .split(/\n+/)
@@ -1406,6 +1650,8 @@ Return JSON only.
       if (/\b(barrels?|forest fire|acorns?|soil)\b/i.test(lower)) score -= 10
       if (signals?.topicPhrase && lower.includes(signals.topicPhrase.toLowerCase())) score += 4
       if (signals?.themePhrase && lower.includes(signals.themePhrase.toLowerCase())) score += 4
+      if (metadataAnalysis?.primaryTopic && lower.includes(metadataAnalysis.primaryTopic.toLowerCase())) score += 5
+      if (metadataAnalysis?.coreClaim && lower.includes(metadataAnalysis.coreClaim.toLowerCase().slice(0, 20))) score += 4
 
       for (const keyword of titleKeywords) {
         if (lower.includes(keyword)) score += 3
@@ -1425,14 +1671,29 @@ Return JSON only.
     )
 
     if (selected.length === 0) {
-      return (signals?.supportingSentence || signals?.focusSentence || transcriptUnits[0] || clipTranscript)
+      return (
+        metadataAnalysis?.whyItMatters ||
+        signals?.supportingSentence ||
+        signals?.focusSentence ||
+        transcriptUnits[0] ||
+        clipTranscript
+      )
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 220)
     }
 
-    return selected
+    const composed = [
+      metadataAnalysis?.coreClaim || '',
+      metadataAnalysis?.whyItMatters || '',
+      ...selected
+    ]
+      .filter(Boolean)
+      .slice(0, 2)
+      .filter((value, index, array) => array.indexOf(value) === index)
       .join(' ')
+
+    return composed
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 220)
