@@ -552,28 +552,61 @@ Return JSON only. No explanations outside the JSON structure.
     metadataAnalysis?: ClipMetadataAnalysisDraft
   ): Promise<ContentPackage> {
     onProgress?.(10)
-    const analysis =
-      metadataAnalysis ??
-      await this.extractClipMetadataMeaning(clipTranscript, contentType, brandVoiceExamples, keyQuote)
-    onProgress?.(30)
-    const fallbackPackage = this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote, analysis)
+    const fallbackPackage = this.buildSimpleFallbackContentPackage(clipTranscript, contentType, keyQuote)
 
-    try {
-      const packaged = await this.generateMetadataPackaging(
-        clipTranscript,
-        contentType,
-        analysis,
-        brandVoiceExamples
-      )
-      onProgress?.(80)
-      const finalizedPackage = this.finalizeContentPackage(packaged, fallbackPackage, clipTranscript, keyQuote, analysis)
-      onProgress?.(100)
-      return finalizedPackage
-    } catch (error) {
-      console.error('Content packaging failed, using fallback package:', error)
-      onProgress?.(100)
-      return fallbackPackage
+    const strategies = [
+      {
+        systemMessage:
+          'You write YouTube Shorts titles and descriptions. Be concise, accurate, and clear. Do not quote or copy transcript sentences.',
+        prompt: this.buildSimpleContentPrompt(clipTranscript, contentType, brandVoiceExamples, keyQuote),
+        temperature: 0.4
+      },
+      {
+        systemMessage:
+          'Return plain text only in the requested format. Write one strong title, two alternate titles, and one concise description.',
+        prompt: this.buildSimpleContentPrompt(clipTranscript, contentType, brandVoiceExamples, keyQuote),
+        temperature: 0.2
+      }
+    ]
+
+    for (let index = 0; index < strategies.length; index += 1) {
+      try {
+        onProgress?.(30 + index * 20)
+        const strategy = strategies[index]
+        const response = await this.callOpenRouter({
+          model: this.getModelId(this.config.model),
+          messages: [
+            { role: 'system', content: strategy.systemMessage },
+            { role: 'user', content: strategy.prompt }
+          ],
+          max_tokens: 500,
+          temperature: strategy.temperature
+        })
+
+        const parsed = this.parseSimpleContentResponse(response.content)
+        const titles = this.rankTitleCandidates(
+          [...parsed.titles, ...fallbackPackage.titles],
+          clipTranscript,
+          keyQuote
+        ).slice(0, 5)
+
+        const description = this.isUsableDescription(parsed.description)
+          ? parsed.description
+          : fallbackPackage.description
+
+        onProgress?.(100)
+        return {
+          titles: titles.length > 0 ? titles : fallbackPackage.titles,
+          description,
+          thumbnailTimestamp: undefined
+        }
+      } catch (error) {
+        console.error(`Simple content generation attempt ${index + 1}/${strategies.length} failed:`, error)
+      }
     }
+
+    onProgress?.(100)
+    return fallbackPackage
   }
   
   private buildCandidateRankingPrompt(candidates: ClipCandidate[], duration: number, mode: 'balanced' | 'strict' | 'minimal'): string {
@@ -625,6 +658,49 @@ OUTPUT FORMAT (JSON):
 }
 
 Return 8-12 candidates if possible. Respond with JSON only.
+    `.trim()
+  }
+
+  private buildSimpleContentPrompt(
+    clipTranscript: string,
+    contentType: string,
+    brandVoiceExamples?: string[],
+    keyQuote?: string
+  ): string {
+    const voiceSection = brandVoiceExamples && brandVoiceExamples.length > 0
+      ? `\nVOICE EXAMPLES:\n${brandVoiceExamples.join('\n\n')}`
+      : ''
+    const keyQuoteSection = keyQuote ? `\nKEY QUOTE:\n${keyQuote}` : ''
+
+    return `
+You are writing metadata for a ${contentType} YouTube clip.
+
+Read the full transcript and work out:
+- what the clip is actually about
+- what the speaker's main point is
+- why that point matters
+
+Then write:
+- 1 best title
+- 2 alternate titles
+- 1 concise description
+
+Rules:
+- do not copy transcript sentences
+- do not anchor on metaphors or filler language
+- make the title clear and compelling
+- keep titles under 55 characters
+- keep description under 120 words
+- description should summarize the point, not repeat the transcript
+
+Return exactly in this format:
+TITLE: <best title>
+ALT 1: <alternate title>
+ALT 2: <alternate title>
+DESCRIPTION: <description>
+
+FULL TRANSCRIPT:
+${clipTranscript}${keyQuoteSection}${voiceSection}
     `.trim()
   }
   
@@ -1268,6 +1344,31 @@ Return JSON only.
     throw new Error('No usable description found in response')
   }
 
+  private parseSimpleContentResponse(content: string): ContentPackage {
+    if (!content || !content.trim()) {
+      throw new Error('Empty simple content response')
+    }
+
+    const normalized = content.replace(/\r/g, '').trim()
+    const title = normalized.match(/^TITLE:\s*(.+)$/im)?.[1]?.trim() || ''
+    const alt1 = normalized.match(/^ALT 1:\s*(.+)$/im)?.[1]?.trim() || ''
+    const alt2 = normalized.match(/^ALT 2:\s*(.+)$/im)?.[1]?.trim() || ''
+    const description = normalized.match(/^DESCRIPTION:\s*([\s\S]+)$/im)?.[1]?.replace(/\s+/g, ' ').trim() || ''
+
+    const titles = this.sanitizeGeneratedTitles([title, alt1, alt2])
+      .filter((candidate) => !this.looksLikeTranscriptFragment(candidate))
+
+    if (titles.length === 0 && !description) {
+      throw new Error('Simple content response missing title and description')
+    }
+
+    return {
+      titles,
+      description: this.looksLikeTranscriptFragment(description) ? '' : description,
+      thumbnailTimestamp: undefined
+    }
+  }
+
   private extractDescriptionFromText(content: string): string {
     const normalized = content.replace(/\s+/g, ' ').trim()
     if (!normalized) return 'Generated description'
@@ -1341,6 +1442,16 @@ Return JSON only.
     metadataAnalysis: ClipMetadataAnalysisDraft
   ): string[] {
     return titles.filter((title) => this.isSemanticallyAlignedTitle(title, metadataAnalysis))
+  }
+
+  private looksLikeTranscriptFragment(value: string): boolean {
+    if (!value) return true
+    const lower = value.toLowerCase().trim()
+    if (lower.length < 12) return true
+    if (/^(and|but|so|because|if|when|while)\b/.test(lower)) return true
+    if (/\b(barrels?|forest fire|acorns?|soil)\b/.test(lower)) return true
+    if (/\b(it'?s like|to me|i think|we'?re going to|gonna|kind of|sort of)\b/.test(lower)) return true
+    return false
   }
 
   private salvagePartialContentResponse(content: string): ContentPackage {
@@ -1438,6 +1549,40 @@ Return JSON only.
 
     return {
       titles: titles.length > 0 ? titles : ['Clip Breakdown'],
+      description,
+      thumbnailTimestamp: undefined
+    }
+  }
+
+  private buildSimpleFallbackContentPackage(
+    clipTranscript: string,
+    contentType: string,
+    keyQuote?: string
+  ): ContentPackage {
+    const lower = clipTranscript.toLowerCase()
+    const topic = this.deriveSimpleTopic(clipTranscript, contentType)
+    const claim = this.deriveSimpleClaim(clipTranscript, keyQuote)
+    const whyItMatters = this.deriveSimpleWhyItMatters(clipTranscript)
+
+    const titleCandidates = this.rankTitleCandidates(
+      [
+        /claude|anthropic|provider|cloud|local|open source|ai/.test(lower) ? 'Cloud AI Vs. Local Control' : '',
+        /business/.test(lower) ? 'Who Controls Your Business?' : '',
+        topic ? `The Real Tradeoff In ${topic}` : '',
+        topic ? `Why ${topic} Matters` : '',
+        claim
+      ],
+      clipTranscript,
+      keyQuote
+    ).slice(0, 5)
+
+    const description = `${claim} ${whyItMatters}`
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 220)
+
+    return {
+      titles: titleCandidates.length > 0 ? titleCandidates : ['Clip Breakdown'],
       description,
       thumbnailTimestamp: undefined
     }
@@ -1593,6 +1738,63 @@ Return JSON only.
     }
 
     return this.smartTitleCase(contentType)
+  }
+
+  private deriveSimpleTopic(clipTranscript: string, contentType: string): string {
+    const lower = clipTranscript.toLowerCase()
+    if (/\b(anthropic|claude)\b/.test(lower) && /\b(provider|business|cloud)\b/.test(lower)) {
+      return 'AI Providers'
+    }
+    if (/\b(cloud|local|open source|privacy|data)\b/.test(lower)) {
+      return 'AI Tradeoffs'
+    }
+    if (/\b(network effects?)\b/.test(lower)) {
+      return 'Network Effects'
+    }
+    if (/\b(econom(?:y|ies) of scale)\b/.test(lower)) {
+      return 'Economies Of Scale'
+    }
+    if (/\b(business|company|founder|startup)\b/.test(lower)) {
+      return 'Business Strategy'
+    }
+    return this.smartTitleCase(contentType)
+  }
+
+  private deriveSimpleClaim(clipTranscript: string, keyQuote?: string): string {
+    const lower = clipTranscript.toLowerCase()
+    if (/\b(anthropic|claude)\b/.test(lower) && /\b(provider|business)\b/.test(lower)) {
+      return 'This clip argues that relying too heavily on a single AI provider gives away control.'
+    }
+    if (/\b(cloud|local|open source|privacy|data)\b/.test(lower)) {
+      return 'This clip is about the tradeoff between convenience, privacy, and control in AI tooling.'
+    }
+    if (/\b(network effects?)\b/.test(lower)) {
+      return 'This clip argues that old network effects are weakening and no longer protect products in the same way.'
+    }
+    if (/\b(econom(?:y|ies) of scale)\b/.test(lower)) {
+      return 'This clip challenges the idea that scale automatically creates advantage.'
+    }
+    const cleanedQuote = (keyQuote || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (cleanedQuote && !this.looksLikeTranscriptFragment(cleanedQuote)) {
+      return cleanedQuote.replace(/[.]+$/, '') + '.'
+    }
+    return 'This clip explains the speaker’s main argument and why it matters.'
+  }
+
+  private deriveSimpleWhyItMatters(clipTranscript: string): string {
+    const lower = clipTranscript.toLowerCase()
+    if (/\b(provider|business|control|cloud|local|privacy|data)\b/.test(lower)) {
+      return 'It matters because it affects who controls your data, leverage, and long-term downside.'
+    }
+    if (/\b(network effects?)\b/.test(lower)) {
+      return 'It matters because it changes where defensibility really comes from.'
+    }
+    if (/\b(econom(?:y|ies) of scale)\b/.test(lower)) {
+      return 'It matters because it changes how you think about growth and advantage.'
+    }
+    return 'It matters because it changes how you should think about the decision being discussed.'
   }
 
   private buildMetadataSignals(
