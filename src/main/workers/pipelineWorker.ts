@@ -610,7 +610,9 @@ async function generateContentPackages(
       const contentPackage = await aiService.generateContentPackage(
         clipText,
         clip.contentType,
-        brandVoiceExamples.length > 0 ? brandVoiceExamples : undefined
+        brandVoiceExamples.length > 0 ? brandVoiceExamples : undefined,
+        undefined,
+        clip.keyQuote
       )
 
       contentPackages.push({

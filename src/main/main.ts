@@ -1258,7 +1258,9 @@ ipcMain.handle('generate-clip-content-package', async (_event, clipId: string) =
   const contentPackage = await aiService.generateContentPackage(
     transcriptText,
     clip.content_type || clip.contentType || 'insight',
-    brandVoiceExamples.length > 0 ? brandVoiceExamples : undefined
+    brandVoiceExamples.length > 0 ? brandVoiceExamples : undefined,
+    undefined,
+    clip.key_quote || clip.keyQuote || undefined
   )
 
   const titles = Array.from(

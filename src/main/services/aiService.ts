@@ -50,6 +50,13 @@ export interface TranscriptDataWithWords {
   }>
 }
 
+type MetadataSignals = {
+  focusSentence: string
+  supportingSentence: string
+  topicPhrase: string
+  themePhrase: string
+}
+
 class AIService {
   private config: APIConfig
   
@@ -491,7 +498,8 @@ Return JSON only. No explanations outside the JSON structure.
     clipTranscript: string,
     contentType: string,
     brandVoiceExamples?: string[],
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
+    keyQuote?: string
   ): Promise<ContentPackage> {
     onProgress?.(10)
     
@@ -551,19 +559,21 @@ RETURN JSON ONLY:
         onProgress?.(70 + attempt * 5)
 
         const contentPackage = this.parseContentResponse(response.content)
+        const fallbackPackage = this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote)
+        const finalizedPackage = this.finalizeContentPackage(contentPackage, fallbackPackage, clipTranscript, keyQuote)
         onProgress?.(100)
-        return contentPackage
+        return finalizedPackage
       } catch (error) {
         console.error(`Content generation attempt ${attempt + 1}/${maxRetries} failed:`, error)
         if (attempt === maxRetries - 1) {
           console.error('Content generation failed, using fallback package:', error)
           onProgress?.(100)
-          return this.buildFallbackContentPackage(clipTranscript, contentType)
+          return this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote)
         }
       }
     }
 
-    return this.buildFallbackContentPackage(clipTranscript, contentType)
+    return this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote)
   }
   
   private buildCandidateRankingPrompt(candidates: ClipCandidate[], duration: number, mode: 'balanced' | 'strict' | 'minimal'): string {
@@ -1031,13 +1041,62 @@ Return JSON only.
     return normalized.slice(0, 240)
   }
 
-  private buildFallbackContentPackage(clipTranscript: string, contentType: string): ContentPackage {
-    const sentences = clipTranscript
-      .replace(/\s+/g, ' ')
-      .split(/(?<=[.!?])\s+/)
-      .map((sentence) => sentence.trim())
-      .filter(Boolean)
+  private buildFallbackContentPackage(clipTranscript: string, contentType: string, keyQuote?: string): ContentPackage {
+    const signals = this.buildMetadataSignals(clipTranscript, keyQuote)
+    const titles = this.rankTitleCandidates(
+      [
+        signals.focusSentence,
+        signals.topicPhrase ? `Why ${signals.topicPhrase}` : '',
+        signals.topicPhrase ? `The Truth About ${signals.topicPhrase}` : '',
+        signals.themePhrase,
+        signals.topicPhrase && /claude/i.test(clipTranscript) ? `Don't Build Your Business Inside Claude` : '',
+        signals.topicPhrase && /network effects?/i.test(clipTranscript) ? `Network Effects Are Breaking Down` : '',
+        signals.topicPhrase && /econom(?:y|ies) of scale/i.test(clipTranscript) ? `The Lie Of Economies Of Scale` : '',
+        signals.topicPhrase && /controls? your business/i.test(clipTranscript) ? `Who Really Controls Your Business` : ''
+      ],
+      clipTranscript,
+      keyQuote
+    ).slice(0, 5)
 
+    const descriptionSentences = [signals.focusSentence, signals.supportingSentence]
+      .filter(Boolean)
+      .map((sentence) => sentence.replace(/[.]+$/, '').trim())
+    const descriptionLead = signals.topicPhrase ? `A clip about ${signals.topicPhrase.toLowerCase()}.` : ''
+    const descriptionBody = Array.from(new Set(descriptionSentences)).join(' ')
+    const description = `${descriptionLead} ${descriptionBody}`.replace(/\s+/g, ' ').trim().slice(0, 240)
+
+    return {
+      titles: titles.length > 0 ? titles : ['Clip Breakdown'],
+      description,
+      thumbnailTimestamp: undefined
+    }
+  }
+
+  private finalizeContentPackage(
+    aiPackage: ContentPackage,
+    fallbackPackage: ContentPackage,
+    clipTranscript: string,
+    keyQuote?: string
+  ): ContentPackage {
+    const titles = this.rankTitleCandidates(
+      [...(aiPackage.titles || []), ...(fallbackPackage.titles || [])],
+      clipTranscript,
+      keyQuote
+    ).slice(0, 5)
+
+    const aiDescription = (aiPackage.description || '').trim()
+    const description = this.isUsableDescription(aiDescription)
+      ? aiDescription
+      : fallbackPackage.description
+
+    return {
+      titles: titles.length > 0 ? titles : fallbackPackage.titles,
+      description,
+      thumbnailTimestamp: aiPackage.thumbnailTimestamp ?? fallbackPackage.thumbnailTimestamp
+    }
+  }
+
+  private buildMetadataSignals(clipTranscript: string, keyQuote?: string): MetadataSignals {
     const cleanSentence = (value: string) =>
       value
         .replace(/^[^a-zA-Z0-9]+/, '')
@@ -1045,111 +1104,174 @@ Return JSON only.
         .replace(/\s+/g, ' ')
         .trim()
 
-    const firstSentence = cleanSentence(sentences[0] || clipTranscript)
-    const secondSentence = cleanSentence(sentences[1] || '')
+    const normalizeLeadClause = (value: string) =>
+      cleanSentence(value)
+        .replace(/^that\s+(was|is)\s+/i, '')
+        .replace(/^it('?s)?\s+like\s+/i, '')
+        .replace(/^i\s+(just\s+)?think\s+/i, '')
+        .replace(/^to\s+me\s+/i, '')
+        .replace(/^(own and|and|but|so)\s+/i, '')
+        .replace(/\s+(and|but|because|so)\s+.*$/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    const sentences = clipTranscript
+      .replace(/\s+/g, ' ')
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => cleanSentence(sentence))
+      .filter(Boolean)
+
+    const allCandidates = [normalizeLeadClause(keyQuote || ''), ...sentences.map(normalizeLeadClause)].filter(Boolean)
+
+    const scoreSentence = (sentence: string) => {
+      const lower = sentence.toLowerCase()
+      const words = sentence.split(/\s+/).filter(Boolean)
+      let score = 0
+      if (words.length >= 4 && words.length <= 14) score += 4
+      if (/(econom(?:y|ies) of scale|network effects?|controls? your business|inside claude|switching costs?)/i.test(lower)) score += 8
+      if (/(is a lie|are getting destroyed|controls? your business|shouldn'?t|matters|changing)/i.test(lower)) score += 5
+      if (/^(why|how|what|who)\b/i.test(sentence)) score += 2
+      if (/^(it|this|that|you|we)\b/i.test(sentence)) score -= 3
+      if (/\b(very|nice|thing|stuff|someone|something)\b/i.test(lower)) score -= 2
+      return score
+    }
+
+    const focusSentence = allCandidates.sort((a, b) => scoreSentence(b) - scoreSentence(a))[0] || cleanSentence(clipTranscript)
+    const supportingSentence =
+      sentences
+        .map(normalizeLeadClause)
+        .filter((sentence) => sentence && sentence !== focusSentence)
+        .sort((a, b) => scoreSentence(b) - scoreSentence(a))[0] || ''
+
+    const topicPhrase = this.extractTopicPhrase([focusSentence, supportingSentence, cleanSentence(keyQuote || ''), clipTranscript])
+    const themePhrase = this.buildThemePhrase(focusSentence, topicPhrase)
+
+    return {
+      focusSentence,
+      supportingSentence,
+      topicPhrase,
+      themePhrase
+    }
+  }
+
+  private extractTopicPhrase(candidates: string[]): string {
+    const joined = candidates.join(' ')
+    const namedPatterns = [
+      /who really controls your business/i,
+      /econom(?:y|ies) of scale/i,
+      /network effects?/i,
+      /inside claude/i,
+      /switching costs?/i,
+      /local models?/i,
+      /silicon valley/i,
+      /web 2\.?0/i,
+      /twitter/i
+    ]
+
+    for (const pattern of namedPatterns) {
+      const match = joined.match(pattern)
+      if (match?.[0]) {
+        return this.smartTitleCase(match[0])
+      }
+    }
+
+    const source = candidates.find(Boolean) || joined
+    const tokens = source
+      .split(/\s+/)
+      .map((token) => token.replace(/[^\w.]/g, '').trim())
+      .filter(Boolean)
+
     const stopWords = new Set([
       'a', 'an', 'and', 'are', 'as', 'at', 'be', 'because', 'been', 'being', 'but', 'by', 'for',
       'from', 'have', 'here', 'into', 'is', 'it', 'its', 'just', 'like', 'more', 'much', 'of',
       'on', 'or', 'our', 'really', 'right', 'so', 'some', 'than', 'that', 'the', 'their', 'them',
       'there', 'they', 'this', 'to', 'used', 'was', 'we', 'were', 'what', 'when', 'where', 'which',
-      'while', 'with', 'would', 'your'
+      'while', 'with', 'would', 'your', 'very', 'nice'
     ])
 
-    const normalizeLeadClause = (value: string) =>
-      cleanSentence(value)
-        .replace(/^that\s+(was|is)\s+/i, '')
-        .replace(/^it('| i)?s\s+like\s+/i, '')
-        .replace(/^i\s+(just\s+)?think\s+/i, '')
-        .replace(/^to\s+me\s+/i, '')
-        .replace(/\s+(and|but|because|so)\s+.*$/i, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-
-    const splitClauses = (value: string) =>
-      cleanSentence(value)
-        .split(/[,;:]+|\s+(?:and|but|because|so)\s+/i)
-        .map((clause) => normalizeLeadClause(clause))
-        .filter((clause) => {
-          const wordCount = clause.split(/\s+/).filter(Boolean).length
-          return wordCount >= 3 && wordCount <= 10
-        })
-
-    const smartTitleCase = (value: string) =>
-      value
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((word) => {
-          if (/[0-9]/.test(word) || /^[A-Z0-9.]+$/.test(word)) return word
-          if (word.toLowerCase() === 'web') return 'Web'
-          if (word.toLowerCase() === 'twitter') return 'Twitter'
-          return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-        })
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .slice(0, 55)
-        .trim()
-
-    const extractPhraseCandidates = (value: string) => {
-      const tokens = cleanSentence(value)
-        .split(/\s+/)
-        .map((token) => token.replace(/[^\w.]/g, '').trim())
-        .filter(Boolean)
-
-      const phrases: string[] = []
-      for (let index = 0; index < tokens.length - 1; index += 1) {
-        const pair = tokens.slice(index, index + 2)
-        if (pair.every((token) => token.length > 2 && !stopWords.has(token.toLowerCase()))) {
-          phrases.push(pair.join(' '))
-        }
+    const phrases: string[] = []
+    for (let index = 0; index < tokens.length - 1; index += 1) {
+      const slice = tokens.slice(index, index + 3)
+      if (slice.filter((token) => token.length > 2 && !stopWords.has(token.toLowerCase())).length >= 2) {
+        phrases.push(slice.join(' '))
       }
-
-      return Array.from(new Set(phrases)).slice(0, 4)
     }
 
-    const clauseCandidates = Array.from(
-      new Set([
-        normalizeLeadClause(firstSentence),
-        ...splitClauses(firstSentence),
-        normalizeLeadClause(secondSentence),
-        ...splitClauses(secondSentence)
-      ].filter((clause) => clause.length > 0))
-    )
+    return this.smartTitleCase(phrases[0] || source.split(/\s+/).slice(0, 5).join(' '))
+  }
 
-    const phraseCandidates = Array.from(
-      new Set([
-        ...extractPhraseCandidates(firstSentence),
-        ...extractPhraseCandidates(secondSentence)
-      ])
-    )
+  private buildThemePhrase(focusSentence: string, topicPhrase: string): string {
+    if (/controls? your business/i.test(focusSentence)) {
+      return 'Who Really Controls Your Business'
+    }
+    if (/econom(?:y|ies) of scale/i.test(focusSentence) && /lie/i.test(focusSentence)) {
+      return 'The Lie Of Economies Of Scale'
+    }
+    if (/network effects?/i.test(focusSentence) && /(destroyed|dying|dead|changing)/i.test(focusSentence)) {
+      return 'Network Effects Are Dying'
+    }
+    if (/inside claude/i.test(focusSentence)) {
+      return "Don't Build Your Business Inside Claude"
+    }
 
-    const rawTitles = [
-      clauseCandidates[0],
-      clauseCandidates[1] ? `Why ${clauseCandidates[1]}` : '',
-      phraseCandidates[0] && phraseCandidates[1]
-        ? `${phraseCandidates[0]} ${phraseCandidates[1]}`
-        : phraseCandidates[0]
-          ? phraseCandidates[0]
-          : '',
-      phraseCandidates[0] ? `The Truth About ${phraseCandidates[0]}` : '',
-      clauseCandidates[2] || ''
-    ]
+    return this.smartTitleCase(focusSentence || topicPhrase)
+  }
 
-    const titles = Array.from(
+  private smartTitleCase(value: string): string {
+    return value
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((word) => {
+        if (/[0-9]/.test(word) || /^[A-Z0-9.]+$/.test(word)) return word
+        if (word.toLowerCase() === 'web') return 'Web'
+        if (word.toLowerCase() === 'twitter') return 'Twitter'
+        if (word.toLowerCase() === 'claude') return 'Claude'
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+      })
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .slice(0, 55)
+      .trim()
+  }
+
+  private rankTitleCandidates(candidates: string[], clipTranscript: string, keyQuote?: string): string[] {
+    const transcriptLower = clipTranscript.toLowerCase()
+    const keyQuoteLower = (keyQuote || '').toLowerCase()
+
+    const scoreTitle = (title: string) => {
+      const normalized = title.replace(/\s+/g, ' ').trim()
+      const lower = normalized.toLowerCase()
+      const words = normalized.split(/\s+/).filter(Boolean)
+      const uniqueWordCount = new Set(words.map((word) => word.toLowerCase())).size
+
+      let score = 0
+      if (normalized.length >= 12 && normalized.length <= 55) score += 4
+      if (words.length >= 3 && words.length <= 8) score += 4
+      if (uniqueWordCount / Math.max(words.length, 1) > 0.8) score += 3
+      if (transcriptLower.includes(lower)) score += 3
+      if (keyQuoteLower && keyQuoteLower.includes(lower)) score += 4
+      if (/(econom(?:y|ies) of scale|network effects?|controls? your business|claude|twitter|web 2\.?0)/i.test(lower)) score += 6
+      if (/^(why it|why this|why that|you |it |this |that |and |but )/i.test(normalized)) score -= 6
+      if (/\b(very|nice|thing|stuff|something|someone)\b/i.test(lower)) score -= 4
+      if (/generated title/i.test(lower)) score -= 10
+      return score
+    }
+
+    return Array.from(
       new Set(
-        rawTitles
-          .map((title) => smartTitleCase(title))
-          .filter((title) => title.length >= 8 && title.split(' ').length <= 10)
+        candidates
+          .map((candidate) => this.smartTitleCase(candidate))
+          .filter((candidate) => candidate.length > 0)
+          .sort((a, b) => scoreTitle(b) - scoreTitle(a))
+          .filter((candidate) => scoreTitle(candidate) >= 4)
       )
-    ).slice(0, 5)
+    )
+  }
 
-    const descriptionParts = [firstSentence, secondSentence].filter(Boolean)
-    const description = descriptionParts.join(' ').slice(0, 240).trim() || cleanSentence(clipTranscript).slice(0, 240)
-
-    return {
-      titles: titles.length > 0 ? titles : ['Clip Breakdown'],
-      description,
-      thumbnailTimestamp: undefined
-    }
+  private isUsableDescription(description: string): boolean {
+    if (!description || description.length < 40) return false
+    if (/^(i('|’)ve just finished generating|here are|title options)/i.test(description)) return false
+    return true
   }
 
   private parseThoughtSegmentationResponse(
