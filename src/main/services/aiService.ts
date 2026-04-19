@@ -1365,11 +1365,18 @@ Return JSON only.
     preferredTitle?: string,
     signals?: MetadataSignals
   ): string {
-    const sentences = clipTranscript
-      .replace(/\s+/g, ' ')
-      .split(/(?<=[.!?])\s+/)
-      .map((sentence) => sentence.trim())
+    const transcriptUnits = clipTranscript
+      .split(/\n+/)
+      .map((unit) => unit.trim())
       .filter(Boolean)
+
+    const sentences = transcriptUnits
+      .flatMap((unit) =>
+        unit
+          .split(/(?<=[.!?])\s+|,\s+(?=[A-ZI][a-z]|(but|and|so|because|if|when|while)\b)/)
+          .map((sentence) => sentence.trim())
+          .filter(Boolean)
+      )
 
     const titleKeywords = new Set(
       (preferredTitle || '')
@@ -1390,6 +1397,7 @@ Return JSON only.
       let score = 0
 
       if (words.length >= 8 && words.length <= 26) score += 5
+      if (words.length > 30) score -= 8
       if (/[.!?]$/.test(clean)) score += 2
       if (/\b(ai|business|privacy|data|cloud|local|models?|open source|anthropic|claude|twitter|network effects?|econom(?:y|ies) of scale|switching costs?)\b/i.test(lower)) score += 8
       if (/\b(controls?|matters?|means|beats|wins|destroys?|changing|dead|dying|better|problem|tradeoff|risk|convenience)\b/i.test(lower)) score += 6
@@ -1417,7 +1425,7 @@ Return JSON only.
     )
 
     if (selected.length === 0) {
-      return (signals?.focusSentence || clipTranscript)
+      return (signals?.supportingSentence || signals?.focusSentence || transcriptUnits[0] || clipTranscript)
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 220)

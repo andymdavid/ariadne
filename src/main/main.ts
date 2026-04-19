@@ -1246,7 +1246,7 @@ ipcMain.handle('generate-clip-content-package', async (_event, clipId: string) =
   const transcriptText = transcriptSegments
     .map((segment) => segment.text?.trim() || '')
     .filter(Boolean)
-    .join(' ')
+    .join('\n')
     .trim()
 
   if (!transcriptText) {
