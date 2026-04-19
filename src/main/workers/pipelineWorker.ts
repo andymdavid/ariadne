@@ -22,6 +22,7 @@ import type {
 } from '@shared/types/pipelineWorker'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
+const CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS = 24
 const CLIP_REFINEMENT_TRAILING_PAD_SECONDS = 0.22
 const CLIP_REFINEMENT_MAX_TRAILING_PAD_SECONDS = 0.45
 const CLIP_REFINEMENT_WORD_GUARD_SECONDS = 0.04
@@ -293,6 +294,30 @@ function looksLikeCompleteThought(text: string) {
   return words.length >= 10
 }
 
+function shouldContinueThoughtAcrossBoundary(
+  currentText: string,
+  nextText: string,
+  gap: number
+) {
+  if (gap >= EDITORIAL_UNIT_HARD_BREAK_GAP_SECONDS) {
+    return false
+  }
+
+  if (endsWithTerminalPunctuation(currentText)) {
+    return false
+  }
+
+  if (endsWithDanglingPhrase(currentText)) {
+    return true
+  }
+
+  if (startsLikeContinuation(nextText)) {
+    return true
+  }
+
+  return !looksLikeCompleteThought(currentText)
+}
+
 function shouldBreakEditorialUnit(
   currentText: string,
   nextText: string,
@@ -467,6 +492,7 @@ function findRefinedSegmentEndTime(
     const current = segments[cursor]
     const next = segments[cursor + 1]
     const extension = current.end - clip.endTime
+    const projectedDuration = current.end - clip.startTime
 
     refinedEnd = Math.max(refinedEnd, current.end)
 
@@ -479,8 +505,23 @@ function findRefinedSegmentEndTime(
     }
 
     const gapToNext = next.start - current.end
+    const continuesThought = shouldContinueThoughtAcrossBoundary(current.text, next.text, gapToNext)
+
     if (gapToNext >= 0.35) {
       break
+    }
+
+    if (projectedDuration >= 90) {
+      break
+    }
+
+    if (continuesThought) {
+      if (extension >= CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS) {
+        break
+      }
+
+      cursor += 1
+      continue
     }
 
     if (extension >= CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS) {
