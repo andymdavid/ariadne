@@ -985,42 +985,37 @@ Return JSON only.
       }
 
       const jsonString = this.extractJSON(content)
-      if (!jsonString) {
-        throw new Error('No JSON found in content response')
+      let sanitizedTitles: string[] = []
+      let description = ''
+      let thumbnailTimestamp: number | undefined
+
+      if (jsonString) {
+        const parsed = JSON.parse(jsonString)
+        sanitizedTitles = this.sanitizeGeneratedTitles(Array.isArray(parsed.titles) ? parsed.titles : [])
+        description =
+          typeof parsed.description === 'string' && parsed.description.trim().length > 0
+            ? parsed.description.trim()
+            : ''
+        thumbnailTimestamp = parsed.thumbnail_timestamp
+      } else {
+        const salvaged = this.salvagePartialContentResponse(content)
+        sanitizedTitles = salvaged.titles
+        description = salvaged.description
+        thumbnailTimestamp = salvaged.thumbnailTimestamp
       }
 
-      const parsed = JSON.parse(jsonString)
-      const sanitizedTitles: string[] = Array.from(
-        new Set(
-          (Array.isArray(parsed.titles) ? parsed.titles : [])
-            .map((title: unknown) => (typeof title === 'string' ? title.trim() : ''))
-            .map((title: string) => title.replace(/\s+/g, ' ').replace(/[.]+$/, '').trim())
-            .filter(
-              (title: string) =>
-                title.length > 0 &&
-                title.length <= 70 &&
-                title.split(' ').length <= 12 &&
-                !/^generated title$/i.test(title)
-            )
-        )
-      )
-      const description =
-        typeof parsed.description === 'string' && parsed.description.trim().length > 0
-          ? parsed.description.trim()
-          : ''
+      if (sanitizedTitles.length === 0) {
+        throw new Error('Structured content response did not contain usable titles')
+      }
 
-      if (
-        sanitizedTitles.length === 0 ||
-        !description ||
-        /^(i('|’)ve just finished generating|here are|title options)/i.test(description)
-      ) {
-        throw new Error('Structured content response did not contain usable titles and description')
+      if (/^(i('|’)ve just finished generating|here are|title options)/i.test(description)) {
+        description = ''
       }
       
       return {
         titles: sanitizedTitles,
         description,
-        thumbnailTimestamp: parsed.thumbnail_timestamp
+        thumbnailTimestamp
       }
     } catch (error) {
       console.error('Failed to parse content response:', error)
@@ -1039,6 +1034,85 @@ Return JSON only.
     }
 
     return normalized.slice(0, 240)
+  }
+
+  private sanitizeGeneratedTitles(titles: unknown[]): string[] {
+    return Array.from(
+      new Set(
+        titles
+          .map((title: unknown) => (typeof title === 'string' ? title.trim() : ''))
+          .map((title: string) => title.replace(/\s+/g, ' ').replace(/[.]+$/, '').trim())
+          .filter(
+            (title: string) =>
+              title.length > 0 &&
+              title.length <= 70 &&
+              title.split(' ').length <= 12 &&
+              !/^generated title$/i.test(title)
+          )
+      )
+    )
+  }
+
+  private salvagePartialContentResponse(content: string): ContentPackage {
+    const block = this.extractJSONishBlock(content)
+    const titleCandidates = this.extractQuotedArrayValues(block, 'titles')
+    const sanitizedTitles = this.sanitizeGeneratedTitles(titleCandidates)
+
+    const descriptionMatch = block.match(
+      /"description"\s*:\s*"((?:[^"\\]|\\.)*)/i
+    )
+    const description = descriptionMatch?.[1]
+      ? descriptionMatch[1].replace(/\\"/g, '"').replace(/\s+/g, ' ').trim()
+      : ''
+
+    if (sanitizedTitles.length === 0) {
+      throw new Error('No JSON found in content response')
+    }
+
+    console.warn('[AIService] Salvaged partial content response', {
+      titleCount: sanitizedTitles.length,
+      hasDescription: Boolean(description)
+    })
+
+    return {
+      titles: sanitizedTitles,
+      description,
+      thumbnailTimestamp: undefined
+    }
+  }
+
+  private extractJSONishBlock(content: string): string {
+    const fenced =
+      content.match(/```json\s*([\s\S]*)$/i)?.[1] ??
+      content.match(/```\s*([\s\S]*)$/)?.[1]
+
+    return (fenced ?? content).trim()
+  }
+
+  private extractQuotedArrayValues(content: string, key: string): string[] {
+    const keyIndex = content.search(new RegExp(`"${key}"\\s*:\\s*\\[`, 'i'))
+    if (keyIndex === -1) return []
+
+    const arrayStart = content.indexOf('[', keyIndex)
+    if (arrayStart === -1) return []
+
+    const arrayBody = content.slice(arrayStart + 1)
+    const values: string[] = []
+    const valuePattern = /"((?:[^"\\]|\\.)*)"/g
+
+    for (const match of arrayBody.matchAll(valuePattern)) {
+      const fullMatch = match[0]
+      const value = match[1]
+      values.push(value.replace(/\\"/g, '"'))
+
+      const afterMatchIndex = (match.index ?? 0) + fullMatch.length
+      const tail = arrayBody.slice(afterMatchIndex)
+      if (/^\s*\]/.test(tail)) {
+        break
+      }
+    }
+
+    return values
   }
 
   private buildFallbackContentPackage(clipTranscript: string, contentType: string, keyQuote?: string): ContentPackage {
