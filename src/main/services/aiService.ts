@@ -1131,13 +1131,11 @@ Return JSON only.
       clipTranscript,
       keyQuote
     ).slice(0, 5)
-
-    const descriptionSentences = [signals.focusSentence, signals.supportingSentence]
-      .filter(Boolean)
-      .map((sentence) => sentence.replace(/[.]+$/, '').trim())
-    const descriptionLead = signals.topicPhrase ? `A clip about ${signals.topicPhrase.toLowerCase()}.` : ''
-    const descriptionBody = Array.from(new Set(descriptionSentences)).join(' ')
-    const description = `${descriptionLead} ${descriptionBody}`.replace(/\s+/g, ' ').trim().slice(0, 240)
+    const description = this.buildFallbackDescription(
+      clipTranscript,
+      titles[0] || signals.themePhrase || signals.topicPhrase,
+      signals
+    )
 
     return {
       titles: titles.length > 0 ? titles : ['Clip Breakdown'],
@@ -1161,7 +1159,7 @@ Return JSON only.
     const aiDescription = (aiPackage.description || '').trim()
     const description = this.isUsableDescription(aiDescription)
       ? aiDescription
-      : fallbackPackage.description
+      : this.buildFallbackDescription(clipTranscript, titles[0], this.buildMetadataSignals(clipTranscript, keyQuote))
 
     return {
       titles: titles.length > 0 ? titles : fallbackPackage.titles,
@@ -1360,6 +1358,76 @@ Return JSON only.
           .filter((candidate) => scoreTitle(candidate) >= 6)
       )
     )
+  }
+
+  private buildFallbackDescription(
+    clipTranscript: string,
+    preferredTitle?: string,
+    signals?: MetadataSignals
+  ): string {
+    const sentences = clipTranscript
+      .replace(/\s+/g, ' ')
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean)
+
+    const titleKeywords = new Set(
+      (preferredTitle || '')
+        .toLowerCase()
+        .split(/\s+/)
+        .map((token) => token.replace(/[^\w.]/g, ''))
+        .filter((token) => token.length > 2)
+        .filter((token) => !new Set([
+          'the', 'and', 'for', 'with', 'your', 'this', 'that', 'from', 'into', 'about', 'what',
+          'when', 'why', 'how', 'does', 'need', 'very', 'big'
+        ]).has(token))
+    )
+
+    const scoreSentence = (sentence: string) => {
+      const clean = sentence.replace(/\s+/g, ' ').trim()
+      const lower = clean.toLowerCase()
+      const words = clean.split(/\s+/).filter(Boolean)
+      let score = 0
+
+      if (words.length >= 8 && words.length <= 26) score += 5
+      if (/[.!?]$/.test(clean)) score += 2
+      if (/\b(ai|business|privacy|data|cloud|local|models?|open source|anthropic|claude|twitter|network effects?|econom(?:y|ies) of scale|switching costs?)\b/i.test(lower)) score += 8
+      if (/\b(controls?|matters?|means|beats|wins|destroys?|changing|dead|dying|better|problem|tradeoff|risk|convenience)\b/i.test(lower)) score += 6
+      if (/^(and|but|so|because)\b/i.test(lower)) score -= 6
+      if (/\b(i think|it'?s like|to me|we'?re going to|gonna|kind of|sort of)\b/i.test(lower)) score -= 8
+      if (/\b(barrels?|forest fire|acorns?|soil)\b/i.test(lower)) score -= 10
+      if (signals?.topicPhrase && lower.includes(signals.topicPhrase.toLowerCase())) score += 4
+      if (signals?.themePhrase && lower.includes(signals.themePhrase.toLowerCase())) score += 4
+
+      for (const keyword of titleKeywords) {
+        if (lower.includes(keyword)) score += 3
+      }
+
+      return score
+    }
+
+    const selected = Array.from(
+      new Set(
+        sentences
+          .sort((a, b) => scoreSentence(b) - scoreSentence(a))
+          .filter((sentence) => scoreSentence(sentence) >= 6)
+          .slice(0, 2)
+          .map((sentence) => sentence.replace(/\s+/g, ' ').trim())
+      )
+    )
+
+    if (selected.length === 0) {
+      return (signals?.focusSentence || clipTranscript)
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 220)
+    }
+
+    return selected
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 220)
   }
 
   private isUsableDescription(description: string): boolean {
