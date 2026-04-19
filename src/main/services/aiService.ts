@@ -555,78 +555,25 @@ Return JSON only. No explanations outside the JSON structure.
     const analysis =
       metadataAnalysis ??
       await this.extractClipMetadataMeaning(clipTranscript, contentType, brandVoiceExamples, keyQuote)
-    
-    const strategies = [
-      {
-        name: 'standard',
-        systemMessage:
-          'You are an expert YouTube Shorts content strategist. Generate short, accurate, high-curiosity titles and concise descriptions that match the creator\'s authentic voice. Never return transcript sentences as titles.',
-        prompt: this.buildContentGenerationPrompt(clipTranscript, contentType, brandVoiceExamples, analysis)
-      },
-      {
-        name: 'strict-json',
-        systemMessage:
-          'Return valid JSON only. Generate short YouTube Shorts titles and one concise description. Never return transcript sentences as titles.',
-        prompt: `${this.buildContentGenerationPrompt(clipTranscript, contentType, brandVoiceExamples, analysis)}\n\nRespond with JSON only. No markdown, no commentary.`
-      },
-      {
-        name: 'minimal',
-        systemMessage:
-          'Return valid JSON only with 3 short YouTube Shorts titles and 1 concise description.',
-        prompt: `
-CLIP TRANSCRIPT:
-${clipTranscript}
+    onProgress?.(30)
+    const fallbackPackage = this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote, analysis)
 
-RETURN JSON ONLY:
-{
-  "titles": ["title one", "title two", "title three"],
-  "description": "two concise sentences"
-}
-        `.trim()
-      }
-    ]
-
-    const maxRetries = strategies.length
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        onProgress?.(30 + attempt * 15)
-
-        const strategy = strategies[attempt]
-        const response = await this.callOpenRouter({
-          model: this.getModelId(this.config.model),
-          messages: [
-            {
-              role: 'system',
-              content: strategy.systemMessage
-            },
-            {
-              role: 'user',
-              content: strategy.prompt
-            }
-          ],
-          max_tokens: 1000,
-          temperature: attempt === 0 ? 0.7 : 0.2
-        })
-
-        onProgress?.(70 + attempt * 5)
-
-        const contentPackage = this.parseContentResponse(response.content)
-        const fallbackPackage = this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote, analysis)
-        const finalizedPackage = this.finalizeContentPackage(contentPackage, fallbackPackage, clipTranscript, keyQuote, analysis)
-        onProgress?.(100)
-        return finalizedPackage
-      } catch (error) {
-        console.error(`Content generation attempt ${attempt + 1}/${maxRetries} failed:`, error)
-        if (attempt === maxRetries - 1) {
-          console.error('Content generation failed, using fallback package:', error)
-          onProgress?.(100)
-          return this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote, analysis)
-        }
-      }
+    try {
+      const packaged = await this.generateMetadataPackaging(
+        clipTranscript,
+        contentType,
+        analysis,
+        brandVoiceExamples
+      )
+      onProgress?.(80)
+      const finalizedPackage = this.finalizeContentPackage(packaged, fallbackPackage, clipTranscript, keyQuote, analysis)
+      onProgress?.(100)
+      return finalizedPackage
+    } catch (error) {
+      console.error('Content packaging failed, using fallback package:', error)
+      onProgress?.(100)
+      return fallbackPackage
     }
-
-    return this.buildFallbackContentPackage(clipTranscript, contentType, keyQuote, analysis)
   }
   
   private buildCandidateRankingPrompt(candidates: ClipCandidate[], duration: number, mode: 'balanced' | 'strict' | 'minimal'): string {
@@ -681,63 +628,53 @@ Return 8-12 candidates if possible. Respond with JSON only.
     `.trim()
   }
   
-  private buildContentGenerationPrompt(
-    clipTranscript: string,
+  private buildTitlePackagingPrompt(
     contentType: string,
-    brandVoiceExamples?: string[],
-    metadataAnalysis?: ClipMetadataAnalysisDraft
+    metadataAnalysis: ClipMetadataAnalysisDraft,
+    brandVoiceExamples?: string[]
   ): string {
     const voiceSection = brandVoiceExamples && brandVoiceExamples.length > 0 
       ? `\nBRAND VOICE EXAMPLES:\n${brandVoiceExamples.join('\n\n')}`
       : ''
-    const analysisSection = metadataAnalysis
-      ? `\nEXTRACTED MEANING:\n${JSON.stringify({
-        primary_topic: metadataAnalysis.primaryTopic,
-        core_claim: metadataAnalysis.coreClaim,
-        supporting_points: metadataAnalysis.supportingPoints,
-        audience_angle: metadataAnalysis.audienceAngle,
-        why_it_matters: metadataAnalysis.whyItMatters,
-        tone: metadataAnalysis.tone,
-        key_entities: metadataAnalysis.keyEntities
-      }, null, 2)}`
-      : ''
+    const analysisSection = `\nEXTRACTED MEANING:\n${JSON.stringify({
+      primary_topic: metadataAnalysis.primaryTopic,
+      core_claim: metadataAnalysis.coreClaim,
+      supporting_points: metadataAnalysis.supportingPoints,
+      audience_angle: metadataAnalysis.audienceAngle,
+      why_it_matters: metadataAnalysis.whyItMatters,
+      tone: metadataAnalysis.tone,
+      key_entities: metadataAnalysis.keyEntities
+    }, null, 2)}`
     
     return `
-TASK: Generate a content package for this ${contentType} clip.
+TASK: Generate title candidates for this ${contentType} clip.
 
-CLIP TRANSCRIPT: ${clipTranscript}${analysisSection}${voiceSection}
+${analysisSection}${voiceSection}
 
 REQUIREMENTS:
 1. Create 5 title options that are:
-   - Accurate to the content (no clickbait)
+   - Accurate to the extracted meaning
    - Written for YouTube Shorts
    - High-curiosity and skimmable
    - Under 55 characters
    - Ideally 3-8 words
-   - Not a verbatim transcript sentence
+   - Not a transcript sentence
    - No full stops at the end
    - No quotation marks
    - Match the creator's authentic voice
 
-2. Write a natural, engaging description that:
-   - Summarizes the key point without spoiling it
-   - Uses the creator's authentic voice and tone
-   - Avoids marketing speak or excessive emojis
-   - Provides context for why this matters
-   - Encourages engagement without being pushy
-   - 2-3 sentences, under 120 words
-
-3. Prefer titles in patterns like:
+2. Prefer titles in patterns like:
    - strong claim
    - contrarian insight
    - surprising takeaway
    - direct framing of the topic
 
-4. Avoid titles that:
+3. Avoid titles that:
    - start mid-thought
    - read like a paragraph
    - depend on missing context
    - include filler phrases
+   - anchor on decorative metaphors instead of the core claim
 
 OUTPUT FORMAT (JSON):
 {
@@ -747,9 +684,46 @@ OUTPUT FORMAT (JSON):
     "Statement: key insight or takeaway",
     "Personal: My take on topic",
     "Conversational: Here's what most people get wrong about topic"
-  ],
-  "description": "Natural, engaging description in creator's voice...",
-  "thumbnail_timestamp": 30.5
+  ]
+}
+    `.trim()
+  }
+
+  private buildDescriptionPackagingPrompt(
+    contentType: string,
+    metadataAnalysis: ClipMetadataAnalysisDraft,
+    brandVoiceExamples?: string[]
+  ): string {
+    const voiceSection = brandVoiceExamples && brandVoiceExamples.length > 0
+      ? `\nBRAND VOICE EXAMPLES:\n${brandVoiceExamples.join('\n\n')}`
+      : ''
+
+    return `
+TASK: Generate one concise YouTube description for this ${contentType} clip.
+
+EXTRACTED MEANING:
+${JSON.stringify({
+  primary_topic: metadataAnalysis.primaryTopic,
+  core_claim: metadataAnalysis.coreClaim,
+  supporting_points: metadataAnalysis.supportingPoints,
+  audience_angle: metadataAnalysis.audienceAngle,
+  why_it_matters: metadataAnalysis.whyItMatters,
+  tone: metadataAnalysis.tone,
+  key_entities: metadataAnalysis.keyEntities
+}, null, 2)}${voiceSection}
+
+REQUIREMENTS:
+- 2 short sentences
+- under 120 words
+- summarize the core claim clearly
+- explain why it matters
+- do not copy transcript phrasing
+- do not mention irrelevant metaphors or setup language
+- no marketing fluff
+
+OUTPUT FORMAT (JSON):
+{
+  "description": "Two concise sentences."
 }
     `.trim()
   }
@@ -790,6 +764,104 @@ RETURN JSON ONLY:
   "source_excerpt_refs": ["exact short excerpt", "another short excerpt"]
 }
     `.trim()
+  }
+
+  private async generateMetadataPackaging(
+    clipTranscript: string,
+    contentType: string,
+    metadataAnalysis: ClipMetadataAnalysisDraft,
+    brandVoiceExamples?: string[]
+  ): Promise<ContentPackage> {
+    const titleCandidates = await this.generateMetadataTitles(contentType, metadataAnalysis, brandVoiceExamples)
+    const description = await this.generateMetadataDescription(contentType, metadataAnalysis, brandVoiceExamples)
+
+    return {
+      titles: this.rankTitleCandidates(titleCandidates, clipTranscript, metadataAnalysis.coreClaim).slice(0, 5),
+      description,
+      thumbnailTimestamp: undefined
+    }
+  }
+
+  private async generateMetadataTitles(
+    contentType: string,
+    metadataAnalysis: ClipMetadataAnalysisDraft,
+    brandVoiceExamples?: string[]
+  ): Promise<string[]> {
+    const strategies = [
+      {
+        systemMessage: 'You generate short-form video titles. Return valid JSON only.',
+        prompt: this.buildTitlePackagingPrompt(contentType, metadataAnalysis, brandVoiceExamples),
+        temperature: 0.6
+      },
+      {
+        systemMessage: 'Return valid JSON only with a titles array.',
+        prompt: `${this.buildTitlePackagingPrompt(contentType, metadataAnalysis, brandVoiceExamples)}\n\nRespond with JSON only. No markdown, no commentary.`,
+        temperature: 0.2
+      }
+    ]
+
+    for (const strategy of strategies) {
+      try {
+        const response = await this.callOpenRouter({
+          model: this.getModelId(this.config.model),
+          messages: [
+            { role: 'system', content: strategy.systemMessage },
+            { role: 'user', content: strategy.prompt }
+          ],
+          max_tokens: 500,
+          temperature: strategy.temperature
+        })
+
+        const packaged = this.parseContentResponse(response.content)
+        return this.filterTitlesAgainstAnalysis(packaged.titles, metadataAnalysis)
+      } catch (error) {
+        console.error('Metadata title packaging attempt failed:', error)
+      }
+    }
+
+    return []
+  }
+
+  private async generateMetadataDescription(
+    contentType: string,
+    metadataAnalysis: ClipMetadataAnalysisDraft,
+    brandVoiceExamples?: string[]
+  ): Promise<string> {
+    const strategies = [
+      {
+        systemMessage: 'You generate concise YouTube descriptions. Return valid JSON only.',
+        prompt: this.buildDescriptionPackagingPrompt(contentType, metadataAnalysis, brandVoiceExamples),
+        temperature: 0.4
+      },
+      {
+        systemMessage: 'Return valid JSON only with a description field.',
+        prompt: `${this.buildDescriptionPackagingPrompt(contentType, metadataAnalysis, brandVoiceExamples)}\n\nRespond with JSON only. No markdown, no commentary.`,
+        temperature: 0.2
+      }
+    ]
+
+    for (const strategy of strategies) {
+      try {
+        const response = await this.callOpenRouter({
+          model: this.getModelId(this.config.model),
+          messages: [
+            { role: 'system', content: strategy.systemMessage },
+            { role: 'user', content: strategy.prompt }
+          ],
+          max_tokens: 300,
+          temperature: strategy.temperature
+        })
+
+        const description = this.parseDescriptionResponse(response.content)
+        if (this.isSemanticallyAlignedDescription(description, metadataAnalysis)) {
+          return description
+        }
+      } catch (error) {
+        console.error('Metadata description packaging attempt failed:', error)
+      }
+    }
+
+    return ''
   }
 
   private buildThoughtSegmentationPrompt(
@@ -1164,6 +1236,28 @@ Return JSON only.
     }
   }
 
+  private parseDescriptionResponse(content: string): string {
+    if (!content || !content.trim()) {
+      throw new Error('Empty description response')
+    }
+
+    const jsonString = this.extractJSON(content)
+    if (jsonString) {
+      const parsed = JSON.parse(jsonString)
+      const description = typeof parsed.description === 'string' ? parsed.description.trim() : ''
+      if (description) {
+        return description
+      }
+    }
+
+    const match = content.match(/"description"\s*:\s*"((?:[^"\\]|\\.)*)/i)
+    if (match?.[1]) {
+      return match[1].replace(/\\"/g, '"').replace(/\s+/g, ' ').trim()
+    }
+
+    throw new Error('No usable description found in response')
+  }
+
   private extractDescriptionFromText(content: string): string {
     const normalized = content.replace(/\s+/g, ' ').trim()
     if (!normalized) return 'Generated description'
@@ -1191,6 +1285,13 @@ Return JSON only.
           )
       )
     )
+  }
+
+  private filterTitlesAgainstAnalysis(
+    titles: string[],
+    metadataAnalysis: ClipMetadataAnalysisDraft
+  ): string[] {
+    return titles.filter((title) => this.isSemanticallyAlignedTitle(title, metadataAnalysis))
   }
 
   private salvagePartialContentResponse(content: string): ContentPackage {
@@ -1304,10 +1405,13 @@ Return JSON only.
       [...(aiPackage.titles || []), ...(fallbackPackage.titles || [])],
       clipTranscript,
       keyQuote
-    ).slice(0, 5)
+    )
+      .filter((title) => !metadataAnalysis || this.isSemanticallyAlignedTitle(title, metadataAnalysis))
+      .slice(0, 5)
 
     const aiDescription = (aiPackage.description || '').trim()
     const description = this.isUsableDescription(aiDescription)
+      && (!metadataAnalysis || this.isSemanticallyAlignedDescription(aiDescription, metadataAnalysis))
       ? aiDescription
       : this.buildFallbackDescription(
           clipTranscript,
@@ -1704,6 +1808,52 @@ Return JSON only.
     if (/^(i('|’)ve just finished generating|here are|title options)/i.test(description)) return false
     if (/^(and|but|so|because)\b/i.test(description)) return false
     return true
+  }
+
+  private isSemanticallyAlignedTitle(
+    title: string,
+    metadataAnalysis: ClipMetadataAnalysisDraft
+  ): boolean {
+    const lower = title.toLowerCase()
+    const signalTerms = [
+      metadataAnalysis.primaryTopic,
+      metadataAnalysis.coreClaim,
+      metadataAnalysis.audienceAngle,
+      metadataAnalysis.whyItMatters,
+      ...metadataAnalysis.keyEntities,
+      ...metadataAnalysis.supportingPoints
+    ]
+      .join(' ')
+      .toLowerCase()
+
+    if (/\b(barrels?|forest fire|acorns?|soil)\b/i.test(lower)) return false
+    return lower.split(/\s+/).some((token) => token.length > 3 && signalTerms.includes(token))
+  }
+
+  private isSemanticallyAlignedDescription(
+    description: string,
+    metadataAnalysis: ClipMetadataAnalysisDraft
+  ): boolean {
+    if (!this.isUsableDescription(description)) return false
+    const lower = description.toLowerCase()
+    if (/\b(barrels?|forest fire|acorns?|soil)\b/i.test(lower)) return false
+
+    const signalTerms = [
+      metadataAnalysis.primaryTopic,
+      metadataAnalysis.coreClaim,
+      metadataAnalysis.audienceAngle,
+      metadataAnalysis.whyItMatters,
+      ...metadataAnalysis.keyEntities,
+      ...metadataAnalysis.supportingPoints
+    ]
+      .join(' ')
+      .toLowerCase()
+
+    const matchingSignals = lower
+      .split(/\s+/)
+      .filter((token) => token.length > 4 && signalTerms.includes(token))
+
+    return matchingSignals.length >= 2
   }
 
   private parseThoughtSegmentationResponse(
