@@ -26,11 +26,13 @@ const CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS = 24
 const CLIP_REFINEMENT_TRAILING_PAD_SECONDS = 0.22
 const CLIP_REFINEMENT_MAX_TRAILING_PAD_SECONDS = 0.45
 const CLIP_REFINEMENT_WORD_GUARD_SECONDS = 0.04
-const EDITORIAL_UNIT_SOFT_BREAK_GAP_SECONDS = 0.5
-const EDITORIAL_UNIT_HARD_BREAK_GAP_SECONDS = 0.9
-const EDITORIAL_UNIT_MAX_DURATION_SECONDS = 16
-const EDITORIAL_UNIT_MAX_WORDS = 48
-const EDITORIAL_UNIT_CLAUSE_BREAK_MIN_WORDS = 12
+const THOUGHT_UNIT_SOFT_BREAK_GAP_SECONDS = 0.5
+const THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS = 1.1
+const THOUGHT_UNIT_PREFERRED_MAX_DURATION_SECONDS = 24
+const THOUGHT_UNIT_PREFERRED_MAX_WORDS = 72
+const THOUGHT_UNIT_ABSOLUTE_MAX_DURATION_SECONDS = 34
+const THOUGHT_UNIT_ABSOLUTE_MAX_WORDS = 110
+const THOUGHT_UNIT_CLAUSE_BREAK_MIN_WORDS = 18
 
 function postMessage(event: PipelineWorkerEvent) {
   if (typeof process.send === 'function') {
@@ -251,8 +253,7 @@ function startsLikeContinuation(text: string) {
   const trimmed = text.trim()
   if (!trimmed) return false
   return (
-    /^[a-z0-9]/.test(trimmed) ||
-    /^(and|but|so|because|then|which|that|it|this|these|those|or|if|when|where|while)\b/i.test(trimmed)
+    /^(and|but|so|because|then|which|that|it|this|these|those|or|if|when|where|while|who|what|how|than|as|to|for|with|of|in|on|at|from|by|about|into|over|after|before)\b/i.test(trimmed)
   )
 }
 
@@ -299,7 +300,7 @@ function shouldContinueThoughtAcrossBoundary(
   nextText: string,
   gap: number
 ) {
-  if (gap >= EDITORIAL_UNIT_HARD_BREAK_GAP_SECONDS) {
+  if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
     return false
   }
 
@@ -318,17 +319,17 @@ function shouldContinueThoughtAcrossBoundary(
   return !looksLikeCompleteThought(currentText)
 }
 
-function shouldBreakEditorialUnit(
+function shouldBreakThoughtUnit(
   currentText: string,
   nextText: string,
   currentDuration: number,
   currentWordCount: number,
   gap: number
 ) {
-  const nextLooksContinuous = startsLikeContinuation(nextText)
+  const nextLooksContinuous = shouldContinueThoughtAcrossBoundary(currentText, nextText, gap)
   const currentLooksComplete = looksLikeCompleteThought(currentText)
 
-  if (gap >= EDITORIAL_UNIT_HARD_BREAK_GAP_SECONDS) {
+  if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS && currentLooksComplete) {
     return true
   }
 
@@ -341,7 +342,7 @@ function shouldBreakEditorialUnit(
 
   if (
     endsWithClausePunctuation(currentText) &&
-    currentWordCount >= EDITORIAL_UNIT_CLAUSE_BREAK_MIN_WORDS &&
+    currentWordCount >= THOUGHT_UNIT_CLAUSE_BREAK_MIN_WORDS &&
     !nextLooksContinuous &&
     currentLooksComplete
   ) {
@@ -349,7 +350,7 @@ function shouldBreakEditorialUnit(
   }
 
   if (
-    gap >= EDITORIAL_UNIT_SOFT_BREAK_GAP_SECONDS &&
+    gap >= THOUGHT_UNIT_SOFT_BREAK_GAP_SECONDS &&
     currentWordCount >= 8 &&
     currentLooksComplete &&
     !nextLooksContinuous
@@ -358,9 +359,17 @@ function shouldBreakEditorialUnit(
   }
 
   if (
-    (currentDuration >= EDITORIAL_UNIT_MAX_DURATION_SECONDS ||
-      currentWordCount >= EDITORIAL_UNIT_MAX_WORDS) &&
+    (currentDuration >= THOUGHT_UNIT_PREFERRED_MAX_DURATION_SECONDS ||
+      currentWordCount >= THOUGHT_UNIT_PREFERRED_MAX_WORDS) &&
     (currentLooksComplete || !nextLooksContinuous)
+  ) {
+    return true
+  }
+
+  if (
+    currentDuration >= THOUGHT_UNIT_ABSOLUTE_MAX_DURATION_SECONDS ||
+    currentWordCount >= THOUGHT_UNIT_ABSOLUTE_MAX_WORDS ||
+    gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS * 2
   ) {
     return true
   }
@@ -368,7 +377,7 @@ function shouldBreakEditorialUnit(
   return false
 }
 
-function normalizeTranscriptSegments(
+function normalizeTranscriptIntoThoughtUnits(
   transcription: PipelineWorkerTranscription
 ): PipelineWorkerTranscription['segments'] {
   const rawSegments = transcription.segments
@@ -393,7 +402,7 @@ function normalizeTranscriptSegments(
     const gap = Math.max(0, next.start - current.end)
     const currentDuration = current.end - current.start
     const currentWordCount = countWords(currentText)
-    const breakHere = shouldBreakEditorialUnit(
+    const breakHere = shouldBreakThoughtUnit(
       currentText,
       nextText,
       currentDuration,
@@ -840,8 +849,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       ? 'Generating clip candidates from transcript...'
       : 'Generating heuristic clip candidates...')
 
-    let normalizedSegments = normalizeTranscriptSegments(transcription)
-    let transcriptNormalizationVersion = 'editorial_units_v1'
+    let normalizedSegments = normalizeTranscriptIntoThoughtUnits(transcription)
+    let transcriptNormalizationVersion = 'heuristic_thought_units_v1'
 
     if (aiService) {
       try {
