@@ -14,7 +14,7 @@ type TranscriptWord = {
 
 type TranscriptLine = {
   id: string
-  episode_segment_index: number
+  line_index?: number
   start_time: number
   end_time: number
   text: string
@@ -143,8 +143,8 @@ class TranscriptAlignmentService {
       throw new Error('Episode media source not found')
     }
 
-    const transcriptSegments = database.getClipTranscriptSegments(clipId) as TranscriptLine[]
-    if (!transcriptSegments.length) {
+    const transcriptLines = database.getClipTranscriptLines(clipId) as TranscriptLine[]
+    if (!transcriptLines.length) {
       return []
     }
 
@@ -176,11 +176,11 @@ class TranscriptAlignmentService {
         .filter((word) => word.word.trim() && word.end > word.start)
 
       let sourceCursor = 0
-      for (const segment of transcriptSegments) {
-        const lineStart = Number(segment.start_time ?? 0) - Number(clip.start_time)
-        const lineEnd = Number(segment.end_time ?? 0) - Number(clip.start_time)
+      for (const line of transcriptLines) {
+        const lineStart = Number(line.start_time ?? 0) - Number(clip.start_time)
+        const lineEnd = Number(line.end_time ?? 0) - Number(clip.start_time)
         const aligned = alignLineWords(
-          String(segment.text || ''),
+          String(line.text || ''),
           clipRelativeWords,
           Math.max(0, lineStart),
           Math.max(Math.max(0, lineStart) + 0.01, lineEnd),
@@ -188,10 +188,10 @@ class TranscriptAlignmentService {
         )
         sourceCursor = aligned.nextCursor
 
-        await database.updateTranscriptSegment(
+        await database.updateTranscriptLine(
           clip.episode_id,
-          Number(segment.episode_segment_index ?? 0),
-          String(segment.text || ''),
+          Number(line.line_index ?? 0),
+          String(line.text || ''),
           aligned.words.map((word) => ({
             word: word.word,
             start: word.start + Number(clip.start_time),
@@ -200,7 +200,7 @@ class TranscriptAlignmentService {
         )
       }
 
-      return database.getClipTranscriptSegments(clipId)
+      return database.getClipTranscriptLines(clipId)
     } finally {
       await fs.rm(clipMediaPath, { force: true }).catch(() => undefined)
     }

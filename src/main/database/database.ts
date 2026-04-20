@@ -2407,6 +2407,52 @@ class DatabaseManager {
 
     return insertMany(lines)
   }
+
+  replaceTranscriptLinesForEpisode(
+    episodeId: string,
+    lines: Array<{
+      id: string
+      episodeId: string
+      lineIndex: number
+      startTime: number
+      endTime: number
+      text: string
+      words?: Array<{
+        word: string
+        start: number
+        end: number
+      }>
+      sourceStrategy: string
+    }>
+  ) {
+    const deleteStmt = this.db.prepare(`DELETE FROM transcript_lines WHERE episode_id = ?`)
+    const now = new Date().toISOString()
+    const insertStmt = this.db.prepare(`
+      INSERT INTO transcript_lines
+      (id, episode_id, line_index, start_time, end_time, text, words, source_strategy, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const tx = this.db.transaction((linesToInsert: typeof lines) => {
+      deleteStmt.run(episodeId)
+      for (const line of linesToInsert) {
+        insertStmt.run(
+          line.id,
+          line.episodeId,
+          line.lineIndex,
+          line.startTime,
+          line.endTime,
+          line.text,
+          line.words ? JSON.stringify(line.words) : null,
+          line.sourceStrategy,
+          now,
+          now
+        )
+      }
+    })
+
+    return tx(lines)
+  }
   
   getTranscriptSegments(episodeId: string) {
     const stmt = this.db.prepare(`
@@ -2482,6 +2528,32 @@ class DatabaseManager {
       ...line,
       words: line.words ? JSON.parse(line.words) : undefined
     }))
+  }
+
+  updateTranscriptLine(
+    episodeId: string,
+    lineIndex: number,
+    text: string,
+    words?: Array<{ word: string; start: number; end: number }>
+  ) {
+    const lines = this.getTranscriptLines(episodeId)
+    if (!lines || lineIndex >= lines.length) {
+      throw new Error('Transcript line index out of bounds')
+    }
+
+    const line = lines[lineIndex] as any
+    const stmt = this.db.prepare(`
+      UPDATE transcript_lines
+      SET text = ?, words = ?, updated_at = ?
+      WHERE episode_id = ? AND line_index = ?
+    `)
+    return stmt.run(
+      text,
+      Array.isArray(words) && words.length > 0 ? JSON.stringify(words) : null,
+      new Date().toISOString(),
+      episodeId,
+      Number(line.line_index ?? lineIndex)
+    )
   }
 
   updateTranscriptSegment(

@@ -18,6 +18,7 @@ import { youtubePublishingService } from './services/youtubePublishingService';
 import { videoLibraryService } from './services/videoLibraryService';
 import { videoGenerationService } from './services/videoGenerationService';
 import { transcriptAlignmentService } from './services/transcriptAlignmentService';
+import { transcriptLineService } from './services/transcriptLineService';
 import AIService from './services/aiService';
 import type {
   BrandTemplate,
@@ -785,7 +786,8 @@ ipcMain.handle(
     text: string,
     words?: Array<{ word: string; start: number; end: number }>
   ) => {
-    return database.updateTranscriptSegment(episodeId, segmentIndex, text, words);
+    transcriptLineService.ensureEpisodeTranscriptLines(episodeId);
+    return database.updateTranscriptLine(episodeId, segmentIndex, text, words);
   }
 );
 
@@ -1326,7 +1328,7 @@ ipcMain.handle('get-clip-transcript-segments', (event, clipId: string) => {
 });
 
 ipcMain.handle('get-clip-transcript-lines', (_event, clipId: string) => {
-  const lines = database.getClipTranscriptLines(clipId) as Array<unknown>
+  const lines = transcriptLineService.getClipTranscriptLines(clipId) as Array<unknown>
   if (lines.length > 0) {
     return lines
   }

@@ -444,7 +444,7 @@ export function ClipEditorPage() {
               ? Math.min(clipEnd, rawWords[rawWords.length - 1].end)
               : Math.min(segmentEnd, clipEnd),
             text: segment.text || '',
-            episodeSegmentIndex: Number(segment.episode_segment_index ?? 0),
+            episodeSegmentIndex: Number(segment.line_index ?? segment.episode_segment_index ?? 0),
             words: alignWordsToTranscriptText(
               segment.text || '',
               rawWords,
@@ -1250,7 +1250,7 @@ export function ClipEditorPage() {
                 ? rawWords[rawWords.length - 1].end
                 : Number(segment.end_time ?? segment.end ?? segment.start_time ?? segment.start ?? 0),
               text: segment.text || '',
-              episodeSegmentIndex: Number(segment.episode_segment_index ?? 0),
+              episodeSegmentIndex: Number(segment.line_index ?? segment.episode_segment_index ?? 0),
               words: rawWords
             }
           })
