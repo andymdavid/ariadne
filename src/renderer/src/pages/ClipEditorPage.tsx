@@ -399,7 +399,7 @@ export function ClipEditorPage() {
           window.electronAPI?.resolveClipVideoSource?.(clipId),
           window.electronAPI?.getClipVisualSource?.(clipId),
           window.electronAPI?.listGeneratedVideoAssets?.(['completed']),
-          window.electronAPI?.getClipTranscriptSegments?.(clipId).catch(() => []),
+          window.electronAPI?.getClipTranscriptLines?.(clipId).catch(() => []),
           window.electronAPI?.getBrandTemplate?.().catch(() => null),
           window.electronAPI?.getClipEdits?.(clipId).catch(() => null),
           window.electronAPI?.getEpisodeMediaSource?.(episodeId).catch(() => null),

@@ -335,6 +335,7 @@ const electronAPI = {
   saveClipEdits: (clipId: string, edits: any) => ipcRenderer.invoke('save-clip-edits', clipId, edits),
   deleteClipEdits: (clipId: string) => ipcRenderer.invoke('delete-clip-edits', clipId),
   getClipTranscriptSegments: (clipId: string) => ipcRenderer.invoke('get-clip-transcript-segments', clipId),
+  getClipTranscriptLines: (clipId: string) => ipcRenderer.invoke('get-clip-transcript-lines', clipId),
 
   // Logo operations
   uploadLogo: (base64Data: string, fileName: string) => ipcRenderer.invoke('upload-logo', base64Data, fileName),
@@ -483,6 +484,7 @@ declare global {
       saveClipEdits: (clipId: string, edits: any) => Promise<any>;
       deleteClipEdits: (clipId: string) => Promise<any>;
       getClipTranscriptSegments: (clipId: string) => Promise<any[]>;
+      getClipTranscriptLines: (clipId: string) => Promise<any[]>;
 
       // Logo operations
       uploadLogo: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;

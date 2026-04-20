@@ -202,7 +202,7 @@ export function ClipWorkspacePage() {
           normalizedClips.map(async (clip) => {
             const [titles, transcriptSegments, visualSource, resolvedVideoSource] = await Promise.all([
               window.electronAPI?.getClipTitles?.(clip.id).catch(() => []),
-              window.electronAPI?.getClipTranscriptSegments?.(clip.id).catch(() => []),
+              window.electronAPI?.getClipTranscriptLines?.(clip.id).catch(() => []),
               window.electronAPI?.getClipVisualSource?.(clip.id).catch(() => defaultVisualSource(clip.id)),
               window.electronAPI?.resolveClipVideoSource?.(clip.id).catch(() => null)
             ])

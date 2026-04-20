@@ -20,6 +20,7 @@ import type {
   PipelineWorkerTranscription,
   StartPipelineWorkerCommand,
 } from '@shared/types/pipelineWorker'
+import { buildTranscriptLinesFromSegments } from '@shared/transcriptLines'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
 const CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS = 24
@@ -388,51 +389,17 @@ function normalizeTranscriptIntoThoughtUnits(
     return rawSegments
   }
 
-  const normalized: PipelineWorkerTranscription['segments'] = []
-  let current = {
-    ...rawSegments[0],
-    text: rawSegments[0].text.trim(),
-    words: rawSegments[0].words ? [...rawSegments[0].words] : undefined
+  const lines = buildTranscriptLinesFromSegments(rawSegments)
+  if (lines.length === 0) {
+    return rawSegments
   }
 
-  for (let index = 1; index < rawSegments.length; index += 1) {
-    const next = rawSegments[index]
-    const currentText = current.text.trim()
-    const nextText = next.text.trim()
-    const gap = Math.max(0, next.start - current.end)
-    const currentDuration = current.end - current.start
-    const currentWordCount = countWords(currentText)
-    const breakHere = shouldBreakThoughtUnit(
-      currentText,
-      nextText,
-      currentDuration,
-      currentWordCount,
-      gap
-    )
-
-    if (!breakHere) {
-      current = {
-        ...current,
-        end: next.end,
-        text: `${currentText} ${nextText}`.replace(/\s+/g, ' ').trim(),
-        words: [...(current.words ?? []), ...(next.words ?? [])]
-      }
-      continue
-    }
-
-    normalized.push(current)
-    current = {
-      ...next,
-      text: nextText,
-      words: next.words ? [...next.words] : undefined
-    }
-  }
-
-  normalized.push(current)
-
-  return normalized.map((segment, index) => ({
-    ...segment,
-    id: index
+  return lines.map((line, index) => ({
+    id: index,
+    start: line.start,
+    end: line.end,
+    text: line.text,
+    words: line.words
   }))
 }
 
@@ -850,7 +817,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       : 'Generating heuristic clip candidates...')
 
     let normalizedSegments = normalizeTranscriptIntoThoughtUnits(transcription)
-    let transcriptNormalizationVersion = 'heuristic_thought_units_v1'
+    let transcriptNormalizationVersion = 'word_thought_lines_v1'
 
     if (aiService) {
       try {

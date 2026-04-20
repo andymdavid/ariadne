@@ -204,6 +204,7 @@ declare global {
       saveClipEdits: (clipId: string, edits: any) => Promise<any>;
       deleteClipEdits: (clipId: string) => Promise<any>;
       getClipTranscriptSegments: (clipId: string) => Promise<any[]>;
+      getClipTranscriptLines: (clipId: string) => Promise<any[]>;
       uploadLogo: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;
       listLogos: () => Promise<string[]>;
       uploadMusic: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;

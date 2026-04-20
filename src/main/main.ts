@@ -1242,8 +1242,11 @@ ipcMain.handle('generate-clip-content-package', async (_event, clipId: string) =
     throw new Error('OpenRouter API key not configured')
   }
 
-  const transcriptSegments = database.getClipTranscriptSegments(clipId) as Array<{ text?: string }>
-  const transcriptText = transcriptSegments
+  const transcriptLines = database.getClipTranscriptLines(clipId) as Array<{ text?: string }>
+  const transcriptSource = transcriptLines.length > 0
+    ? transcriptLines
+    : database.getClipTranscriptSegments(clipId) as Array<{ text?: string }>
+  const transcriptText = transcriptSource
     .map((segment) => segment.text?.trim() || '')
     .filter(Boolean)
     .join('\n')
@@ -1319,6 +1322,14 @@ ipcMain.handle('delete-clip-edits', (event, clipId: string) => {
 });
 
 ipcMain.handle('get-clip-transcript-segments', (event, clipId: string) => {
+  return database.getClipTranscriptSegments(clipId)
+});
+
+ipcMain.handle('get-clip-transcript-lines', (_event, clipId: string) => {
+  const lines = database.getClipTranscriptLines(clipId) as Array<unknown>
+  if (lines.length > 0) {
+    return lines
+  }
   return database.getClipTranscriptSegments(clipId)
 });
 
