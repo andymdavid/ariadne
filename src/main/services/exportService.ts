@@ -474,7 +474,12 @@ class ExportService {
       console.log(`[ExportService] Clip ID: ${clip.id}`)
 
       const clipEdits = database.getClipEdits(clip.id) as ClipEditsRow | undefined
-      const transcriptSegments = database.getClipTranscriptSegments(clip.id) as ExportTranscriptSegment[]
+      const transcriptSegments = (() => {
+        const transcriptLines = database.getClipTranscriptLines(clip.id) as ExportTranscriptSegment[]
+        return transcriptLines.length > 0
+          ? transcriptLines
+          : (database.getClipTranscriptSegments(clip.id) as ExportTranscriptSegment[])
+      })()
       const outputPath = join(outputDirectory, this.buildOutputFilename(clip.id))
       const captionSegments = this.buildCaptionSegments(
         clip.id,
