@@ -24,6 +24,28 @@ export interface TranscriptSegment {
   text: string;
   confidence: number;
   speaker?: string;
+  words?: Array<{
+    word: string;
+    start: number;
+    end: number;
+  }>;
+}
+
+export interface TranscriptLine {
+  id: string;
+  episodeId: string;
+  lineIndex: number;
+  start: number;
+  end: number;
+  text: string;
+  words?: Array<{
+    word: string;
+    start: number;
+    end: number;
+  }>;
+  sourceStrategy: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Clip {

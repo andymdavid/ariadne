@@ -12,6 +12,7 @@ import type {
   ProcessingProgress,
   ProcessingResultPayload
 } from '@shared/types'
+import { buildTranscriptLinesFromSegments } from '@shared/transcriptLines'
 import type {
   PipelineWorkerCandidate,
   PipelineWorkerCompletedEvent,
@@ -648,7 +649,8 @@ class ProcessingPipeline {
     transcription: PipelineWorkerCompletedEvent['transcription']
   ) {
     const existingSegments = database.getTranscriptSegments(episodeId) as Array<unknown>
-    if (existingSegments.length > 0) {
+    const existingLines = database.getTranscriptLines(episodeId) as Array<unknown>
+    if (existingSegments.length > 0 && existingLines.length > 0) {
       return
     }
 
@@ -663,7 +665,40 @@ class ProcessingPipeline {
       words: segment.words // Store word-level timestamps if available
     }))
 
-    database.insertTranscriptSegments(segments)
+    if (existingSegments.length === 0) {
+      database.insertTranscriptSegments(segments)
+    }
+
+    if (existingLines.length === 0) {
+      const lineSourceSegments = transcription.segments.map((segment: any) => ({
+        id: segment.id,
+        start: Number(segment.start ?? 0),
+        end: Number(segment.end ?? 0),
+        text: String(segment.text ?? ''),
+        words: Array.isArray(segment.words)
+          ? segment.words.map((word: any) => ({
+              word: String(word.word ?? '').trim(),
+              start: Number(word.start ?? 0),
+              end: Number(word.end ?? 0)
+            }))
+          : undefined
+      }))
+
+      const lines = buildTranscriptLinesFromSegments(lineSourceSegments).map((line) => ({
+        id: randomUUID(),
+        episodeId,
+        lineIndex: line.lineIndex,
+        startTime: line.start,
+        endTime: line.end,
+        text: line.text,
+        words: line.words,
+        sourceStrategy: line.sourceStrategy
+      }))
+
+      if (lines.length > 0) {
+        database.insertTranscriptLines(lines)
+      }
+    }
   }
   
   private async storeClips(

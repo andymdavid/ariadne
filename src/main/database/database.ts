@@ -1852,6 +1852,33 @@ class DatabaseManager {
         this.db.pragma('user_version = 24')
       }
     }
+
+    if (preVersion <= 24) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS transcript_lines (
+            id TEXT PRIMARY KEY,
+            episode_id TEXT NOT NULL,
+            line_index INTEGER NOT NULL,
+            start_time REAL NOT NULL,
+            end_time REAL NOT NULL,
+            text TEXT NOT NULL,
+            words TEXT,
+            source_strategy TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_transcript_lines_episode_id ON transcript_lines (episode_id, line_index);
+          CREATE INDEX IF NOT EXISTS idx_transcript_lines_episode_time ON transcript_lines (episode_id, start_time, end_time);
+        `)
+        console.log('✅ Added transcript lines table (v25)')
+        this.db.pragma('user_version = 25')
+      } catch (error) {
+        console.log('Transcript lines migration skipped (may already exist)')
+        this.db.pragma('user_version = 25')
+      }
+    }
   }
   
   private initializeSchema() {
@@ -1911,6 +1938,20 @@ class DatabaseManager {
           confidence REAL NOT NULL DEFAULT 0,
           speaker TEXT,
           created_at TEXT NOT NULL,
+          FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS transcript_lines (
+          id TEXT PRIMARY KEY,
+          episode_id TEXT NOT NULL,
+          line_index INTEGER NOT NULL,
+          start_time REAL NOT NULL,
+          end_time REAL NOT NULL,
+          text TEXT NOT NULL,
+          words TEXT,
+          source_strategy TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
           FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
       );
       
@@ -2325,6 +2366,47 @@ class DatabaseManager {
     
     return insertMany(segments)
   }
+
+  insertTranscriptLines(lines: Array<{
+    id: string
+    episodeId: string
+    lineIndex: number
+    startTime: number
+    endTime: number
+    text: string
+    words?: Array<{
+      word: string
+      start: number
+      end: number
+    }>
+    sourceStrategy: string
+  }>) {
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare(`
+      INSERT INTO transcript_lines
+      (id, episode_id, line_index, start_time, end_time, text, words, source_strategy, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const insertMany = this.db.transaction((linesToInsert: typeof lines) => {
+      for (const line of linesToInsert) {
+        stmt.run(
+          line.id,
+          line.episodeId,
+          line.lineIndex,
+          line.startTime,
+          line.endTime,
+          line.text,
+          line.words ? JSON.stringify(line.words) : null,
+          line.sourceStrategy,
+          now,
+          now
+        )
+      }
+    })
+
+    return insertMany(lines)
+  }
   
   getTranscriptSegments(episodeId: string) {
     const stmt = this.db.prepare(`
@@ -2338,6 +2420,20 @@ class DatabaseManager {
     return segments.map(segment => ({
       ...segment,
       words: segment.words ? JSON.parse(segment.words) : undefined
+    }))
+  }
+
+  getTranscriptLines(episodeId: string) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM transcript_lines
+      WHERE episode_id = ?
+      ORDER BY line_index ASC, start_time ASC
+    `)
+    const lines = stmt.all(episodeId) as any[]
+
+    return lines.map(line => ({
+      ...line,
+      words: line.words ? JSON.parse(line.words) : undefined
     }))
   }
 
@@ -2365,6 +2461,26 @@ class DatabaseManager {
     return segments.map(segment => ({
       ...segment,
       words: segment.words ? JSON.parse(segment.words) : undefined
+    }))
+  }
+
+  getClipTranscriptLines(clipId: string) {
+    const clip = this.getClip(clipId) as any
+    if (!clip) return []
+
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM transcript_lines
+      WHERE episode_id = ?
+        AND end_time > ?
+        AND start_time < ?
+      ORDER BY line_index ASC, start_time ASC
+    `)
+    const lines = stmt.all(clip.episode_id, clip.start_time, clip.end_time) as any[]
+
+    return lines.map(line => ({
+      ...line,
+      words: line.words ? JSON.parse(line.words) : undefined
     }))
   }
 
