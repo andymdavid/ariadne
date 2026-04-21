@@ -1,7 +1,7 @@
 import { promises as fs, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
-import AIService, { SemanticTranscriptUnit } from '../services/aiService'
+import AIService, { ClipBoundaryReview, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
 import clipCandidateService from '../services/clipCandidateService'
 import LocalWhisperService from '../services/localWhisperService'
 import type { AudioChunk } from '../services/clipSelectionTypes'
@@ -34,6 +34,7 @@ const THOUGHT_UNIT_PREFERRED_MAX_WORDS = 72
 const THOUGHT_UNIT_ABSOLUTE_MAX_DURATION_SECONDS = 34
 const THOUGHT_UNIT_ABSOLUTE_MAX_WORDS = 110
 const THOUGHT_UNIT_CLAUSE_BREAK_MIN_WORDS = 18
+const SEMANTIC_CLIP_MAX_DURATION_SECONDS = 120
 
 function postMessage(event: PipelineWorkerEvent) {
   if (typeof process.send === 'function') {
@@ -650,6 +651,184 @@ function refinePotentialClips(
   }
 }
 
+function mapClipsToTranscriptLines(
+  transcription: PipelineWorkerTranscription,
+  clips: PipelineWorkerPotentialClip[]
+) {
+  const transcriptLines: TranscriptBoundaryLine[] = buildTranscriptLinesFromSegments(transcription.segments).map((line) => ({
+    lineIndex: line.lineIndex,
+    start: line.start,
+    end: line.end,
+    text: line.text
+  }))
+
+  const findContainingLineIndex = (time: number, prefer: 'start' | 'end') => {
+    const exact = transcriptLines.findIndex((line) =>
+      prefer === 'start'
+        ? time >= line.start && time < line.end + 0.01
+        : time > line.start - 0.01 && time <= line.end + 0.01
+    )
+
+    if (exact >= 0) {
+      return exact
+    }
+
+    let closestIndex = 0
+    let closestDistance = Number.POSITIVE_INFINITY
+    transcriptLines.forEach((line, index) => {
+      const distance = Math.min(Math.abs(time - line.start), Math.abs(time - line.end))
+      if (distance < closestDistance) {
+        closestDistance = distance
+        closestIndex = index
+      }
+    })
+    return closestIndex
+  }
+
+  const mappedClips = clips.map((clip) => {
+    const startLineIndex = findContainingLineIndex(clip.startTime, 'start')
+    const endLineIndex = findContainingLineIndex(clip.endTime, 'end')
+    return {
+      clip,
+      startLineIndex,
+      endLineIndex: Math.max(startLineIndex, endLineIndex)
+    }
+  })
+
+  return { transcriptLines, mappedClips }
+}
+
+function lineTextLooksIncomplete(text: string) {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+
+  return (
+    /\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/.test(normalized) ||
+    /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any)\s*$/.test(normalized) ||
+    /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
+    /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized)
+  )
+}
+
+function buildHeuristicBoundaryReviews(
+  transcriptLines: TranscriptBoundaryLine[],
+  mappedClips: Array<{ clip: PipelineWorkerPotentialClip; startLineIndex: number; endLineIndex: number }>
+): ClipBoundaryReview[] {
+  return mappedClips.map(({ clip, startLineIndex, endLineIndex }) => {
+    let reviewedStart = startLineIndex
+    let reviewedEnd = endLineIndex
+
+    while (reviewedStart > 0 && startsLikeContinuation(transcriptLines[reviewedStart].text)) {
+      const previous = transcriptLines[reviewedStart - 1]
+      if (clip.endTime - previous.start > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+        break
+      }
+      reviewedStart -= 1
+    }
+
+    while (reviewedEnd < transcriptLines.length - 1) {
+      const current = transcriptLines[reviewedEnd]
+      const next = transcriptLines[reviewedEnd + 1]
+      const projectedDuration = next.end - transcriptLines[reviewedStart].start
+
+      if (projectedDuration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+        break
+      }
+
+      if (!lineTextLooksIncomplete(current.text) && !startsLikeContinuation(next.text)) {
+        break
+      }
+
+      reviewedEnd += 1
+    }
+
+    return {
+      clipId: clip.id,
+      startLineIndex: reviewedStart,
+      endLineIndex: reviewedEnd,
+      reason: 'Heuristically adjusted to the nearest coherent transcript-line boundary.'
+    }
+  })
+}
+
+async function applySemanticBoundaryReview(
+  transcription: PipelineWorkerTranscription,
+  clips: PipelineWorkerPotentialClip[],
+  aiService: AIService | null,
+  mediaDuration: number
+) {
+  const { transcriptLines, mappedClips } = mapClipsToTranscriptLines(transcription, clips)
+  if (transcriptLines.length === 0 || mappedClips.length === 0) {
+    return {
+      clips,
+      reviews: [] as ClipBoundaryReview[],
+      usedAI: false
+    }
+  }
+
+  let reviews = buildHeuristicBoundaryReviews(transcriptLines, mappedClips)
+  let usedAI = false
+
+  if (aiService) {
+    try {
+      const aiReviews = await aiService.reviewClipBoundaries(
+        transcriptLines,
+        mappedClips.map(({ clip }) => ({
+          id: clip.id,
+          startTime: clip.startTime,
+          endTime: clip.endTime,
+          duration: clip.duration,
+          keyQuote: clip.keyQuote,
+          reason: clip.reason
+        })),
+        mediaDuration
+      )
+
+      if (aiReviews.length > 0) {
+        const reviewMap = new Map(aiReviews.map((review) => [review.clipId, review]))
+        reviews = reviews.map((review) => reviewMap.get(review.clipId) ?? review)
+        usedAI = true
+      }
+    } catch (error) {
+      console.warn('Semantic boundary review failed, using heuristic transcript-line adjustment', error)
+    }
+  }
+
+  const reviewMap = new Map(reviews.map((review) => [review.clipId, review]))
+  const adjustedClips = mappedClips.map(({ clip, startLineIndex, endLineIndex }) => {
+    const review = reviewMap.get(clip.id)
+    const finalStartLineIndex = review?.startLineIndex ?? startLineIndex
+    const finalEndLineIndex = review?.endLineIndex ?? endLineIndex
+    const startLine = transcriptLines[finalStartLineIndex]
+    const endLine = transcriptLines[finalEndLineIndex]
+
+    if (!startLine || !endLine || endLine.end <= startLine.start) {
+      return clip
+    }
+
+    const nextDuration = endLine.end - startLine.start
+    if (nextDuration < 25 || nextDuration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+      return clip
+    }
+
+    return {
+      ...clip,
+      startTime: startLine.start,
+      endTime: Math.min(mediaDuration, endLine.end),
+      duration: Number((Math.min(mediaDuration, endLine.end) - startLine.start).toFixed(3)),
+      reason: review?.reason || clip.reason
+    }
+  })
+
+  return {
+    clips: adjustedClips,
+    reviews,
+    usedAI
+  }
+}
+
 async function generateContentPackages(
   workflowJobId: string,
   aiService: AIService | null,
@@ -873,8 +1052,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
     if (!aiService) {
       analysis = buildHeuristicAnalysis(candidates)
-      const refinement = refinePotentialClips(transcription, analysis.potentialClips, command.mediaDuration)
-      analysis = { potentialClips: refinement.clips }
+      const semanticReview = await applySemanticBoundaryReview(transcription, analysis.potentialClips, null, command.mediaDuration)
+      analysis = { potentialClips: semanticReview.clips }
       aiAnalysisSucceeded = false
       postProgress(command.workflowJobId, currentStage, 100, 'AI unavailable. Using heuristic clip suggestions.')
         postStageCompleted(command.workflowJobId, currentStage, {
@@ -890,9 +1069,10 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           metadata: {
             executor: 'heuristic_ranker',
             ...getRankingModelMetadata(command),
-            boundaryRefinementVersion: 'word_boundary_refinement_v2',
-            refinedClipCount: refinement.adjustments.filter((adjustment) => adjustment.changed).length,
-            refinementPreview: refinement.adjustments.slice(0, 5)
+            boundaryRefinementVersion: 'semantic_line_boundary_v1',
+            reviewedClipCount: semanticReview.reviews.length,
+            semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+            reviewPreview: semanticReview.reviews.slice(0, 5)
           },
           analysis
         })
@@ -931,9 +1111,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             }))
           }
 
-          // Still run word refinement for precision
-          const refinement = refinePotentialClips(transcription, analysis.potentialClips, command.mediaDuration)
-          analysis = { potentialClips: refinement.clips }
+          const semanticReview = await applySemanticBoundaryReview(transcription, analysis.potentialClips, aiService, command.mediaDuration)
+          analysis = { potentialClips: semanticReview.clips }
           aiAnalysisSucceeded = true
           usedBoundaryProposal = true
 
@@ -950,11 +1129,12 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             metadata: {
               executor: 'ai_boundary_proposal',
               ...getRankingModelMetadata(command),
-              boundaryRefinementVersion: 'word_boundary_refinement_v3',
+              boundaryRefinementVersion: 'semantic_line_boundary_v1',
               proposedClipCount: proposedClips.length,
               validatedClipCount: validatedClips.length,
-              refinedClipCount: refinement.adjustments.filter((adjustment) => adjustment.changed).length,
-              refinementPreview: refinement.adjustments.slice(0, 5)
+              reviewedClipCount: semanticReview.reviews.length,
+              semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+              reviewPreview: semanticReview.reviews.slice(0, 5)
             },
             analysis
           })
@@ -977,8 +1157,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
               postProgress(command.workflowJobId, currentStage, 55 + progress * 0.4, 'AI ranking candidates...')
             }
           )
-          const refinement = refinePotentialClips(transcription, analysis.potentialClips, command.mediaDuration)
-          analysis = { potentialClips: refinement.clips }
+          const semanticReview = await applySemanticBoundaryReview(transcription, analysis.potentialClips, aiService, command.mediaDuration)
+          analysis = { potentialClips: semanticReview.clips }
           aiAnalysisSucceeded = true
 
           postStageCompleted(command.workflowJobId, currentStage, {
@@ -995,17 +1175,18 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             metadata: {
               executor: 'ai_ranker',
               ...getRankingModelMetadata(command),
-              boundaryRefinementVersion: 'word_boundary_refinement_v2',
-              refinedClipCount: refinement.adjustments.filter((adjustment) => adjustment.changed).length,
-              refinementPreview: refinement.adjustments.slice(0, 5)
+              boundaryRefinementVersion: 'semantic_line_boundary_v1',
+              reviewedClipCount: semanticReview.reviews.length,
+              semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+              reviewPreview: semanticReview.reviews.slice(0, 5)
             },
             analysis
           })
         } catch (rankingError) {
           // Both AI methods failed, use heuristic fallback
           analysis = buildHeuristicAnalysis(candidates)
-          const refinement = refinePotentialClips(transcription, analysis.potentialClips, command.mediaDuration)
-          analysis = { potentialClips: refinement.clips }
+          const semanticReview = await applySemanticBoundaryReview(transcription, analysis.potentialClips, null, command.mediaDuration)
+          analysis = { potentialClips: semanticReview.clips }
           aiAnalysisSucceeded = false
           postProgress(command.workflowJobId, currentStage, 100, 'AI analysis failed. Using heuristic clip suggestions.')
           postStageCompleted(command.workflowJobId, currentStage, {
@@ -1021,9 +1202,10 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             metadata: {
               executor: 'heuristic_fallback',
               ...getRankingModelMetadata(command),
-              boundaryRefinementVersion: 'word_boundary_refinement_v2',
-              refinedClipCount: refinement.adjustments.filter((adjustment) => adjustment.changed).length,
-              refinementPreview: refinement.adjustments.slice(0, 5)
+              boundaryRefinementVersion: 'semantic_line_boundary_v1',
+              reviewedClipCount: semanticReview.reviews.length,
+              semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+              reviewPreview: semanticReview.reviews.slice(0, 5)
             },
             analysis,
             aiError: rankingError instanceof Error ? rankingError.message : 'Unknown error'

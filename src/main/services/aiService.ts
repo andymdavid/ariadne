@@ -27,6 +27,20 @@ export interface SemanticTranscriptUnit {
   endSegmentId: number
 }
 
+export interface TranscriptBoundaryLine {
+  lineIndex: number
+  start: number
+  end: number
+  text: string
+}
+
+export interface ClipBoundaryReview {
+  clipId: string
+  startLineIndex: number
+  endLineIndex: number
+  reason: string
+}
+
 export interface ProposedClip {
   startTime: number
   endTime: number
@@ -263,6 +277,35 @@ CRITICAL RULES:
     throw new Error('Unexpected error in boundary proposal')
   }
 
+  async reviewClipBoundaries(
+    transcriptLines: TranscriptBoundaryLine[],
+    clips: Array<{ id: string; startTime: number; endTime: number; duration: number; keyQuote: string; reason: string }>,
+    duration: number
+  ): Promise<ClipBoundaryReview[]> {
+    if (transcriptLines.length === 0 || clips.length === 0) {
+      return []
+    }
+
+    const prompt = this.buildClipBoundaryReviewPrompt(transcriptLines, clips, duration)
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert podcast clip editor. Choose coherent start and end transcript lines for each clip so it starts and ends on a complete idea. Duration is a guide, not the primary constraint. Return valid JSON only.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 2500,
+      temperature: 0.2
+    })
+
+    return this.parseClipBoundaryReviewResponse(response.content, transcriptLines, clips)
+  }
+
   private buildBoundaryProposalPrompt(
     transcriptData: TranscriptDataWithWords,
     duration: number
@@ -323,6 +366,76 @@ Return JSON only. No explanations outside the JSON structure.
     `.trim()
   }
 
+  private buildClipBoundaryReviewPrompt(
+    transcriptLines: TranscriptBoundaryLine[],
+    clips: Array<{ id: string; startTime: number; endTime: number; duration: number; keyQuote: string; reason: string }>,
+    duration: number
+  ) {
+    const findLineSpan = (clip: { startTime: number; endTime: number }) => {
+      const startLineIndex = transcriptLines.findIndex((line) => clip.startTime >= line.start && clip.startTime < line.end + 0.01)
+      const endLineIndex = [...transcriptLines].reverse().findIndex((line) => clip.endTime > line.start - 0.01 && clip.endTime <= line.end + 0.01)
+      const normalizedEndIndex = endLineIndex >= 0 ? transcriptLines.length - 1 - endLineIndex : Math.max(0, transcriptLines.length - 1)
+      return {
+        startLineIndex: Math.max(0, startLineIndex),
+        endLineIndex: Math.max(0, normalizedEndIndex)
+      }
+    }
+
+    const clipSections = clips.map((clip) => {
+      const span = findLineSpan(clip)
+      const contextStart = Math.max(0, span.startLineIndex - 1)
+      const contextEnd = Math.min(transcriptLines.length - 1, span.endLineIndex + 3)
+      const contextLines = transcriptLines
+        .slice(contextStart, contextEnd + 1)
+        .map((line) => {
+          const marker = line.lineIndex >= span.startLineIndex && line.lineIndex <= span.endLineIndex ? '*' : ' '
+          return `${marker} LINE ${line.lineIndex} [${line.start.toFixed(2)}-${line.end.toFixed(2)}]: ${line.text}`
+        })
+        .join('\n')
+
+      return [
+        `CLIP_ID: ${clip.id}`,
+        `CURRENT_RANGE: lines ${span.startLineIndex}-${span.endLineIndex}`,
+        `CURRENT_DURATION: ${clip.duration.toFixed(2)}s`,
+        `KEY_QUOTE: ${clip.keyQuote}`,
+        `CURRENT_REASON: ${clip.reason}`,
+        'CONTEXT_LINES:',
+        contextLines
+      ].join('\n')
+    }).join('\n\n')
+
+    return `
+TRANSCRIPT_DURATION: ${duration.toFixed(2)}s
+
+TASK:
+For each clip, choose the best START and END line indexes so the clip stands alone and ends coherently.
+
+PRIORITIES:
+1. End on a complete thought, even if the transcript has no punctuation.
+2. Preserve the theme/hook of the current clip.
+3. Start cleanly and do not begin on obvious continuation if avoidable.
+4. Prefer 35-75 seconds, but allow roughly 25-120 seconds if needed for coherence.
+5. Use ONLY provided line indexes.
+
+OUTPUT FORMAT:
+{
+  "boundary_reviews": [
+    {
+      "clip_id": "fallback_2",
+      "start_line_index": 2,
+      "end_line_index": 6,
+      "reason": "Extends through the completed argument instead of ending on a continuation."
+    }
+  ]
+}
+
+CLIPS:
+${clipSections}
+
+Return JSON only.
+    `.trim()
+  }
+
   private buildSentenceIndexForPrompt(
     segments: Array<{ id: number; start: number; end: number; text: string; words?: Array<{ word: string; start: number; end: number }> }>
   ): string {
@@ -377,6 +490,49 @@ Return JSON only. No explanations outside the JSON structure.
     return rawClips
       .map((clip: any) => this.validateProposedClip(clip, allWords, transcriptData))
       .filter((clip: ProposedClip | null): clip is ProposedClip => clip !== null)
+  }
+
+  private parseClipBoundaryReviewResponse(
+    content: string,
+    transcriptLines: TranscriptBoundaryLine[],
+    clips: Array<{ id: string }>
+  ): ClipBoundaryReview[] {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error('No JSON found in clip boundary review response')
+    }
+
+    const parsed = JSON.parse(jsonString)
+    const rawReviews = Array.isArray(parsed.boundary_reviews) ? parsed.boundary_reviews : []
+    const validClipIds = new Set(clips.map((clip) => clip.id))
+    const maxLineIndex = transcriptLines.length - 1
+
+    return rawReviews
+      .map((review: any) => {
+        const clipId = String(review.clip_id ?? '').trim()
+        const startLineIndex = Number(review.start_line_index)
+        const endLineIndex = Number(review.end_line_index)
+
+        if (!validClipIds.has(clipId)) {
+          return null
+        }
+
+        if (!Number.isInteger(startLineIndex) || !Number.isInteger(endLineIndex)) {
+          return null
+        }
+
+        if (startLineIndex < 0 || endLineIndex < startLineIndex || endLineIndex > maxLineIndex) {
+          return null
+        }
+
+        return {
+          clipId,
+          startLineIndex,
+          endLineIndex,
+          reason: String(review.reason ?? 'Adjusted to a more coherent transcript-line boundary').trim()
+        }
+      })
+      .filter((review: ClipBoundaryReview | null): review is ClipBoundaryReview => Boolean(review))
   }
 
   private validateProposedClip(
