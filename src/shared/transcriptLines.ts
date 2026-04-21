@@ -22,12 +22,13 @@ export type TranscriptLineDraft = {
 }
 
 const HARD_BREAK_GAP_SECONDS = 1.1
-const SOFT_BREAK_GAP_SECONDS = 0.5
+const SOFT_BREAK_GAP_SECONDS = 0.42
+const MICRO_BREAK_GAP_SECONDS = 0.2
 const TERMINAL_PUNCTUATION_BREAK_GAP_SECONDS = 0.14
-const PREFERRED_MAX_DURATION_SECONDS = 24
-const PREFERRED_MAX_WORDS = 72
-const ABSOLUTE_MAX_DURATION_SECONDS = 34
-const ABSOLUTE_MAX_WORDS = 110
+const PREFERRED_MAX_DURATION_SECONDS = 10
+const PREFERRED_MAX_WORDS = 36
+const ABSOLUTE_MAX_DURATION_SECONDS = 16
+const ABSOLUTE_MAX_WORDS = 56
 
 const CONTINUATION_WORD_PATTERN =
   /^(and|but|so|because|then|which|that|it|this|these|those|or|if|when|where|while|who|what|how|than|as|to|for|with|of|in|on|at|from|by|about|into|over|after|before)\b/i
@@ -135,6 +136,24 @@ const shouldBreakLine = (
 
   if (
     (currentDuration >= PREFERRED_MAX_DURATION_SECONDS || currentWordCount >= PREFERRED_MAX_WORDS) &&
+    currentLooksComplete &&
+    !nextLooksContinuous
+  ) {
+    return true
+  }
+
+  if (
+    gap >= MICRO_BREAK_GAP_SECONDS &&
+    currentWordCount >= 18 &&
+    currentDuration >= 6 &&
+    currentLooksComplete
+  ) {
+    return true
+  }
+
+  if (
+    currentDuration >= 8 &&
+    currentWordCount >= 24 &&
     currentLooksComplete &&
     !nextLooksContinuous
   ) {

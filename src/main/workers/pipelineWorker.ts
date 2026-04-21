@@ -764,12 +764,16 @@ async function applySemanticBoundaryReview(
     return {
       clips,
       reviews: [] as ClipBoundaryReview[],
-      usedAI: false
+      usedAI: false,
+      fallbackReason: 'No transcript lines available for semantic boundary review.'
     }
   }
 
   let reviews = buildHeuristicBoundaryReviews(transcriptLines, mappedClips)
   let usedAI = false
+  let fallbackReason: string | null = aiService
+    ? 'Semantic boundary review fell back to heuristic transcript-line adjustment.'
+    : 'AI service unavailable; used heuristic transcript-line adjustment.'
 
   if (aiService) {
     try {
@@ -790,8 +794,12 @@ async function applySemanticBoundaryReview(
         const reviewMap = new Map(aiReviews.map((review) => [review.clipId, review]))
         reviews = reviews.map((review) => reviewMap.get(review.clipId) ?? review)
         usedAI = true
+        fallbackReason = null
       }
     } catch (error) {
+      fallbackReason = error instanceof Error
+        ? error.message
+        : 'Unknown semantic boundary review error'
       console.warn('Semantic boundary review failed, using heuristic transcript-line adjustment', error)
     }
   }
@@ -825,7 +833,9 @@ async function applySemanticBoundaryReview(
   return {
     clips: adjustedClips,
     reviews,
-    usedAI
+    usedAI,
+    fallbackReason,
+    transcriptLineCount: transcriptLines.length
   }
 }
 
@@ -1072,6 +1082,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             boundaryRefinementVersion: 'semantic_line_boundary_v1',
             reviewedClipCount: semanticReview.reviews.length,
             semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+            transcriptLineCount: semanticReview.transcriptLineCount,
+            semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
             reviewPreview: semanticReview.reviews.slice(0, 5)
           },
           analysis
@@ -1134,6 +1146,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
               validatedClipCount: validatedClips.length,
               reviewedClipCount: semanticReview.reviews.length,
               semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+              transcriptLineCount: semanticReview.transcriptLineCount,
+              semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
               reviewPreview: semanticReview.reviews.slice(0, 5)
             },
             analysis
@@ -1178,6 +1192,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
               boundaryRefinementVersion: 'semantic_line_boundary_v1',
               reviewedClipCount: semanticReview.reviews.length,
               semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+              transcriptLineCount: semanticReview.transcriptLineCount,
+              semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
               reviewPreview: semanticReview.reviews.slice(0, 5)
             },
             analysis
@@ -1205,6 +1221,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
               boundaryRefinementVersion: 'semantic_line_boundary_v1',
               reviewedClipCount: semanticReview.reviews.length,
               semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+              transcriptLineCount: semanticReview.transcriptLineCount,
+              semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
               reviewPreview: semanticReview.reviews.slice(0, 5)
             },
             analysis,
