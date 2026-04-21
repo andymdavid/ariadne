@@ -20,7 +20,7 @@ import type {
   PipelineWorkerTranscription,
   StartPipelineWorkerCommand,
 } from '@shared/types/pipelineWorker'
-import { buildTranscriptLinesFromSegments } from '@shared/transcriptLines'
+import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
 const CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS = 24

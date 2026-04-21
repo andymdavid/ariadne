@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { database } from '../database/database'
-import { buildTranscriptLinesFromSegments } from '@shared/transcriptLines'
+import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
 class TranscriptLineService {
   ensureEpisodeTranscriptLines(episodeId: string) {

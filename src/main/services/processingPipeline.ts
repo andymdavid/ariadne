@@ -12,7 +12,7 @@ import type {
   ProcessingProgress,
   ProcessingResultPayload
 } from '@shared/types'
-import { buildTranscriptLinesFromSegments } from '@shared/transcriptLines'
+import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 import type {
   PipelineWorkerCandidate,
   PipelineWorkerCompletedEvent,
