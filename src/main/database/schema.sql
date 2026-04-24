@@ -32,6 +32,29 @@ CREATE TABLE IF NOT EXISTS transcript_segments (
     FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS media_transcripts (
+    media_fingerprint TEXT PRIMARY KEY,
+    fingerprint_version TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_path TEXT,
+    file_size INTEGER NOT NULL,
+    file_mtime_ms INTEGER NOT NULL,
+    duration REAL NOT NULL,
+    frame_rate REAL,
+    resolution_width INTEGER,
+    resolution_height INTEGER,
+    language TEXT,
+    transcription_json TEXT NOT NULL,
+    transcript_lines_json TEXT NOT NULL DEFAULT '[]',
+    transcription_model TEXT,
+    source_strategy TEXT NOT NULL DEFAULT 'local_whisper_service_v1',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_transcripts_updated_at
+ON media_transcripts (updated_at DESC);
+
 -- Clips table
 CREATE TABLE IF NOT EXISTS clips (
     id TEXT PRIMARY KEY,

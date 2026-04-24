@@ -1297,7 +1297,7 @@ process.on('message', async (message: PipelineWorkerCommand) => {
   }
 
   try {
-    if (!existsSync(message.audioPath)) {
+    if (message.startStage === 'transcription' && !existsSync(message.audioPath)) {
       throw new Error('Audio file not found')
     }
 

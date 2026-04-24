@@ -1879,6 +1879,39 @@ class DatabaseManager {
         this.db.pragma('user_version = 25')
       }
     }
+
+    if (preVersion <= 25) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS media_transcripts (
+            media_fingerprint TEXT PRIMARY KEY,
+            fingerprint_version TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            file_path TEXT,
+            file_size INTEGER NOT NULL,
+            file_mtime_ms INTEGER NOT NULL,
+            duration REAL NOT NULL,
+            frame_rate REAL,
+            resolution_width INTEGER,
+            resolution_height INTEGER,
+            language TEXT,
+            transcription_json TEXT NOT NULL,
+            transcript_lines_json TEXT NOT NULL DEFAULT '[]',
+            transcription_model TEXT,
+            source_strategy TEXT NOT NULL DEFAULT 'local_whisper_service_v1',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_media_transcripts_updated_at
+          ON media_transcripts (updated_at DESC);
+        `)
+        console.log('✅ Added media transcript cache table (v26)')
+        this.db.pragma('user_version = 26')
+      } catch (error) {
+        console.log('Media transcript cache migration skipped (may already exist)')
+        this.db.pragma('user_version = 26')
+      }
+    }
   }
   
   private initializeSchema() {
@@ -1939,6 +1972,26 @@ class DatabaseManager {
           speaker TEXT,
           created_at TEXT NOT NULL,
           FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS media_transcripts (
+          media_fingerprint TEXT PRIMARY KEY,
+          fingerprint_version TEXT NOT NULL,
+          file_name TEXT NOT NULL,
+          file_path TEXT,
+          file_size INTEGER NOT NULL,
+          file_mtime_ms INTEGER NOT NULL,
+          duration REAL NOT NULL,
+          frame_rate REAL,
+          resolution_width INTEGER,
+          resolution_height INTEGER,
+          language TEXT,
+          transcription_json TEXT NOT NULL,
+          transcript_lines_json TEXT NOT NULL DEFAULT '[]',
+          transcription_model TEXT,
+          source_strategy TEXT NOT NULL DEFAULT 'local_whisper_service_v1',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS transcript_lines (
@@ -2365,6 +2418,102 @@ class DatabaseManager {
     })
     
     return insertMany(segments)
+  }
+
+  upsertMediaTranscriptCache(entry: {
+    mediaFingerprint: string
+    fingerprintVersion: string
+    fileName: string
+    filePath?: string | null
+    fileSize: number
+    fileMtimeMs: number
+    duration: number
+    frameRate?: number | null
+    resolutionWidth?: number | null
+    resolutionHeight?: number | null
+    language?: string | null
+    transcription: unknown
+    transcriptLines: unknown[]
+    transcriptionModel?: string | null
+    sourceStrategy?: string
+  }) {
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare(`
+      INSERT INTO media_transcripts (
+        media_fingerprint,
+        fingerprint_version,
+        file_name,
+        file_path,
+        file_size,
+        file_mtime_ms,
+        duration,
+        frame_rate,
+        resolution_width,
+        resolution_height,
+        language,
+        transcription_json,
+        transcript_lines_json,
+        transcription_model,
+        source_strategy,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(media_fingerprint) DO UPDATE SET
+        fingerprint_version = excluded.fingerprint_version,
+        file_name = excluded.file_name,
+        file_path = excluded.file_path,
+        file_size = excluded.file_size,
+        file_mtime_ms = excluded.file_mtime_ms,
+        duration = excluded.duration,
+        frame_rate = excluded.frame_rate,
+        resolution_width = excluded.resolution_width,
+        resolution_height = excluded.resolution_height,
+        language = excluded.language,
+        transcription_json = excluded.transcription_json,
+        transcript_lines_json = excluded.transcript_lines_json,
+        transcription_model = excluded.transcription_model,
+        source_strategy = excluded.source_strategy,
+        updated_at = excluded.updated_at
+    `)
+
+    return stmt.run(
+      entry.mediaFingerprint,
+      entry.fingerprintVersion,
+      entry.fileName,
+      entry.filePath ?? null,
+      entry.fileSize,
+      Math.round(entry.fileMtimeMs),
+      entry.duration,
+      entry.frameRate ?? null,
+      entry.resolutionWidth ?? null,
+      entry.resolutionHeight ?? null,
+      entry.language ?? null,
+      JSON.stringify(entry.transcription),
+      JSON.stringify(entry.transcriptLines),
+      entry.transcriptionModel ?? null,
+      entry.sourceStrategy ?? 'local_whisper_service_v1',
+      now,
+      now
+    )
+  }
+
+  getMediaTranscriptCacheByFingerprint(mediaFingerprint: string) {
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM media_transcripts
+      WHERE media_fingerprint = ?
+      LIMIT 1
+    `)
+    const row = stmt.get(mediaFingerprint) as any
+    if (!row) {
+      return null
+    }
+
+    return {
+      ...row,
+      transcription: row.transcription_json ? JSON.parse(row.transcription_json) : null,
+      transcriptLines: row.transcript_lines_json ? JSON.parse(row.transcript_lines_json) : []
+    }
   }
 
   insertTranscriptLines(lines: Array<{

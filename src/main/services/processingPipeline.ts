@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { BrowserWindow } from 'electron'
@@ -52,6 +52,8 @@ const PIPELINE_STEP_ORDER: PipelineStepKey[] = [
 ]
 
 class ProcessingPipeline {
+  private readonly mediaTranscriptFingerprintVersion = 'media_transcript_cache_v1'
+
   private getFriendlyMediaError(filePath: string, error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
 
@@ -183,61 +185,114 @@ class ProcessingPipeline {
         console.error('Failed to get media info:', error)
         throw new Error(this.getFriendlyMediaError(filePath, error))
       }
-      
-      currentStep = 'audio_extract'
-      this.startPipelineStep(workflowJobId, currentStep, 'Extracting audio for transcription...')
-      this.sendProgress(window, {
-        jobId: workflowJobId,
-        stage: 'extracting',
-        progress: 15,
-        stageProgress: 33,
-        message: 'Extracting audio for transcription...'
-      })
-      
-      // Extract audio for Whisper (optimized format)
-      console.log('Starting audio extraction...')
-      let audioPath
-      try {
-        audioPath = await mediaWorkerSupervisor.extractAudio(
-          filePath,
-          undefined,
-          (progress) => {
-            this.updatePipelineStepProgress(workflowJobId, currentStep!, progress, 'Extracting audio...')
-            this.sendProgress(window, {
-              jobId: workflowJobId,
-              stage: 'extracting',
-              progress: 15 + (progress * 0.15), // 15-30%
-              stageProgress: progress,
-              message: 'Extracting audio...'
-            })
-          },
-          {
-            workflowJobId,
-            stepRunId: `${workflowJobId}-${currentStep}`,
-            scope: 'pipeline_audio_extract'
-          }
+
+      const transcriptCacheKey = this.buildMediaTranscriptFingerprint(filePath, mediaInfo)
+      const cachedTranscript = database.getMediaTranscriptCacheByFingerprint(
+        transcriptCacheKey.mediaFingerprint
+      ) as { transcription?: PipelineWorkerCompletedEvent['transcription'] } | null
+
+      let workerResult: PipelineWorkerCompletedEvent
+
+      if (cachedTranscript?.transcription) {
+        this.recordEvent(
+          workflowJobId,
+          `${workflowJobId}-transcription`,
+          'pipeline_transcript_cache',
+          'cache_hit',
+          'Reusing cached transcript for media fingerprint',
+          { mediaFingerprint: transcriptCacheKey.mediaFingerprint }
         )
-        console.log('Audio extraction completed. Audio file at:', audioPath)
-        this.createPipelineArtifact(workflowJobId, projectId, episodeId, null, audioPath, 'extracted_audio', {
-          sourceFilePath: filePath
-        })
+
+        currentStep = 'audio_extract'
+        this.startPipelineStep(workflowJobId, currentStep, 'Reusing cached transcript...')
         this.completePipelineStep(workflowJobId, currentStep, {
-          audioPath
+          skipped: true,
+          reusedTranscriptCache: true,
+          mediaFingerprint: transcriptCacheKey.mediaFingerprint
         })
-      } catch (error) {
-        console.error('Audio extraction failed:', error)
-        throw new Error(`Failed to extract audio: ${error instanceof Error ? error.message : 'Unknown error'}`)
+
+        currentStep = 'transcription'
+        this.startPipelineStep(workflowJobId, currentStep, 'Reusing cached transcript...')
+        this.completePipelineStep(workflowJobId, currentStep, {
+          transcription: cachedTranscript.transcription,
+          reusedTranscriptCache: true,
+          mediaFingerprint: transcriptCacheKey.mediaFingerprint
+        })
+
+        this.sendProgress(window, {
+          jobId: workflowJobId,
+          stage: 'transcribing',
+          progress: 30,
+          stageProgress: 100,
+          message: 'Reusing cached transcript...'
+        })
+
+        currentStep = null
+        workerResult = await this.runHeavyPipelineStages(
+          workflowJobId,
+          filePath,
+          mediaInfo.duration,
+          'clip_generation',
+          { transcription: cachedTranscript.transcription },
+          window
+        )
+      } else {
+        currentStep = 'audio_extract'
+        this.startPipelineStep(workflowJobId, currentStep, 'Extracting audio for transcription...')
+        this.sendProgress(window, {
+          jobId: workflowJobId,
+          stage: 'extracting',
+          progress: 15,
+          stageProgress: 33,
+          message: 'Extracting audio for transcription...'
+        })
+
+        console.log('Starting audio extraction...')
+        let audioPath
+        try {
+          audioPath = await mediaWorkerSupervisor.extractAudio(
+            filePath,
+            undefined,
+            (progress) => {
+              this.updatePipelineStepProgress(workflowJobId, currentStep!, progress, 'Extracting audio...')
+              this.sendProgress(window, {
+                jobId: workflowJobId,
+                stage: 'extracting',
+                progress: 15 + (progress * 0.15),
+                stageProgress: progress,
+                message: 'Extracting audio...'
+              })
+            },
+            {
+              workflowJobId,
+              stepRunId: `${workflowJobId}-${currentStep}`,
+              scope: 'pipeline_audio_extract'
+            }
+          )
+          console.log('Audio extraction completed. Audio file at:', audioPath)
+          this.createPipelineArtifact(workflowJobId, projectId, episodeId, null, audioPath, 'extracted_audio', {
+            sourceFilePath: filePath
+          })
+          this.completePipelineStep(workflowJobId, currentStep, {
+            audioPath
+          })
+        } catch (error) {
+          console.error('Audio extraction failed:', error)
+          throw new Error(`Failed to extract audio: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+
+        currentStep = null
+        workerResult = await this.runHeavyPipelineStages(
+          workflowJobId,
+          audioPath,
+          mediaInfo.duration,
+          'transcription',
+          {},
+          window
+        )
+
+        this.cacheTranscriptForMediaFingerprint(transcriptCacheKey, filePath, workerResult.transcription, mediaInfo)
       }
-      
-      currentStep = null
-      const workerResult = await this.runHeavyPipelineStages(
-        workflowJobId,
-        audioPath,
-        mediaInfo.duration,
-        'transcription',
-        {},
-        window
-      )
 
       return await this.finalizePipelineResult(
         workflowJobId,
@@ -498,11 +553,6 @@ class ProcessingPipeline {
       return
     }
 
-    const audioPath = this.getPipelineArtifactPath(workflowJobId, 'extracted_audio', 'audio_extract')
-    if (!audioPath) {
-      return
-    }
-
     const mediaProbeOutput = this.parseStepOutput<{
       duration?: number
       resolution?: { width: number; height: number } | null
@@ -537,6 +587,12 @@ class ProcessingPipeline {
     const hasAnalysis = this.isCompletedStep(workflowJobId, 'clip_ranking') && !!clipRankingOutput?.analysis
     const hasContentPackages = this.isCompletedStep(workflowJobId, 'content_package_generation')
       && (Array.isArray(contentPackagesOutput?.contentPackages) || contentPackagesOutput?.skipped === true)
+    const audioPath = this.getPipelineArtifactPath(workflowJobId, 'extracted_audio', 'audio_extract')
+    const dispatchAudioPath = audioPath || sourceMediaPath
+
+    if ((!dispatchAudioPath || !existsSync(dispatchAudioPath)) || (!audioPath && !hasTranscription)) {
+      return
+    }
 
     const now = new Date().toISOString()
     database.updateWorkflowJob(workflowJobId, {
@@ -570,7 +626,7 @@ class ProcessingPipeline {
 
     const workerResult = await this.runHeavyPipelineStages(
       workflowJobId,
-      audioPath,
+      dispatchAudioPath,
       mediaProbeOutput.duration,
       !hasTranscription
         ? 'transcription'
@@ -699,6 +755,87 @@ class ProcessingPipeline {
         database.insertTranscriptLines(lines)
       }
     }
+  }
+
+  private buildMediaTranscriptFingerprint(
+    filePath: string,
+    mediaInfo: {
+      duration: number
+      frameRate?: number | null
+      resolution?: { width: number; height: number } | null
+    }
+  ) {
+    const stats = statSync(filePath)
+    const mediaFingerprint = createHash('sha256')
+      .update(this.mediaTranscriptFingerprintVersion)
+      .update('|')
+      .update(String(stats.size))
+      .update('|')
+      .update(String(Math.round(stats.mtimeMs)))
+      .update('|')
+      .update(String(Math.round((mediaInfo.duration || 0) * 1000)))
+      .update('|')
+      .update(String(Math.round((mediaInfo.frameRate || 0) * 1000)))
+      .update('|')
+      .update(String(mediaInfo.resolution?.width || 0))
+      .update('x')
+      .update(String(mediaInfo.resolution?.height || 0))
+      .digest('hex')
+
+    return {
+      mediaFingerprint,
+      fingerprintVersion: this.mediaTranscriptFingerprintVersion,
+      fileSize: stats.size,
+      fileMtimeMs: stats.mtimeMs
+    }
+  }
+
+  private cacheTranscriptForMediaFingerprint(
+    fingerprint: {
+      mediaFingerprint: string
+      fingerprintVersion: string
+      fileSize: number
+      fileMtimeMs: number
+    },
+    filePath: string,
+    transcription: PipelineWorkerCompletedEvent['transcription'],
+    mediaInfo: {
+      duration: number
+      frameRate?: number | null
+      resolution?: { width: number; height: number } | null
+    }
+  ) {
+    const lineSourceSegments = transcription.segments.map((segment: any) => ({
+      id: segment.id,
+      start: Number(segment.start ?? 0),
+      end: Number(segment.end ?? 0),
+      text: String(segment.text ?? ''),
+      words: Array.isArray(segment.words)
+        ? segment.words.map((word: any) => ({
+            word: String(word.word ?? '').trim(),
+            start: Number(word.start ?? 0),
+            end: Number(word.end ?? 0)
+          }))
+        : undefined
+    }))
+
+    database.upsertMediaTranscriptCache({
+      mediaFingerprint: fingerprint.mediaFingerprint,
+      fingerprintVersion: fingerprint.fingerprintVersion,
+      fileName: basename(filePath),
+      filePath,
+      fileSize: fingerprint.fileSize,
+      fileMtimeMs: fingerprint.fileMtimeMs,
+      duration: mediaInfo.duration,
+      frameRate: mediaInfo.frameRate ?? null,
+      resolutionWidth: mediaInfo.resolution?.width ?? null,
+      resolutionHeight: mediaInfo.resolution?.height ?? null,
+      language: transcription.language ?? null,
+      transcription,
+      transcriptLines: buildTranscriptLinesFromSegments(lineSourceSegments),
+      transcriptionModel: this.buildPipelineRunConfigSnapshot().localWhisperModel,
+      sourceStrategy: 'local_whisper_service_v1'
+    })
   }
   
   private async storeClips(
