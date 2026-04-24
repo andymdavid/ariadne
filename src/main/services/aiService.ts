@@ -286,24 +286,53 @@ CRITICAL RULES:
       return []
     }
 
-    const prompt = this.buildClipBoundaryReviewPrompt(transcriptLines, clips, duration)
-    const response = await this.callOpenRouter({
-      model: this.getModelId(this.config.model),
-      messages: [
-        {
-          role: 'system',
-          content: 'You are an expert podcast clip editor. Choose coherent start and end transcript lines for each clip so it starts and ends on a complete idea. Duration is a guide, not the primary constraint. Return valid JSON only.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      max_tokens: 2500,
-      temperature: 0.2
-    })
+    const strategies = [
+      {
+        systemMessage: 'You are an expert podcast clip editor. Choose coherent transcript line boundaries. Return plain text only using the requested REVIEW format.',
+        prompt: this.buildClipBoundaryReviewPrompt(transcriptLines, clips, duration, 'plain'),
+        maxTokens: 1400
+      },
+      {
+        systemMessage: 'You are an expert podcast clip editor. Choose coherent transcript line boundaries. Return valid JSON only.',
+        prompt: this.buildClipBoundaryReviewPrompt(transcriptLines, clips, duration, 'json'),
+        maxTokens: 2200
+      }
+    ]
 
-    return this.parseClipBoundaryReviewResponse(response.content, transcriptLines, clips)
+    let lastError: unknown = null
+
+    for (const strategy of strategies) {
+      try {
+        const response = await this.callOpenRouter({
+          model: this.getModelId(this.config.model),
+          messages: [
+            {
+              role: 'system',
+              content: strategy.systemMessage
+            },
+            {
+              role: 'user',
+              content: strategy.prompt
+            }
+          ],
+          max_tokens: strategy.maxTokens,
+          temperature: 0.2
+        })
+
+        const reviews = this.parseClipBoundaryReviewResponse(response.content, transcriptLines, clips)
+        if (reviews.length > 0) {
+          return reviews
+        }
+
+        lastError = new Error('Boundary review returned no usable reviews')
+      } catch (error) {
+        lastError = error
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Failed to generate clip boundary review')
   }
 
   private buildBoundaryProposalPrompt(
@@ -369,7 +398,8 @@ Return JSON only. No explanations outside the JSON structure.
   private buildClipBoundaryReviewPrompt(
     transcriptLines: TranscriptBoundaryLine[],
     clips: Array<{ id: string; startTime: number; endTime: number; duration: number; keyQuote: string; reason: string }>,
-    duration: number
+    duration: number,
+    format: 'plain' | 'json'
   ) {
     const findLineSpan = (clip: { startTime: number; endTime: number }) => {
       const startLineIndex = transcriptLines.findIndex((line) => clip.startTime >= line.start && clip.startTime < line.end + 0.01)
@@ -418,7 +448,13 @@ PRIORITIES:
 5. Use ONLY provided line indexes.
 
 OUTPUT FORMAT:
-{
+${format === 'plain'
+  ? `One line per clip:
+REVIEW|clip_id|start_line_index|end_line_index|reason
+
+Example:
+REVIEW|fallback_2|2|6|Extends through the completed argument instead of ending on a continuation.`
+  : `{
   "boundary_reviews": [
     {
       "clip_id": "fallback_2",
@@ -427,12 +463,12 @@ OUTPUT FORMAT:
       "reason": "Extends through the completed argument instead of ending on a continuation."
     }
   ]
-}
+}`}
 
 CLIPS:
 ${clipSections}
 
-Return JSON only.
+Return only the requested format. No markdown.
     `.trim()
   }
 
@@ -497,42 +533,85 @@ Return JSON only.
     transcriptLines: TranscriptBoundaryLine[],
     clips: Array<{ id: string }>
   ): ClipBoundaryReview[] {
-    const jsonString = this.extractJSON(content)
-    if (!jsonString) {
-      throw new Error('No JSON found in clip boundary review response')
-    }
-
-    const parsed = JSON.parse(jsonString)
-    const rawReviews = Array.isArray(parsed.boundary_reviews) ? parsed.boundary_reviews : []
     const validClipIds = new Set(clips.map((clip) => clip.id))
     const maxLineIndex = transcriptLines.length - 1
+    const normalized = content.trim()
 
-    return rawReviews
-      .map((review: any) => {
-        const clipId = String(review.clip_id ?? '').trim()
-        const startLineIndex = Number(review.start_line_index)
-        const endLineIndex = Number(review.end_line_index)
+    const fromJson = (() => {
+      const jsonString = this.extractJSON(normalized)
+      if (!jsonString) return [] as ClipBoundaryReview[]
 
-        if (!validClipIds.has(clipId)) {
+      try {
+        const parsed = JSON.parse(jsonString)
+        const rawReviews = Array.isArray(parsed.boundary_reviews) ? parsed.boundary_reviews : []
+        return rawReviews
+          .map((review: any) => this.normalizeClipBoundaryReview(review, validClipIds, maxLineIndex))
+          .filter((review: ClipBoundaryReview | null): review is ClipBoundaryReview => Boolean(review))
+      } catch {
+        return [] as ClipBoundaryReview[]
+      }
+    })()
+
+    if (fromJson.length > 0) {
+      return fromJson
+    }
+
+    const fromPlainText = normalized
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const match = line.match(/^REVIEW\|([^|]+)\|(\d+)\|(\d+)\|(.*)$/i)
+        if (!match) {
           return null
         }
 
-        if (!Number.isInteger(startLineIndex) || !Number.isInteger(endLineIndex)) {
-          return null
-        }
-
-        if (startLineIndex < 0 || endLineIndex < startLineIndex || endLineIndex > maxLineIndex) {
-          return null
-        }
-
-        return {
-          clipId,
-          startLineIndex,
-          endLineIndex,
-          reason: String(review.reason ?? 'Adjusted to a more coherent transcript-line boundary').trim()
-        }
+        return this.normalizeClipBoundaryReview({
+          clip_id: match[1],
+          start_line_index: Number(match[2]),
+          end_line_index: Number(match[3]),
+          reason: match[4]
+        }, validClipIds, maxLineIndex)
       })
       .filter((review: ClipBoundaryReview | null): review is ClipBoundaryReview => Boolean(review))
+
+    if (fromPlainText.length > 0) {
+      return fromPlainText
+    }
+
+    console.warn('[AIService] Failed to parse clip boundary review response', {
+      preview: normalized.slice(0, 500)
+    })
+    throw new Error('No usable boundary review found in response')
+  }
+
+  private normalizeClipBoundaryReview(
+    review: any,
+    validClipIds: Set<string>,
+    maxLineIndex: number
+  ): ClipBoundaryReview | null {
+    const clipId = String(review.clip_id ?? '').trim()
+    const startLineIndex = Number(review.start_line_index)
+    const endLineIndex = Number(review.end_line_index)
+
+    if (!validClipIds.has(clipId)) {
+      return null
+    }
+
+    if (!Number.isInteger(startLineIndex) || !Number.isInteger(endLineIndex)) {
+      return null
+    }
+
+    if (startLineIndex < 0 || endLineIndex < startLineIndex || endLineIndex > maxLineIndex) {
+      return null
+    }
+
+    return {
+      clipId,
+      startLineIndex,
+      endLineIndex,
+      reason: String(review.reason ?? 'Adjusted to a more coherent transcript-line boundary').trim()
+    }
   }
 
   private validateProposedClip(
