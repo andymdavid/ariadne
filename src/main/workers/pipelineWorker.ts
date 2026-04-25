@@ -2,6 +2,7 @@ import { promises as fs, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 import AIService, { ClipBoundaryReview, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
+import ClipSelectionAgentService from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
 import LocalWhisperService from '../services/localWhisperService'
 import type { AudioChunk } from '../services/clipSelectionTypes'
@@ -889,6 +890,9 @@ async function generateContentPackages(
 async function runPipeline(command: StartPipelineWorkerCommand) {
   const whisperService = new LocalWhisperService()
   const aiService = command.apiConfig?.openRouterKey ? new AIService(command.apiConfig) : null
+  const clipSelectionAgent = command.apiConfig?.openRouterKey
+    ? new ClipSelectionAgentService(command.apiConfig)
+    : null
   const stageOrder: PipelineWorkerStageKey[] = [
     'transcription',
     'clip_generation',
@@ -1089,6 +1093,63 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           analysis
         })
     } else {
+      try {
+        postProgress(command.workflowJobId, currentStage, 10, 'Selecting clips with clip selection agent...')
+
+        const transcriptLines = buildTranscriptLinesFromSegments(
+          transcription.segments.map((segment) => ({
+            id: segment.id,
+            start: Number(segment.start ?? 0),
+            end: Number(segment.end ?? 0),
+            text: String(segment.text ?? ''),
+            words: Array.isArray(segment.words)
+              ? segment.words.map((word) => ({
+                  word: String(word.word ?? '').trim(),
+                  start: Number(word.start ?? 0),
+                  end: Number(word.end ?? 0)
+                }))
+              : undefined
+          }))
+        )
+
+        const agentSelection = await clipSelectionAgent!.selectClips({
+          transcriptLines: transcriptLines.map((line) => ({
+            lineIndex: line.lineIndex,
+            start: line.start,
+            end: line.end,
+            text: line.text
+          })),
+          mediaDuration: command.mediaDuration,
+          targetClipCount: Math.min(8, command.runConfigSnapshot.maxClipsPerEpisode)
+        })
+
+        if (agentSelection.clips.length >= 3) {
+          analysis = { potentialClips: agentSelection.clips }
+          aiAnalysisSucceeded = true
+
+          postStageCompleted(command.workflowJobId, currentStage, {
+            clipCount: analysis.potentialClips.length,
+            mode: 'clip_selection_agent',
+            aiAnalysisSucceeded,
+            selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+              id: clip.id,
+              startTime: clip.startTime,
+              endTime: clip.endTime,
+              shareabilityScore: clip.shareabilityScore
+            })),
+            metadata: {
+              ...agentSelection.metadata,
+              clipSelectionPlatform: command.runConfigSnapshot.clipSelectionPlatform,
+              boundaryRefinementVersion: 'clip_selection_agent_v1'
+            },
+            analysis
+          })
+        } else {
+          throw new Error(`Clip selection agent returned only ${agentSelection.clips.length} usable clips`)
+        }
+      } catch (agentError) {
+        console.warn('Clip selection agent failed, falling back to boundary proposal / candidate ranking:', agentError)
+
       // Try AI boundary proposal first (gives AI freedom to propose timestamps)
       let usedBoundaryProposal = false
       try {
@@ -1229,6 +1290,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             aiError: rankingError instanceof Error ? rankingError.message : 'Unknown error'
           })
         }
+      }
       }
     }
   }
