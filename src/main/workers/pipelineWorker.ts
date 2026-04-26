@@ -1124,7 +1124,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           targetClipCount: Math.min(8, command.runConfigSnapshot.maxClipsPerEpisode)
         })
 
-        if (agentSelection.clips.length >= 3) {
+        if (agentSelection.clips.length >= 1) {
           analysis = { potentialClips: agentSelection.clips }
           aiAnalysisSucceeded = true
 

@@ -53,8 +53,8 @@ type ParsedAgentClip = {
   contentType: PipelineWorkerPotentialClip['contentType']
   shareabilityScore: number
   contextNeeded: PipelineWorkerPotentialClip['contextNeeded']
-  hook: string
-  reason: string
+  hook?: string
+  reason?: string
 }
 
 class ClipSelectionAgentService {
@@ -201,16 +201,18 @@ class ClipSelectionAgentService {
         : 'Return up to the target count, but only if each clip is genuinely strong.',
       '',
       'OUTPUT CONTRACT:',
-      'For each clip, return exactly three lines:',
+      'For each clip, return at minimum one CLIP line.',
+      'Optional HOOK and WHY lines may follow it, but they are not required.',
       'CLIP|<rank>|start_line=<index>|end_line=<index>|type=<insight|story|advice|hot_take|humor|technical>|score=<1.0-10.0>|context=<low|medium|high>',
-      'HOOK|<short compelling hook or key quote>',
-      'WHY|<one sentence on why this clip works and why the ending is coherent>',
+      'Optional: HOOK|<short compelling hook or key quote>',
+      'Optional: WHY|<one sentence on why this clip works or why the ending is coherent>',
       '',
       'Rules:',
       '- Use only provided line indexes.',
       '- Do not output JSON.',
       '- Do not add commentary before or after the clip blocks.',
-      '- Do not return a clip that ends on an obviously unfinished thought.'
+      '- Focus on coherent interesting snippets from the transcript.',
+      '- Do not force artificial packaging if the transcript itself is already interesting.'
     ].join('\n')
   }
 
@@ -228,8 +230,12 @@ class ClipSelectionAgentService {
         continue
       }
 
-      const hookLine = lines[index + 1] ?? ''
-      const whyLine = lines[index + 2] ?? ''
+      const hookLine = lines[index + 1]?.startsWith('HOOK|') ? lines[index + 1] : ''
+      const whyLine = lines[index + 1]?.startsWith('WHY|')
+        ? lines[index + 1]
+        : lines[index + 2]?.startsWith('WHY|')
+          ? lines[index + 2]
+          : ''
       const clip = this.parseClipBlock(clipLine, hookLine, whyLine, transcriptLines)
       if (clip) {
         parsed.push(clip)
@@ -282,12 +288,8 @@ class ClipSelectionAgentService {
     const contentType = this.parseContentType(typeMatch?.[1])
     const contextNeeded = this.parseContextNeeded(contextMatch?.[1])
     const shareabilityScore = Math.max(1, Math.min(10, Number(scoreMatch?.[1] ?? 8.5)))
-    const hook = hookLine.replace(/^HOOK\|/i, '').trim()
-    const reason = whyLine.replace(/^WHY\|/i, '').trim()
-
-    if (!hook || !reason) {
-      return null
-    }
+    const hook = hookLine.replace(/^HOOK\|/i, '').trim() || undefined
+    const reason = whyLine.replace(/^WHY\|/i, '').trim() || undefined
 
     return {
       startLineIndex,
@@ -313,6 +315,8 @@ class ClipSelectionAgentService {
       .join(' ')
       .replace(/\s+/g, ' ')
       .trim()
+    const fallbackKeyQuote = clipText.slice(0, 180)
+    const fallbackReason = this.buildFallbackReason(clipText)
 
     return {
       id: `agent_${index + 1}`,
@@ -321,10 +325,28 @@ class ClipSelectionAgentService {
       duration: Number((endLine.end - startLine.start).toFixed(3)),
       contentType: clip.contentType,
       shareabilityScore: Number(clip.shareabilityScore.toFixed(1)),
-      keyQuote: clip.hook.slice(0, 180) || clipText.slice(0, 180),
-      reason: clip.reason,
+      keyQuote: (clip.hook || fallbackKeyQuote).slice(0, 180),
+      reason: clip.reason || fallbackReason,
       contextNeeded: clip.contextNeeded
     }
+  }
+
+  private buildFallbackReason(clipText: string) {
+    const normalized = clipText.replace(/\s+/g, ' ').trim()
+    if (!normalized) {
+      return 'Selected as a coherent transcript snippet.'
+    }
+
+    const firstSentence = normalized
+      .split(/[.!?]+/)
+      .map((sentence) => sentence.trim())
+      .find(Boolean)
+
+    if (firstSentence && firstSentence.length >= 24) {
+      return `Selected as a coherent transcript snippet about ${firstSentence.slice(0, 120)}`
+    }
+
+    return 'Selected as a coherent transcript snippet.'
   }
 
   private parseContentType(raw: string | undefined): PipelineWorkerPotentialClip['contentType'] {
