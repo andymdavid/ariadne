@@ -2,7 +2,7 @@ import { promises as fs, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 import AIService, { ClipBoundaryReview, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
-import ClipSelectionAgentService from '../services/clipSelectionAgentService'
+import ClipSelectionAgentService, { ClipSelectionAgentError } from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
 import LocalWhisperService from '../services/localWhisperService'
 import type { AudioChunk } from '../services/clipSelectionTypes'
@@ -1093,6 +1093,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           analysis
         })
     } else {
+      let agentFailureMetadata: Record<string, unknown> | null = null
       try {
         postProgress(command.workflowJobId, currentStage, 10, 'Selecting clips with clip selection agent...')
 
@@ -1139,6 +1140,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             })),
             metadata: {
               ...agentSelection.metadata,
+              agentAttempted: true,
+              agentSelected: true,
               clipSelectionPlatform: command.runConfigSnapshot.clipSelectionPlatform,
               boundaryRefinementVersion: 'clip_selection_agent_v1'
             },
@@ -1149,6 +1152,16 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         }
       } catch (agentError) {
         console.warn('Clip selection agent failed, falling back to boundary proposal / candidate ranking:', agentError)
+        agentFailureMetadata = agentError instanceof ClipSelectionAgentError
+          ? {
+              agentAttempted: true,
+              agentFailureReason: agentError.message,
+              agentFailureDetails: agentError.details
+            }
+          : {
+              agentAttempted: true,
+              agentFailureReason: agentError instanceof Error ? agentError.message : 'Unknown clip selection agent error'
+            }
 
       // Try AI boundary proposal first (gives AI freedom to propose timestamps)
       let usedBoundaryProposal = false
@@ -1202,6 +1215,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             metadata: {
               executor: 'ai_boundary_proposal',
               ...getRankingModelMetadata(command),
+              ...agentFailureMetadata,
               boundaryRefinementVersion: 'semantic_line_boundary_v1',
               proposedClipCount: proposedClips.length,
               validatedClipCount: validatedClips.length,
@@ -1250,6 +1264,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             metadata: {
               executor: 'ai_ranker',
               ...getRankingModelMetadata(command),
+              ...agentFailureMetadata,
               boundaryRefinementVersion: 'semantic_line_boundary_v1',
               reviewedClipCount: semanticReview.reviews.length,
               semanticBoundaryReviewUsedAI: semanticReview.usedAI,
@@ -1279,6 +1294,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             metadata: {
               executor: 'heuristic_fallback',
               ...getRankingModelMetadata(command),
+              ...agentFailureMetadata,
               boundaryRefinementVersion: 'semantic_line_boundary_v1',
               reviewedClipCount: semanticReview.reviews.length,
               semanticBoundaryReviewUsedAI: semanticReview.usedAI,

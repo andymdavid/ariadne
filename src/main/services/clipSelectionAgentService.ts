@@ -27,6 +27,26 @@ export interface ClipSelectionAgentResult {
   }
 }
 
+export class ClipSelectionAgentError extends Error {
+  constructor(
+    message: string,
+    public readonly details: {
+      requestedClipCount: number
+      transcriptLineCount: number
+      attempts: Array<{
+        attempt: number
+        rawClipBlockCount: number
+        parsedClipCount: number
+        rawResponsePreview: string
+        errorMessage: string
+      }>
+    }
+  ) {
+    super(message)
+    this.name = 'ClipSelectionAgentError'
+  }
+}
+
 type ParsedAgentClip = {
   startLineIndex: number
   endLineIndex: number
@@ -78,6 +98,7 @@ class ClipSelectionAgentService {
     ]
 
     let lastError: unknown = null
+    const attemptSummaries: ClipSelectionAgentError['details']['attempts'] = []
 
     for (let attempt = 0; attempt < strategies.length; attempt++) {
       const strategy = strategies[attempt]
@@ -99,8 +120,16 @@ class ClipSelectionAgentService {
           temperature: 0.2
         })
 
+        const rawClipBlockCount = (response.content.match(/^CLIP\|/gm) || []).length
         const parsed = this.parseSelectionResponse(response.content, transcriptLines)
         if (parsed.length === 0) {
+          attemptSummaries.push({
+            attempt: attempt + 1,
+            rawClipBlockCount,
+            parsedClipCount: 0,
+            rawResponsePreview: response.content.slice(0, 600),
+            errorMessage: 'Clip selection agent returned no usable clips'
+          })
           throw new Error('Clip selection agent returned no usable clips')
         }
 
@@ -118,13 +147,27 @@ class ClipSelectionAgentService {
           }
         }
       } catch (error) {
+        if (!(error instanceof ClipSelectionAgentError)) {
+          attemptSummaries.push({
+            attempt: attempt + 1,
+            rawClipBlockCount: 0,
+            parsedClipCount: 0,
+            rawResponsePreview: '',
+            errorMessage: error instanceof Error ? error.message : 'Unknown error'
+          })
+        }
         lastError = error
       }
     }
 
-    throw lastError instanceof Error
-      ? lastError
-      : new Error('Clip selection agent failed')
+    throw new ClipSelectionAgentError(
+      lastError instanceof Error ? lastError.message : 'Clip selection agent failed',
+      {
+        requestedClipCount: targetClipCount,
+        transcriptLineCount: transcriptLines.length,
+        attempts: attemptSummaries
+      }
+    )
   }
 
   private buildPrompt(
@@ -374,4 +417,3 @@ class ClipSelectionAgentService {
 }
 
 export default ClipSelectionAgentService
-
