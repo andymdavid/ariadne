@@ -1,7 +1,7 @@
 import { promises as fs, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
-import AIService, { ClipBoundaryReview, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
+import AIService, { ClipBoundaryReview, ResolvedClipProposal, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
 import ClipSelectionAgentService, { ClipSelectionAgentError } from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
 import LocalWhisperService from '../services/localWhisperService'
@@ -37,6 +37,7 @@ const THOUGHT_UNIT_ABSOLUTE_MAX_DURATION_SECONDS = 34
 const THOUGHT_UNIT_ABSOLUTE_MAX_WORDS = 110
 const THOUGHT_UNIT_CLAUSE_BREAK_MIN_WORDS = 18
 const SEMANTIC_CLIP_MAX_DURATION_SECONDS = 120
+const RESOLVED_CLIP_MIN_DURATION_SECONDS = 25
 
 function postMessage(event: PipelineWorkerEvent) {
   if (typeof process.send === 'function') {
@@ -148,6 +149,114 @@ function buildTranscriptBoundaryLinesFromSegments(
       forcedBreak: false
     }
   }))
+}
+
+function buildResolvedClipsFromProposals(
+  transcription: PipelineWorkerTranscription,
+  proposals: ResolvedClipProposal[],
+  mediaDuration: number
+): {
+  clips: PipelineWorkerPotentialClip[]
+  rejected: Array<{ startSegmentId: number; endSegmentId: number; reason: string }>
+} {
+  const segments = transcription.segments
+    .filter((segment) => segment.text.trim())
+    .sort((left, right) => left.start - right.start)
+  const segmentById = new Map(segments.map((segment) => [segment.id, segment]))
+  const segmentIndexById = new Map(segments.map((segment, index) => [segment.id, index]))
+  const clips: PipelineWorkerPotentialClip[] = []
+  const rejected: Array<{ startSegmentId: number; endSegmentId: number; reason: string }> = []
+
+  proposals.forEach((proposal, index) => {
+    const startSegment = segmentById.get(proposal.startSegmentId)
+    let endSegment = segmentById.get(proposal.endSegmentId)
+    if (!startSegment || !endSegment) {
+      rejected.push({
+        startSegmentId: proposal.startSegmentId,
+        endSegmentId: proposal.endSegmentId,
+        reason: 'Unknown start or end segment'
+      })
+      return
+    }
+
+    let endIndex = segmentIndexById.get(endSegment.id) ?? -1
+    const startIndex = segmentIndexById.get(startSegment.id) ?? -1
+    if (startIndex < 0 || endIndex < startIndex) {
+      rejected.push({
+        startSegmentId: proposal.startSegmentId,
+        endSegmentId: proposal.endSegmentId,
+        reason: 'Invalid segment order'
+      })
+      return
+    }
+
+    if (proposal.nextSegmentRelation === 'same_idea') {
+      while (endIndex < segments.length - 1) {
+        const next = segments[endIndex + 1]
+        const projectedDuration = next.end - startSegment.start
+        if (projectedDuration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+          break
+        }
+        endIndex += 1
+        endSegment = next
+        if (isCleanClipEnd(next.text)) {
+          break
+        }
+      }
+    }
+
+    const duration = endSegment.end - startSegment.start
+    if (duration < RESOLVED_CLIP_MIN_DURATION_SECONDS || duration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+      rejected.push({
+        startSegmentId: proposal.startSegmentId,
+        endSegmentId: endSegment.id,
+        reason: `Duration ${duration.toFixed(1)}s is outside resolved clip bounds`
+      })
+      return
+    }
+
+    const nextSegment = segments[endIndex + 1]
+    const endLooksClean = isCleanClipEnd(endSegment.text)
+    const nextContinues = nextSegment
+      ? shouldContinueThoughtAcrossBoundary(
+          endSegment.text,
+          nextSegment.text,
+          Math.max(0, nextSegment.start - endSegment.end)
+        )
+      : false
+
+    if (!endLooksClean && nextContinues) {
+      rejected.push({
+        startSegmentId: proposal.startSegmentId,
+        endSegmentId: endSegment.id,
+        reason: 'End still appears to continue into next segment'
+      })
+      return
+    }
+
+    clips.push({
+      id: `resolved_${index + 1}`,
+      startTime: startSegment.start,
+      endTime: Math.min(mediaDuration, endSegment.end),
+      duration: Number((Math.min(mediaDuration, endSegment.end) - startSegment.start).toFixed(3)),
+      contentType: proposal.contentType,
+      shareabilityScore: Number(proposal.shareabilityScore.toFixed(1)),
+      keyQuote: proposal.keyQuote || segments
+        .slice(startIndex, endIndex + 1)
+        .map((segment) => segment.text.trim())
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180),
+      reason: [
+        proposal.reason,
+        proposal.endResolutionReason ? `Endpoint: ${proposal.endResolutionReason}` : ''
+      ].filter(Boolean).join(' '),
+      contextNeeded: 'low'
+    })
+  })
+
+  return { clips, rejected }
 }
 
 function estimateTranscriptionTime(durationInSeconds: number): number {
@@ -1142,7 +1251,61 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     } else {
       let agentFailureMetadata: Record<string, unknown> | null = null
       try {
-        postProgress(command.workflowJobId, currentStage, 10, 'Selecting clips with clip selection agent...')
+        postProgress(command.workflowJobId, currentStage, 10, 'Proposing resolved clip arcs...')
+
+        const resolvedProposals = await aiService.proposeResolvedClips(
+          transcription,
+          command.mediaDuration,
+          (progress) => {
+            postProgress(command.workflowJobId, currentStage, Math.min(10 + progress * 0.35, 45), 'Proposing resolved clip arcs...')
+          }
+        )
+        const resolvedClips = buildResolvedClipsFromProposals(
+          transcription,
+          resolvedProposals,
+          command.mediaDuration
+        )
+
+        if (resolvedClips.clips.length >= 2) {
+          analysis = { potentialClips: resolvedClips.clips }
+          aiAnalysisSucceeded = true
+
+          postStageCompleted(command.workflowJobId, currentStage, {
+            clipCount: analysis.potentialClips.length,
+            mode: 'resolved_clip_proposal',
+            aiAnalysisSucceeded,
+            selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+              id: clip.id,
+              startTime: clip.startTime,
+              endTime: clip.endTime,
+              shareabilityScore: clip.shareabilityScore
+            })),
+            metadata: {
+              executor: 'resolved_clip_proposal',
+              ...getRankingModelMetadata(command),
+              proposedClipCount: resolvedProposals.length,
+              acceptedClipCount: resolvedClips.clips.length,
+              rejectedClipCount: resolvedClips.rejected.length,
+              rejectedPreview: resolvedClips.rejected.slice(0, 5)
+            },
+            analysis
+          })
+        } else {
+          throw new Error(`Resolved clip proposal returned only ${resolvedClips.clips.length} usable clips`)
+        }
+      } catch (resolvedProposalError) {
+        console.warn('Resolved clip proposal failed, falling back to clip selection agent:', resolvedProposalError)
+        agentFailureMetadata = {
+          agentAttempted: true,
+          resolvedProposalFailureReason: resolvedProposalError instanceof Error
+            ? resolvedProposalError.message
+            : 'Unknown resolved clip proposal error'
+        }
+      }
+
+      if (!analysis) {
+      try {
+        postProgress(command.workflowJobId, currentStage, 48, 'Selecting clips with clip selection agent...')
 
         const transcriptLines = semanticTranscriptSegments
           ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments)
@@ -1202,7 +1365,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         }
       } catch (agentError) {
         console.warn('Clip selection agent failed, falling back to boundary proposal / candidate ranking:', agentError)
-        agentFailureMetadata = agentError instanceof ClipSelectionAgentError
+        const clipSelectionFailureMetadata = agentError instanceof ClipSelectionAgentError
           ? {
               agentAttempted: true,
               agentFailureReason: agentError.message,
@@ -1212,6 +1375,10 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
               agentAttempted: true,
               agentFailureReason: agentError instanceof Error ? agentError.message : 'Unknown clip selection agent error'
             }
+        agentFailureMetadata = {
+          ...agentFailureMetadata,
+          ...clipSelectionFailureMetadata
+        }
 
       // Try AI boundary proposal first (gives AI freedom to propose timestamps)
       let usedBoundaryProposal = false
@@ -1356,6 +1523,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             aiError: rankingError instanceof Error ? rankingError.message : 'Unknown error'
           })
         }
+      }
       }
       }
     }
