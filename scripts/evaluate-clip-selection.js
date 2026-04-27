@@ -34,14 +34,16 @@ function evaluateFixture(fixture, clips) {
     const matchedBad = findBestOverlap(clip, expectedBad)
     const duplicateRatio = findDuplicateRatio(clip, clips, index)
     const boundaryScore = scoreBoundaries(clip, transcriptSegments)
+    const boundaryCoherence = scoreBoundaryCoherence(clip, transcriptSegments)
     const quoteGrounded = isQuoteGrounded(clip, transcriptSegments)
 
     const score = round(
-      matchedGood.overlap * 40 +
-      boundaryScore * 20 +
+      matchedGood.overlap * 35 +
+      boundaryScore * 15 +
+      boundaryCoherence.score * 20 +
       (quoteGrounded ? 15 : 0) +
       (1 - matchedBad.overlap) * 15 +
-      (1 - duplicateRatio) * 10
+      (1 - duplicateRatio) * 5
     )
 
     return {
@@ -53,6 +55,9 @@ function evaluateFixture(fixture, clips) {
       matchedBadOverlap: round(matchedBad.overlap),
       duplicateRatio: round(duplicateRatio),
       boundaryScore: round(boundaryScore),
+      boundaryCoherence: round(boundaryCoherence.score),
+      startsCleanly: boundaryCoherence.startsCleanly,
+      endsCleanly: boundaryCoherence.endsCleanly,
       quoteGrounded,
       totalScore: score
     }
@@ -101,6 +106,26 @@ function scoreBoundaries(clip, segments) {
   return (startScore + endScore) / 2
 }
 
+function scoreBoundaryCoherence(clip, segments) {
+  const clipText = getClipText(clip, segments)
+  if (!clipText) {
+    return {
+      score: 0,
+      startsCleanly: false,
+      endsCleanly: false
+    }
+  }
+
+  const startsCleanly = !startsLikeContinuation(clipText)
+  const endsCleanly = looksLikeCompleteThought(clipText)
+
+  return {
+    score: (startsCleanly ? 0.4 : 0) + (endsCleanly ? 0.6 : 0),
+    startsCleanly,
+    endsCleanly
+  }
+}
+
 function nearestBoundaryDistance(time, boundaries) {
   return boundaries.reduce((closest, boundary) => Math.min(closest, Math.abs(boundary - time)), Number.POSITIVE_INFINITY)
 }
@@ -108,12 +133,18 @@ function nearestBoundaryDistance(time, boundaries) {
 function isQuoteGrounded(clip, segments) {
   if (!clip.keyQuote) return false
 
-  const clipText = segments
+  const clipText = getClipText(clip, segments)
+
+  return normalize(clipText).includes(normalize(clip.keyQuote))
+}
+
+function getClipText(clip, segments) {
+  return segments
     .filter(segment => segment.end > clip.startTime && segment.start < clip.endTime)
     .map(segment => segment.text)
     .join(' ')
-
-  return normalize(clipText).includes(normalize(clip.keyQuote))
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function findDuplicateRatio(targetClip, clips, targetIndex) {
@@ -146,6 +177,37 @@ function normalize(value) {
     .trim()
 }
 
+function startsLikeContinuation(text) {
+  return /^(and|but|so|because|then|which|that|it|this|these|those|or|if|when|where|while|who|what|how|than|as|to|for|with|of|in|on|at|from|by|about|into|over|after|before)\b/i.test(String(text || '').trim())
+}
+
+function looksLikeCompleteThought(text) {
+  const trimmed = String(text || '').trim()
+  if (!trimmed) return false
+  if (endsWithDanglingPhrase(trimmed)) return false
+  if (/[.!?]["']?\s*$/.test(trimmed)) return true
+  return trimmed.split(/\s+/).filter(Boolean).length >= 12
+}
+
+function endsWithDanglingPhrase(text) {
+  const normalized = String(text || '').trim().toLowerCase()
+  if (!normalized) return false
+
+  if (
+    /\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/.test(normalized) ||
+    /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/.test(normalized) ||
+    /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
+    /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized) ||
+    /\b(very|really|so|quite|pretty|rather|extremely|incredibly|absolutely|totally)\s*$/.test(normalized)
+  ) {
+    return true
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean)
+  const lastWord = words[words.length - 1] || ''
+  return lastWord.length <= 2
+}
+
 function round(value) {
   return Math.round(value * 1000) / 1000
 }
@@ -162,7 +224,7 @@ function printReport(fixture, resultPath, metrics) {
 
   for (const clip of metrics.clipReports) {
     console.log(
-      `- ${clip.id}: score=${clip.totalScore}, good=${clip.matchedGoodOverlap}, bad=${clip.matchedBadOverlap}, boundary=${clip.boundaryScore}, duplicate=${clip.duplicateRatio}, quote=${clip.quoteGrounded ? 'yes' : 'no'}`
+      `- ${clip.id}: score=${clip.totalScore}, good=${clip.matchedGoodOverlap}, bad=${clip.matchedBadOverlap}, boundary=${clip.boundaryScore}, coherence=${clip.boundaryCoherence}, start=${clip.startsCleanly ? 'clean' : 'rough'}, end=${clip.endsCleanly ? 'clean' : 'rough'}, duplicate=${clip.duplicateRatio}, quote=${clip.quoteGrounded ? 'yes' : 'no'}`
     )
   }
 }
