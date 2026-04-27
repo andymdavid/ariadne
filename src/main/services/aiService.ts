@@ -53,6 +53,19 @@ export interface ProposedClip {
   validationErrors: string[]
 }
 
+export interface ResolvedClipProposal {
+  startSegmentId: number
+  endSegmentId: number
+  hookSegmentId: number
+  payoffSegmentId: number
+  contentType: 'insight' | 'story' | 'advice' | 'hot_take' | 'humor' | 'technical'
+  shareabilityScore: number
+  keyQuote: string
+  reason: string
+  endResolutionReason: string
+  nextSegmentRelation: 'new_topic' | 'same_idea' | 'optional_context' | 'unknown'
+}
+
 export interface TranscriptDataWithWords {
   text: string
   segments: Array<{
@@ -211,6 +224,49 @@ class AIService {
     const units = this.parseThoughtSegmentationResponse(response.content, segments)
     onProgress?.(100)
     return units
+  }
+
+  async proposeResolvedClips(
+    transcriptData: TranscriptDataWithWords,
+    duration: number,
+    onProgress?: (progress: number) => void
+  ): Promise<ResolvedClipProposal[]> {
+    onProgress?.(10)
+
+    const segments = transcriptData.segments
+      .filter((segment) => segment.text.trim().length > 0)
+      .sort((left, right) => left.start - right.start)
+
+    if (segments.length === 0) {
+      return []
+    }
+
+    const prompt = this.buildResolvedClipProposalPrompt(segments, duration)
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are a senior podcast clip editor.',
+            'Select only complete standalone clip arcs with a hook, development, and resolved payoff.',
+            'Prefer extending a clip over ending mid-idea.',
+            'Return valid JSON only.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 5000,
+      temperature: 0.15
+    })
+
+    onProgress?.(80)
+    const proposals = this.parseResolvedClipProposalResponse(response.content, segments)
+    onProgress?.(100)
+    return proposals
   }
 
   /**
@@ -1200,6 +1256,70 @@ OUTPUT FORMAT (JSON):
   "thought_units": [
     { "start_segment_id": 0, "end_segment_id": 2 },
     { "start_segment_id": 3, "end_segment_id": 5 }
+  ]
+}
+
+SEGMENTS:
+${segmentText}
+
+Return JSON only.
+    `.trim()
+  }
+
+  private buildResolvedClipProposalPrompt(
+    segments: Array<{ id: number; start: number; end: number; text: string }>,
+    duration: number
+  ) {
+    const segmentText = segments
+      .map((segment) => {
+        const text = segment.text.replace(/\s+/g, ' ').trim()
+        return `SEGMENT ${segment.id} [${segment.start.toFixed(2)}-${segment.end.toFixed(2)}] ${text}`
+      })
+      .join('\n')
+
+    return `
+TRANSCRIPT_DURATION: ${duration.toFixed(2)}s
+TARGET_PLATFORM: youtube_shorts
+
+TASK:
+Find complete, publishable podcast clip arcs. A valid clip must have:
+- a clean setup or hook,
+- enough development to make the idea understandable,
+- a resolved payoff/end,
+- no required continuation in the next segment.
+
+Choose segment IDs, not timestamps. Only use provided segment IDs.
+
+IMPORTANT:
+- If the next segment continues the same idea, include it instead of ending early.
+- If including continuation would push the clip over 120s or drift into a different topic, omit the clip.
+- Prefer 35-90s, but allow 25-120s only when the idea needs that span to resolve.
+- Return fewer clips if needed. Quality is more important than count.
+- Do not select a clip whose end is just a pause, aside, incomplete example, or setup for the next line.
+
+For each proposal, include:
+- start_segment_id: first segment of the standalone setup.
+- end_segment_id: last segment where the idea actually resolves.
+- hook_segment_id: segment containing the strongest opening/hook.
+- payoff_segment_id: segment containing the actual resolution/payoff.
+- next_segment_relation: "new_topic", "optional_context", "same_idea", or "unknown".
+- end_resolution_reason: explain why the end is complete and why the next segment is not required.
+
+OUTPUT JSON:
+{
+  "resolved_clips": [
+    {
+      "start_segment_id": 12,
+      "end_segment_id": 20,
+      "hook_segment_id": 12,
+      "payoff_segment_id": 20,
+      "content_type": "insight",
+      "shareability_score": 8.7,
+      "key_quote": "Short grounded quote from inside the span",
+      "reason": "Why this clip works",
+      "end_resolution_reason": "Why this endpoint resolves the idea",
+      "next_segment_relation": "new_topic"
+    }
   ]
 }
 
@@ -2497,6 +2617,80 @@ Return JSON only.
     }
 
     return normalized
+  }
+
+  private parseResolvedClipProposalResponse(
+    content: string,
+    segments: Array<{ id: number; start: number; end: number }>
+  ): ResolvedClipProposal[] {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error('No JSON found in resolved clip proposal response')
+    }
+
+    const parsed = JSON.parse(jsonString)
+    const rawClips = Array.isArray(parsed.resolved_clips) ? parsed.resolved_clips : null
+    if (!rawClips) {
+      throw new Error('Invalid resolved clip proposal response: missing resolved_clips')
+    }
+
+    const segmentIds = new Set(segments.map((segment) => segment.id))
+    const validContentTypes = new Set(['insight', 'story', 'advice', 'hot_take', 'humor', 'technical'])
+    const validRelations = new Set(['new_topic', 'same_idea', 'optional_context', 'unknown'])
+
+    return rawClips
+      .map((clip: any) => {
+        const startSegmentId = Number(clip.start_segment_id)
+        const endSegmentId = Number(clip.end_segment_id)
+        const hookSegmentId = Number(clip.hook_segment_id ?? startSegmentId)
+        const payoffSegmentId = Number(clip.payoff_segment_id ?? endSegmentId)
+
+        if (
+          !Number.isInteger(startSegmentId) ||
+          !Number.isInteger(endSegmentId) ||
+          !Number.isInteger(hookSegmentId) ||
+          !Number.isInteger(payoffSegmentId) ||
+          !segmentIds.has(startSegmentId) ||
+          !segmentIds.has(endSegmentId) ||
+          !segmentIds.has(hookSegmentId) ||
+          !segmentIds.has(payoffSegmentId) ||
+          endSegmentId < startSegmentId ||
+          hookSegmentId < startSegmentId ||
+          hookSegmentId > endSegmentId ||
+          payoffSegmentId < startSegmentId ||
+          payoffSegmentId > endSegmentId
+        ) {
+          return null
+        }
+
+        const contentType = String(clip.content_type ?? 'insight').toLowerCase()
+        const nextSegmentRelation = String(clip.next_segment_relation ?? 'unknown').toLowerCase()
+        const rawScore = Number(clip.shareability_score ?? 7)
+
+        return {
+          startSegmentId,
+          endSegmentId,
+          hookSegmentId,
+          payoffSegmentId,
+          contentType: validContentTypes.has(contentType)
+            ? contentType as ResolvedClipProposal['contentType']
+            : 'insight',
+          shareabilityScore: Math.max(1, Math.min(10, rawScore <= 10 ? rawScore : rawScore / 10)),
+          keyQuote: String(clip.key_quote ?? '').replace(/\s+/g, ' ').trim().slice(0, 180),
+          reason: String(clip.reason ?? 'Selected as a complete standalone clip arc.').replace(/\s+/g, ' ').trim(),
+          endResolutionReason: String(clip.end_resolution_reason ?? '').replace(/\s+/g, ' ').trim(),
+          nextSegmentRelation: validRelations.has(nextSegmentRelation)
+            ? nextSegmentRelation as ResolvedClipProposal['nextSegmentRelation']
+            : 'unknown'
+        }
+      })
+      .filter((clip: ResolvedClipProposal | null): clip is ResolvedClipProposal => Boolean(clip))
+      .sort((left: ResolvedClipProposal, right: ResolvedClipProposal) => {
+        if (right.shareabilityScore !== left.shareabilityScore) {
+          return right.shareabilityScore - left.shareabilityScore
+        }
+        return left.startSegmentId - right.startSegmentId
+      })
   }
   
   updateConfig(config: APIConfig) {
