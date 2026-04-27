@@ -1,3 +1,10 @@
+import {
+  endsWithTerminalPunctuation,
+  looksLikeCompleteThought,
+  normalizeTranscriptText,
+  startsLikeContinuation
+} from './clipBoundaryQuality'
+
 export type TranscriptLineWord = {
   word: string
   start: number
@@ -18,7 +25,12 @@ export type TranscriptLineDraft = {
   end: number
   text: string
   words: TranscriptLineWord[]
-  sourceStrategy: 'word_thought_lines_v1' | 'segment_fallback_lines_v1'
+  sourceStrategy: 'word_thought_lines_v1' | 'word_forced_lines_v1' | 'segment_fallback_lines_v1'
+  boundaryQuality: {
+    cleanStart: boolean
+    cleanEnd: boolean
+    forcedBreak: boolean
+  }
 }
 
 const HARD_BREAK_GAP_SECONDS = 1.1
@@ -30,48 +42,13 @@ const PREFERRED_MAX_WORDS = 36
 const ABSOLUTE_MAX_DURATION_SECONDS = 16
 const ABSOLUTE_MAX_WORDS = 56
 
-const CONTINUATION_WORD_PATTERN =
-  /^(and|but|so|because|then|which|that|it|this|these|those|or|if|when|where|while|who|what|how|than|as|to|for|with|of|in|on|at|from|by|about|into|over|after|before)\b/i
+const normalizeLineText = normalizeTranscriptText
 
-const normalizeLineText = (text: string) =>
-  text
-    .replace(/\s+([,.!?;:])/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-const endsWithTerminalPunctuation = (text: string) => /[.!?]["']?\s*$/.test(text.trim())
-
-const endsWithDanglingPhrase = (text: string) => {
-  const normalized = text.trim().toLowerCase()
-  if (!normalized) return false
-
-  if (
-    /\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/.test(normalized) ||
-    /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any)\s*$/.test(normalized) ||
-    /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
-    /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized)
-  ) {
-    return true
-  }
-
-  const words = normalized.split(/\s+/).filter(Boolean)
-  const lastWord = words[words.length - 1] || ''
-  return lastWord.length <= 2
-}
-
-const looksLikeCompleteThought = (text: string) => {
-  const trimmed = text.trim()
-  if (!trimmed) return false
-  if (endsWithDanglingPhrase(trimmed)) return false
-  if (endsWithTerminalPunctuation(trimmed)) return true
-  return trimmed.split(/\s+/).filter(Boolean).length >= 10
-}
-
-const startsLikeContinuation = (text: string) => {
-  const trimmed = text.trim()
-  if (!trimmed) return false
-  return CONTINUATION_WORD_PATTERN.test(trimmed)
-}
+const buildBoundaryQuality = (text: string, forcedBreak: boolean) => ({
+  cleanStart: !startsLikeContinuation(text),
+  cleanEnd: looksLikeCompleteThought(text) && !forcedBreak,
+  forcedBreak
+})
 
 const flattenWords = (segments: TranscriptLineSegmentInput[]) =>
   segments
@@ -98,7 +75,8 @@ const buildSegmentFallbackLines = (segments: TranscriptLineSegmentInput[]): Tran
         start: Number(word.start ?? segment.start),
         end: Number(word.end ?? segment.end)
       })),
-      sourceStrategy: 'segment_fallback_lines_v1' as const
+      sourceStrategy: 'segment_fallback_lines_v1' as const,
+      boundaryQuality: buildBoundaryQuality(segment.text, false)
     }))
 
 const shouldBreakLine = (
@@ -186,25 +164,31 @@ export const buildTranscriptLinesFromSegments = (
       continue
     }
 
+    const text = normalizeLineText(currentWords.map((item) => item.word).join(' '))
+    const forcedBreak = !looksLikeCompleteThought(text)
     lines.push({
       lineIndex: lines.length,
       start: currentWords[0].start,
       end: currentWords[currentWords.length - 1].end,
-      text: normalizeLineText(currentWords.map((item) => item.word).join(' ')),
+      text,
       words: [...currentWords],
-      sourceStrategy: 'word_thought_lines_v1'
+      sourceStrategy: forcedBreak ? 'word_forced_lines_v1' : 'word_thought_lines_v1',
+      boundaryQuality: buildBoundaryQuality(text, forcedBreak)
     })
     currentWords = []
   }
 
   if (currentWords.length > 0) {
+    const text = normalizeLineText(currentWords.map((item) => item.word).join(' '))
+    const forcedBreak = !looksLikeCompleteThought(text)
     lines.push({
       lineIndex: lines.length,
       start: currentWords[0].start,
       end: currentWords[currentWords.length - 1].end,
-      text: normalizeLineText(currentWords.map((item) => item.word).join(' ')),
+      text,
       words: [...currentWords],
-      sourceStrategy: 'word_thought_lines_v1'
+      sourceStrategy: forcedBreak ? 'word_forced_lines_v1' : 'word_thought_lines_v1',
+      boundaryQuality: buildBoundaryQuality(text, forcedBreak)
     })
   }
 
