@@ -127,6 +127,28 @@ function buildHeuristicAnalysis(
   }
 }
 
+function buildTranscriptBoundaryLinesFromSegments(
+  segments: PipelineWorkerTranscription['segments']
+): Array<TranscriptBoundaryLine & {
+  boundaryQuality?: {
+    cleanStart: boolean
+    cleanEnd: boolean
+    forcedBreak: boolean
+  }
+}> {
+  return segments.map((segment, index) => ({
+    lineIndex: index,
+    start: segment.start,
+    end: segment.end,
+    text: segment.text,
+    boundaryQuality: {
+      cleanStart: !startsLikeContinuation(segment.text),
+      cleanEnd: looksLikeCompleteThought(segment.text),
+      forcedBreak: false
+    }
+  }))
+}
+
 function estimateTranscriptionTime(durationInSeconds: number): number {
   return Math.ceil(durationInSeconds / 10)
 }
@@ -656,9 +678,10 @@ async function finalizeClipBoundaries(
   transcription: PipelineWorkerTranscription,
   clips: PipelineWorkerPotentialClip[],
   aiService: AIService | null,
-  mediaDuration: number
+  mediaDuration: number,
+  preferredTranscriptLines?: TranscriptBoundaryLine[]
 ) {
-  const semanticReview = await applySemanticBoundaryReview(transcription, clips, aiService, mediaDuration)
+  const semanticReview = await applySemanticBoundaryReview(transcription, clips, aiService, mediaDuration, preferredTranscriptLines)
   const wordRefinement = refinePotentialClips(transcription, semanticReview.clips, mediaDuration)
 
   return {
@@ -670,14 +693,17 @@ async function finalizeClipBoundaries(
 
 function mapClipsToTranscriptLines(
   transcription: PipelineWorkerTranscription,
-  clips: PipelineWorkerPotentialClip[]
+  clips: PipelineWorkerPotentialClip[],
+  preferredTranscriptLines?: TranscriptBoundaryLine[]
 ) {
-  const transcriptLines: TranscriptBoundaryLine[] = buildTranscriptLinesFromSegments(transcription.segments).map((line) => ({
-    lineIndex: line.lineIndex,
-    start: line.start,
-    end: line.end,
-    text: line.text
-  }))
+  const transcriptLines: TranscriptBoundaryLine[] = preferredTranscriptLines && preferredTranscriptLines.length > 0
+    ? preferredTranscriptLines
+    : buildTranscriptLinesFromSegments(transcription.segments).map((line) => ({
+        lineIndex: line.lineIndex,
+        start: line.start,
+        end: line.end,
+        text: line.text
+      }))
 
   const findContainingLineIndex = (time: number, prefer: 'start' | 'end') => {
     const exact = transcriptLines.findIndex((line) =>
@@ -774,9 +800,10 @@ async function applySemanticBoundaryReview(
   transcription: PipelineWorkerTranscription,
   clips: PipelineWorkerPotentialClip[],
   aiService: AIService | null,
-  mediaDuration: number
+  mediaDuration: number,
+  preferredTranscriptLines?: TranscriptBoundaryLine[]
 ) {
-  const { transcriptLines, mappedClips } = mapClipsToTranscriptLines(transcription, clips)
+  const { transcriptLines, mappedClips } = mapClipsToTranscriptLines(transcription, clips, preferredTranscriptLines)
   if (transcriptLines.length === 0 || mappedClips.length === 0) {
     return {
       clips,
@@ -924,6 +951,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   let analysis = command.resumeData?.analysis
   let aiAnalysisSucceeded = command.resumeData?.aiAnalysisSucceeded ?? false
   let contentPackages = command.resumeData?.contentPackages ?? []
+  let semanticTranscriptSegments: PipelineWorkerTranscription['segments'] | null = null
 
   if (startStageIndex <= stageOrder.indexOf('transcription')) {
     currentStage = 'transcription'
@@ -1040,6 +1068,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         const aiNormalizedSegments = buildSegmentsFromThoughtUnits(transcription, thoughtUnits)
         if (aiNormalizedSegments.length > 0) {
           normalizedSegments = aiNormalizedSegments
+          semanticTranscriptSegments = aiNormalizedSegments
           transcriptNormalizationVersion = 'semantic_thought_units_v1'
         }
       } catch (error) {
@@ -1114,21 +1143,23 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       try {
         postProgress(command.workflowJobId, currentStage, 10, 'Selecting clips with clip selection agent...')
 
-        const transcriptLines = buildTranscriptLinesFromSegments(
-          transcription.segments.map((segment) => ({
-            id: segment.id,
-            start: Number(segment.start ?? 0),
-            end: Number(segment.end ?? 0),
-            text: String(segment.text ?? ''),
-            words: Array.isArray(segment.words)
-              ? segment.words.map((word) => ({
-                  word: String(word.word ?? '').trim(),
-                  start: Number(word.start ?? 0),
-                  end: Number(word.end ?? 0)
-                }))
-              : undefined
-          }))
-        )
+        const transcriptLines = semanticTranscriptSegments
+          ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments)
+          : buildTranscriptLinesFromSegments(
+              transcription.segments.map((segment) => ({
+                id: segment.id,
+                start: Number(segment.start ?? 0),
+                end: Number(segment.end ?? 0),
+                text: String(segment.text ?? ''),
+                words: Array.isArray(segment.words)
+                  ? segment.words.map((word) => ({
+                      word: String(word.word ?? '').trim(),
+                      start: Number(word.start ?? 0),
+                      end: Number(word.end ?? 0)
+                    }))
+                  : undefined
+              }))
+            )
 
         const agentSelection = await clipSelectionAgent!.selectClips({
           transcriptLines: transcriptLines.map((line) => ({
@@ -1339,7 +1370,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       transcription,
       analysis.potentialClips,
       aiService,
-      command.mediaDuration
+      command.mediaDuration,
+      semanticTranscriptSegments ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments) : undefined
     )
     analysis = { potentialClips: boundaryFinalization.clips }
 
