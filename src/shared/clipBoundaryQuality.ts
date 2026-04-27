@@ -33,7 +33,8 @@ export const endsWithDanglingPhrase = (text: string) => {
     /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/.test(normalized) ||
     /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
     /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized) ||
-    /\b(very|really|so|quite|pretty|rather|extremely|incredibly|absolutely|totally)\s*$/.test(normalized)
+    /\b(very|really|so|quite|pretty|rather|extremely|incredibly|absolutely|totally)\s*$/.test(normalized) ||
+    /\b(question|reason|example|case|part|point|bit|way|one)\s*$/.test(normalized)
   ) {
     return true
   }
@@ -53,7 +54,19 @@ export const looksLikeCompleteThought = (text: string) => {
   if (!trimmed) return false
   if (endsWithDanglingPhrase(trimmed)) return false
   if (endsWithTerminalPunctuation(trimmed)) return true
-  return trimmed.split(/\s+/).filter(Boolean).length >= 12
+
+  const normalized = normalize(trimmed)
+  const words = normalized.split(/\s+/).filter(Boolean)
+  if (words.length < 18) return false
+
+  if (/\b(because|although|however|but|and then|the question|for some reason)\b[^.!?]{0,100}$/.test(normalized)) {
+    return false
+  }
+
+  return (
+    /\b(that'?s why|that'?s how|that'?s what|which means|the point is|the takeaway|bottom line|so basically|therefore)\b/.test(normalized) ||
+    /\b(works|matters|helps|changes|solves|defines|controls|owns|operate|operates|need|should|shouldn'?t|don'?t need)\b[^.!?]{0,80}$/.test(normalized)
+  )
 }
 
 export const getBoundaryQuality = (text: string): BoundaryQuality => ({

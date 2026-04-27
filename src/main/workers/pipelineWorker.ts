@@ -21,6 +21,7 @@ import type {
   PipelineWorkerTranscription,
   StartPipelineWorkerCommand,
 } from '@shared/types/pipelineWorker'
+import { isCleanClipEnd } from '../../shared/clipBoundaryQuality'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
@@ -143,7 +144,7 @@ function buildTranscriptBoundaryLinesFromSegments(
     text: segment.text,
     boundaryQuality: {
       cleanStart: !startsLikeContinuation(segment.text),
-      cleanEnd: looksLikeCompleteThought(segment.text),
+      cleanEnd: isCleanClipEnd(segment.text),
       forcedBreak: false
     }
   }))
