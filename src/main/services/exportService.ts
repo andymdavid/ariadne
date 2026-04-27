@@ -484,6 +484,7 @@ class ExportService {
       const captionSegments = this.buildCaptionSegments(
         clip.id,
         Number(clip.start_time ?? 0),
+        Number(clip.start_time ?? 0) + Number(clip.duration ?? 0),
         clipEdits,
         transcriptSegments,
         brandTemplate,
@@ -568,6 +569,7 @@ class ExportService {
   private buildCaptionSegments(
     clipId: string,
     clipStartTime: number,
+    clipEndTime: number,
     clipEdits: ClipEditsRow | undefined,
     transcriptSegments: ExportTranscriptSegment[],
     brandTemplate: BrandTemplate,
@@ -590,12 +592,13 @@ class ExportService {
       console.error('[ExportService] Failed to parse caption segments:', error)
     }
 
-    return this.buildCaptionSegmentsFromTranscript(clipId, clipStartTime, transcriptSegments, brandTemplate)
+    return this.buildCaptionSegmentsFromTranscript(clipId, clipStartTime, clipEndTime, transcriptSegments, brandTemplate)
   }
 
   private buildCaptionSegmentsFromTranscript(
     clipId: string,
     clipStartTime: number,
+    clipEndTime: number,
     transcriptSegments: ExportTranscriptSegment[],
     brandTemplate: BrandTemplate
   ): ExportCaptionSegment[] {
@@ -611,18 +614,17 @@ class ExportService {
         : undefined
     const fontSize = Number(brandTemplate.caption.fontSize ?? 30)
     const fontWeight = Number(brandTemplate.caption.fontWeight ?? 700)
-    const clipDuration = Math.max(
-      ...transcriptSegments.map((segment) =>
-        Math.max(
-          0,
-          Number(segment.end_time ?? segment.end ?? segment.start_time ?? segment.start ?? 0) - clipStartTime
-        )
-      ),
-      0
-    )
-    const cueLines: CaptionCueLine[] = transcriptSegments.map((segment, index) => {
+    const clipDuration = Math.max(0, clipEndTime - clipStartTime)
+    const cueLines: CaptionCueLine[] = transcriptSegments.flatMap((segment, index) => {
       const segmentStart = Number(segment.start_time ?? segment.start ?? 0)
       const segmentEnd = Number(segment.end_time ?? segment.end ?? segment.start_time ?? segment.start ?? 0)
+      const clampedStart = Math.max(clipStartTime, segmentStart)
+      const clampedEnd = Math.min(clipEndTime, segmentEnd)
+
+      if (clampedEnd <= clampedStart) {
+        return []
+      }
+
       const rawWords = Array.isArray(segment.words)
         ? segment.words
             .map((word) => ({
@@ -630,33 +632,39 @@ class ExportService {
               start: Number(word.start ?? 0),
               end: Number(word.end ?? 0)
             }))
-            .filter((word) => word.end > clipStartTime && word.start < clipStartTime + clipDuration)
+            .filter((word) => word.end > clipStartTime && word.start < clipEndTime)
         : []
+      const displayWords = brandTemplate.caption.uppercase
+        ? rawWords.map((word) => ({ ...word, word: word.word.toUpperCase() }))
+        : rawWords
+      const transcriptText = displayWords.length > 0
+        ? displayWords.map((word) => word.word).join(' ')
+        : brandTemplate.caption.uppercase
+          ? String(segment.text || '').toUpperCase()
+          : String(segment.text || '')
 
       const words = alignWordsToTranscriptText(
-        String(segment.text || ''),
-        rawWords.length > 0
-          ? rawWords.map((word) => ({
+        transcriptText,
+        displayWords.length > 0
+          ? displayWords.map((word) => ({
               word: word.word,
-              start: Math.max(0, word.start - clipStartTime),
-              end: Math.max(0, word.end - clipStartTime)
+              start: Math.max(0, Math.min(clipDuration, word.start - clipStartTime)),
+              end: Math.max(0, Math.min(clipDuration, word.end - clipStartTime))
             }))
           : undefined,
-        Math.max(0, segmentStart - clipStartTime),
-        Math.max(0, segmentEnd - clipStartTime)
+        Math.max(0, clampedStart - clipStartTime),
+        Math.max(0, clampedEnd - clipStartTime)
       )
 
-      return {
+      return [{
         id: `${clipId}-segment-${index}`,
-        start: words?.length ? Math.max(0, words[0].start) : Math.max(0, segmentStart - clipStartTime),
+        start: words?.length ? Math.max(0, words[0].start) : Math.max(0, clampedStart - clipStartTime),
         end: words?.length
           ? Math.max(0, words[words.length - 1].end)
-          : Math.max(0, segmentEnd - clipStartTime),
-        text: brandTemplate.caption.uppercase
-          ? String(segment.text || '').toUpperCase()
-          : String(segment.text || ''),
+          : Math.max(0, clampedEnd - clipStartTime),
+        text: transcriptText,
         words
-      }
+      }]
     })
 
     const cues = buildCaptionCues(cueLines, {
