@@ -11,6 +11,11 @@ export interface ClipSelectionTranscriptLine {
   start: number
   end: number
   text: string
+  boundaryQuality?: {
+    cleanStart: boolean
+    cleanEnd: boolean
+    forcedBreak: boolean
+  }
 }
 
 export interface ClipSelectionAgentResult {
@@ -177,7 +182,12 @@ class ClipSelectionAgentService {
     simplified: boolean
   ) {
     const transcriptBlock = transcriptLines
-      .map((line) => `LINE ${line.lineIndex} [${line.start.toFixed(2)}-${line.end.toFixed(2)}] ${line.text}`)
+      .map((line) => {
+        const boundaryTags = line.boundaryQuality
+          ? ` start=${line.boundaryQuality.cleanStart ? 'clean' : 'continuation'} end=${line.boundaryQuality.cleanEnd ? 'clean' : line.boundaryQuality.forcedBreak ? 'forced' : 'rough'}`
+          : ''
+        return `LINE ${line.lineIndex} [${line.start.toFixed(2)}-${line.end.toFixed(2)}]${boundaryTags} ${line.text}`
+      })
       .join('\n')
 
     return [
@@ -210,6 +220,8 @@ class ClipSelectionAgentService {
       '',
       'Rules:',
       '- Use only provided line indexes.',
+      '- Avoid start=continuation lines as clip starts.',
+      '- Avoid end=forced or end=rough lines as clip ends unless no coherent alternative exists.',
       '- Do not output JSON.',
       '- Do not add commentary before or after the clip blocks.',
       '- Focus on coherent interesting snippets from the transcript.',
@@ -280,6 +292,10 @@ class ClipSelectionAgentService {
     const startLine = transcriptLines.find((line) => line.lineIndex === startLineIndex)
     const endLine = transcriptLines.find((line) => line.lineIndex === endLineIndex)
     if (!startLine || !endLine || endLine.end <= startLine.start) {
+      return null
+    }
+
+    if (startLine.boundaryQuality?.cleanStart === false || endLine.boundaryQuality?.cleanEnd === false) {
       return null
     }
 

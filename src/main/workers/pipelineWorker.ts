@@ -652,6 +652,22 @@ function refinePotentialClips(
   }
 }
 
+async function finalizeClipBoundaries(
+  transcription: PipelineWorkerTranscription,
+  clips: PipelineWorkerPotentialClip[],
+  aiService: AIService | null,
+  mediaDuration: number
+) {
+  const semanticReview = await applySemanticBoundaryReview(transcription, clips, aiService, mediaDuration)
+  const wordRefinement = refinePotentialClips(transcription, semanticReview.clips, mediaDuration)
+
+  return {
+    clips: wordRefinement.clips,
+    semanticReview,
+    wordAdjustments: wordRefinement.adjustments
+  }
+}
+
 function mapClipsToTranscriptLines(
   transcription: PipelineWorkerTranscription,
   clips: PipelineWorkerPotentialClip[]
@@ -766,7 +782,8 @@ async function applySemanticBoundaryReview(
       clips,
       reviews: [] as ClipBoundaryReview[],
       usedAI: false,
-      fallbackReason: 'No transcript lines available for semantic boundary review.'
+      fallbackReason: 'No transcript lines available for semantic boundary review.',
+      transcriptLineCount: 0
     }
   }
 
@@ -1118,7 +1135,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             lineIndex: line.lineIndex,
             start: line.start,
             end: line.end,
-            text: line.text
+            text: line.text,
+            boundaryQuality: line.boundaryQuality
           })),
           mediaDuration: command.mediaDuration,
           targetClipCount: Math.max(12, command.runConfigSnapshot.maxClipsPerEpisode)
@@ -1313,6 +1331,41 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
   if (!analysis) {
     throw new Error('Missing ranked clip analysis for pipeline resume')
+  }
+
+  if (analysis.potentialClips.length > 0) {
+    postProgress(command.workflowJobId, currentStage, 98, 'Finalizing clip boundaries...')
+    const boundaryFinalization = await finalizeClipBoundaries(
+      transcription,
+      analysis.potentialClips,
+      aiService,
+      command.mediaDuration
+    )
+    analysis = { potentialClips: boundaryFinalization.clips }
+
+    postStageCompleted(command.workflowJobId, 'clip_ranking', {
+      clipCount: analysis.potentialClips.length,
+      mode: 'final_boundary_refinement',
+      aiAnalysisSucceeded,
+      selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+        id: clip.id,
+        startTime: clip.startTime,
+        endTime: clip.endTime,
+        shareabilityScore: clip.shareabilityScore
+      })),
+      metadata: {
+        executor: 'final_boundary_refiner',
+        boundaryRefinementVersion: 'semantic_line_plus_word_boundary_v1',
+        reviewedClipCount: boundaryFinalization.semanticReview.reviews.length,
+        semanticBoundaryReviewUsedAI: boundaryFinalization.semanticReview.usedAI,
+        transcriptLineCount: boundaryFinalization.semanticReview.transcriptLineCount,
+        semanticBoundaryReviewFallbackReason: boundaryFinalization.semanticReview.fallbackReason,
+        wordBoundaryAdjustmentCount: boundaryFinalization.wordAdjustments.filter((adjustment) => adjustment.changed).length,
+        reviewPreview: boundaryFinalization.semanticReview.reviews.slice(0, 5),
+        wordAdjustmentPreview: boundaryFinalization.wordAdjustments.slice(0, 5)
+      },
+      analysis
+    })
   }
 
   if (startStageIndex <= stageOrder.indexOf('content_package_generation')) {
