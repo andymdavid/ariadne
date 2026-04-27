@@ -78,22 +78,22 @@ class ClipSelectionAgentService {
           modelId: this.getModelId(this.config.model),
           specVersion: CLIP_SELECTION_AGENT_SPEC_VERSION,
           transcriptLineCount: 0,
-          requestedClipCount: options.targetClipCount ?? 8,
+          requestedClipCount: options.targetClipCount ?? 12,
           returnedClipCount: 0,
           usedRetry: false
         }
       }
     }
 
-    const targetClipCount = Math.max(3, Math.min(8, options.targetClipCount ?? 8))
+    const targetClipCount = Math.max(6, Math.min(20, options.targetClipCount ?? 12))
     const strategies = [
       {
         prompt: this.buildPrompt(transcriptLines, options.mediaDuration, targetClipCount, false),
-        maxTokens: 2600
+        maxTokens: 4200
       },
       {
-        prompt: this.buildPrompt(transcriptLines, options.mediaDuration, Math.max(3, targetClipCount - 2), true),
-        maxTokens: 1800
+        prompt: this.buildPrompt(transcriptLines, options.mediaDuration, Math.max(4, targetClipCount - 4), true),
+        maxTokens: 3000
       }
     ]
 
@@ -193,17 +193,18 @@ class ClipSelectionAgentService {
       transcriptBlock,
       '',
       'TASK:',
-      'Select the strongest clip-worthy spans from the transcript.',
+      'Select as many coherent, interesting clip-worthy spans from the transcript as you can find.',
+      'Slight variations are allowed if they produce a meaningfully different opening, ending, emphasis, or payoff.',
       'Choose exact start and end line indexes.',
-      'Prefer coherent endings over exact duration targets.',
+      'Prefer coherent endings over exact duration targets, but do not suppress decent clips just because they are not the single strongest.',
       simplified
-        ? 'Return 3-6 strong clips only. Be conservative.'
-        : 'Return up to the target count, but only if each clip is genuinely strong.',
+        ? 'Return at least 4 coherent clips if possible. Be inclusive, not overly conservative.'
+        : `Return as many coherent clips as you can, aiming for at least ${targetClipCount} if the transcript supports it.`,
       '',
       'OUTPUT CONTRACT:',
       'For each clip, return at minimum one CLIP line.',
       'Optional HOOK and WHY lines may follow it, but they are not required.',
-      'CLIP|<rank>|start_line=<index>|end_line=<index>|type=<insight|story|advice|hot_take|humor|technical>|score=<1.0-10.0>|context=<low|medium|high>',
+      'CLIP|<rank>|start_line=<index>|end_line=<index>|type=<insight|story|advice|hot_take|humor|technical>|score=<0-100>|context=<low|medium|high>',
       'Optional: HOOK|<short compelling hook or key quote>',
       'Optional: WHY|<one sentence on why this clip works or why the ending is coherent>',
       '',
@@ -212,7 +213,9 @@ class ClipSelectionAgentService {
       '- Do not output JSON.',
       '- Do not add commentary before or after the clip blocks.',
       '- Focus on coherent interesting snippets from the transcript.',
-      '- Do not force artificial packaging if the transcript itself is already interesting.'
+      '- Do not force artificial packaging if the transcript itself is already interesting.',
+      '- Score stronger clips higher, but still include coherent medium-strength clips.',
+      '- Do not collapse multiple valid nearby clips into one if they have distinct framing or payoff.'
     ].join('\n')
   }
 
@@ -287,7 +290,8 @@ class ClipSelectionAgentService {
 
     const contentType = this.parseContentType(typeMatch?.[1])
     const contextNeeded = this.parseContextNeeded(contextMatch?.[1])
-    const shareabilityScore = Math.max(1, Math.min(10, Number(scoreMatch?.[1] ?? 8.5)))
+    const rawScore = Number(scoreMatch?.[1] ?? 75)
+    const shareabilityScore = Math.max(1, Math.min(10, rawScore <= 10 ? rawScore : rawScore / 10))
     const hook = hookLine.replace(/^HOOK\|/i, '').trim() || undefined
     const reason = whyLine.replace(/^WHY\|/i, '').trim() || undefined
 

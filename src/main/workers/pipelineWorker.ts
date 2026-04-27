@@ -1121,7 +1121,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             text: line.text
           })),
           mediaDuration: command.mediaDuration,
-          targetClipCount: Math.min(8, command.runConfigSnapshot.maxClipsPerEpisode)
+          targetClipCount: Math.max(12, command.runConfigSnapshot.maxClipsPerEpisode)
         })
 
         if (agentSelection.clips.length >= 1) {
