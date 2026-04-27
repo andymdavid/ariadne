@@ -970,7 +970,7 @@ class ProcessingPipeline {
       maxClipsPerEpisode: userPreferences.maxClipsPerEpisode,
       brandVoiceExampleCount: brandVoice.examples.length,
       brandVoicePreferences: brandVoice.preferences,
-      localWhisperModel: 'base',
+      localWhisperModel: 'medium',
       candidateGeneratorVersion: 'clip_candidate_service_v6',
       rankingPromptVersion: 'candidate_ranking_v1',
       rankingImplementationVersion: 'ai_service_v4',
