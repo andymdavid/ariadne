@@ -596,6 +596,7 @@ function findRefinedSegmentEndTime(
   }
 
   let refinedEnd = clip.endTime
+  let cleanEnd: number | null = null
   let cursor = lastSegmentIndex
 
   while (cursor < segments.length) {
@@ -607,6 +608,12 @@ function findRefinedSegmentEndTime(
     refinedEnd = Math.max(refinedEnd, current.end)
 
     if (endsWithTerminalPunctuation(current.text)) {
+      cleanEnd = refinedEnd
+      break
+    }
+
+    if (isCleanClipEnd(current.text)) {
+      cleanEnd = refinedEnd
       break
     }
 
@@ -641,7 +648,7 @@ function findRefinedSegmentEndTime(
     cursor += 1
   }
 
-  return Math.min(refinedEnd, mediaDuration)
+  return Math.min(cleanEnd ?? clip.endTime, mediaDuration)
 }
 
 function getWordsWithinWindow(
@@ -784,6 +791,45 @@ function refinePotentialClips(
   }
 }
 
+function buildClipWindowTextFromWords(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip
+) {
+  const words = getWordsWithinWindow(transcription, clip.startTime, clip.endTime)
+  if (words.length > 0) {
+    return words.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
+  }
+
+  return extractClipText(transcription, clip)
+}
+
+function filterClipsWithCleanEnd(
+  transcription: PipelineWorkerTranscription,
+  clips: PipelineWorkerPotentialClip[]
+) {
+  const accepted: PipelineWorkerPotentialClip[] = []
+  const rejected: Array<{ clipId: string; endTime: number; endingPreview: string; reason: string }> = []
+
+  for (const clip of clips) {
+    const clipText = buildClipWindowTextFromWords(transcription, clip)
+    const endingPreview = clipText.split(/\s+/).slice(-18).join(' ')
+
+    if (isCleanClipEnd(clipText)) {
+      accepted.push(clip)
+      continue
+    }
+
+    rejected.push({
+      clipId: clip.id,
+      endTime: clip.endTime,
+      endingPreview,
+      reason: 'Final clip window does not end on a deterministic clean thought boundary.'
+    })
+  }
+
+  return { accepted, rejected }
+}
+
 async function finalizeClipBoundaries(
   transcription: PipelineWorkerTranscription,
   clips: PipelineWorkerPotentialClip[],
@@ -793,11 +839,13 @@ async function finalizeClipBoundaries(
 ) {
   const semanticReview = await applySemanticBoundaryReview(transcription, clips, aiService, mediaDuration, preferredTranscriptLines)
   const wordRefinement = refinePotentialClips(transcription, semanticReview.clips, mediaDuration)
+  const finalClosure = filterClipsWithCleanEnd(transcription, wordRefinement.clips)
 
   return {
-    clips: wordRefinement.clips,
+    clips: finalClosure.accepted,
     semanticReview,
-    wordAdjustments: wordRefinement.adjustments
+    wordAdjustments: wordRefinement.adjustments,
+    rejectedFinalClips: finalClosure.rejected
   }
 }
 
@@ -1562,8 +1610,10 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         transcriptLineCount: boundaryFinalization.semanticReview.transcriptLineCount,
         semanticBoundaryReviewFallbackReason: boundaryFinalization.semanticReview.fallbackReason,
         wordBoundaryAdjustmentCount: boundaryFinalization.wordAdjustments.filter((adjustment) => adjustment.changed).length,
+        finalClosureRejectedCount: boundaryFinalization.rejectedFinalClips.length,
         reviewPreview: boundaryFinalization.semanticReview.reviews.slice(0, 5),
-        wordAdjustmentPreview: boundaryFinalization.wordAdjustments.slice(0, 5)
+        wordAdjustmentPreview: boundaryFinalization.wordAdjustments.slice(0, 5),
+        finalClosureRejectedPreview: boundaryFinalization.rejectedFinalClips.slice(0, 5)
       },
       analysis
     })
