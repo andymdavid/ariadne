@@ -1,7 +1,7 @@
 import { promises as fs, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
-import AIService, { ClipBoundaryReview, ResolvedClipProposal, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
+import AIService, { CleanedTranscriptUnit, ClipBoundaryReview, ResolvedClipProposal, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
 import ClipSelectionAgentService, { ClipSelectionAgentError } from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
 import LocalWhisperService from '../services/localWhisperService'
@@ -556,6 +556,31 @@ function buildSegmentsFromThoughtUnits(
         start: covered[0].start,
         end: covered[covered.length - 1].end,
         text: covered.map((segment) => segment.text.trim()).join(' ').replace(/\s+/g, ' ').trim(),
+        words: covered.flatMap((segment) => segment.words ?? [])
+      }
+    })
+    .filter((segment): segment is NonNullable<typeof segment> => Boolean(segment))
+}
+
+function buildSegmentsFromCleanedUnits(
+  transcription: PipelineWorkerTranscription,
+  units: CleanedTranscriptUnit[]
+): PipelineWorkerTranscription['segments'] {
+  return units
+    .map((unit, index) => {
+      const covered = transcription.segments
+        .filter((segment) => segment.id >= unit.startSegmentId && segment.id <= unit.endSegmentId)
+        .sort((left, right) => left.start - right.start)
+
+      if (covered.length === 0) {
+        return null
+      }
+
+      return {
+        id: index,
+        start: covered[0].start,
+        end: covered[covered.length - 1].end,
+        text: unit.cleanText,
         words: covered.flatMap((segment) => segment.words ?? [])
       }
     })
@@ -1214,23 +1239,59 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
     let normalizedSegments = normalizeTranscriptIntoThoughtUnits(transcription)
     let transcriptNormalizationVersion = 'word_thought_lines_v1'
+    let transcriptCleanupMetadata: Record<string, unknown> | null = null
 
     if (aiService) {
       try {
-        const thoughtUnits = await aiService.segmentTranscriptIntoThoughts(
+        const cleanedUnits = await aiService.cleanupTranscript(
           transcription,
           (progress) => {
-            postProgress(command.workflowJobId, currentStage, Math.min(progress * 0.35, 35), 'Segmenting transcript into complete thoughts...')
+            postProgress(command.workflowJobId, currentStage, Math.min(progress * 0.35, 35), 'Cleaning transcript into editorial units...')
           }
         )
-        const aiNormalizedSegments = buildSegmentsFromThoughtUnits(transcription, thoughtUnits)
-        if (aiNormalizedSegments.length > 0) {
-          normalizedSegments = aiNormalizedSegments
-          semanticTranscriptSegments = aiNormalizedSegments
-          transcriptNormalizationVersion = 'semantic_thought_units_v1'
+        const cleanedSegments = buildSegmentsFromCleanedUnits(transcription, cleanedUnits)
+        if (cleanedSegments.length > 0) {
+          normalizedSegments = cleanedSegments
+          semanticTranscriptSegments = cleanedSegments
+          transcriptNormalizationVersion = 'cleaned_editorial_units_v1'
+          transcriptCleanupMetadata = {
+            executor: 'ai_transcript_cleanup',
+            unitCount: cleanedUnits.length,
+            highPotentialUnitCount: cleanedUnits.filter((unit) => unit.clipPotential === 'high').length,
+            completeThoughtUnitCount: cleanedUnits.filter((unit) => unit.completeThought).length,
+            continuesNextUnitCount: cleanedUnits.filter((unit) => unit.continuesNext).length,
+            preview: cleanedUnits.slice(0, 5)
+          }
         }
-      } catch (error) {
-        console.warn('Semantic transcript segmentation failed, falling back to heuristic normalization', error)
+      } catch (cleanupError) {
+        console.warn('Transcript cleanup failed, falling back to semantic segmentation', cleanupError)
+
+        try {
+          const thoughtUnits = await aiService.segmentTranscriptIntoThoughts(
+            transcription,
+            (progress) => {
+              postProgress(command.workflowJobId, currentStage, Math.min(35 + progress * 0.2, 55), 'Segmenting transcript into complete thoughts...')
+            }
+          )
+          const aiNormalizedSegments = buildSegmentsFromThoughtUnits(transcription, thoughtUnits)
+          if (aiNormalizedSegments.length > 0) {
+            normalizedSegments = aiNormalizedSegments
+            semanticTranscriptSegments = aiNormalizedSegments
+            transcriptNormalizationVersion = 'semantic_thought_units_v1'
+            transcriptCleanupMetadata = {
+              executor: 'semantic_thought_segmentation_fallback',
+              cleanupFailureReason: cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup error',
+              unitCount: thoughtUnits.length
+            }
+          }
+        } catch (error) {
+          transcriptCleanupMetadata = {
+            executor: 'heuristic_transcript_normalization_fallback',
+            cleanupFailureReason: cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup error',
+            semanticSegmentationFailureReason: error instanceof Error ? error.message : 'Unknown semantic segmentation error'
+          }
+          console.warn('Semantic transcript segmentation failed, falling back to heuristic normalization', error)
+        }
       }
     }
 
@@ -1252,7 +1313,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         clipSelectionPlatform: command.runConfigSnapshot.clipSelectionPlatform,
         rawSegmentCount: transcription.segments.length,
         normalizedSegmentCount: normalizedSegments.length,
-        transcriptNormalizationVersion
+        transcriptNormalizationVersion,
+        transcriptCleanup: transcriptCleanupMetadata
       },
       candidates
     })

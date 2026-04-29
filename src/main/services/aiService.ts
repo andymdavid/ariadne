@@ -27,6 +27,18 @@ export interface SemanticTranscriptUnit {
   endSegmentId: number
 }
 
+export interface CleanedTranscriptUnit {
+  unitId: number
+  startSegmentId: number
+  endSegmentId: number
+  cleanText: string
+  completeThought: boolean
+  continuesNext: boolean
+  unitType: 'claim' | 'example' | 'story' | 'context' | 'transition' | 'aside' | 'unknown'
+  clipPotential: 'high' | 'medium' | 'low'
+  reason: string
+}
+
 export interface TranscriptBoundaryLine {
   lineIndex: number
   start: number
@@ -222,6 +234,47 @@ class AIService {
     onProgress?.(70)
 
     const units = this.parseThoughtSegmentationResponse(response.content, segments)
+    onProgress?.(100)
+    return units
+  }
+
+  async cleanupTranscript(
+    transcriptData: TranscriptDataWithWords,
+    onProgress?: (progress: number) => void
+  ): Promise<CleanedTranscriptUnit[]> {
+    onProgress?.(10)
+
+    const segments = transcriptData.segments
+      .filter((segment) => segment.text.trim().length > 0)
+      .sort((left, right) => left.start - right.start)
+
+    if (segments.length === 0) {
+      return []
+    }
+
+    const prompt = this.buildTranscriptCleanupPrompt(segments)
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are an expert podcast transcript editor.',
+            'Clean obvious ASR errors and group raw segments into coherent editorial units.',
+            'Preserve meaning. Do not add new claims. Return valid JSON only.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 7000,
+      temperature: 0.1
+    })
+
+    onProgress?.(80)
+    const units = this.parseTranscriptCleanupResponse(response.content, segments)
     onProgress?.(100)
     return units
   }
@@ -1256,6 +1309,55 @@ OUTPUT FORMAT (JSON):
   "thought_units": [
     { "start_segment_id": 0, "end_segment_id": 2 },
     { "start_segment_id": 3, "end_segment_id": 5 }
+  ]
+}
+
+SEGMENTS:
+${segmentText}
+
+Return JSON only.
+    `.trim()
+  }
+
+  private buildTranscriptCleanupPrompt(
+    segments: Array<{ id: number; start: number; end: number; text: string }>
+  ) {
+    const segmentText = segments
+      .map((segment) => {
+        const text = segment.text.replace(/\s+/g, ' ').trim()
+        return `SEGMENT ${segment.id} [${segment.start.toFixed(2)}-${segment.end.toFixed(2)}] ${text}`
+      })
+      .join('\n')
+
+    return `
+TASK:
+Clean this raw ASR transcript into coherent editorial units for short-form clip generation.
+
+RULES:
+- Use only the provided segment IDs.
+- Cover the transcript in order without overlap.
+- Group consecutive raw segments into coherent units.
+- Fix obvious ASR wording, casing, punctuation, and repeated filler only when meaning is clear.
+- Preserve the speaker's meaning and conversational voice.
+- Do not invent facts, examples, or claims.
+- Keep uncertain wording rather than over-correcting.
+- Mark whether each unit is a complete thought and whether it continues into the next unit.
+- Prefer units that are useful for clip generation: claim, example, story, context, transition, aside.
+
+OUTPUT JSON:
+{
+  "units": [
+    {
+      "unit_id": 0,
+      "start_segment_id": 12,
+      "end_segment_id": 16,
+      "clean_text": "Cleaned transcript text for these consecutive segments.",
+      "complete_thought": true,
+      "continues_next": false,
+      "unit_type": "claim",
+      "clip_potential": "high",
+      "reason": "Why this unit matters or why it is low value."
+    }
   ]
 }
 
@@ -2613,6 +2715,104 @@ Return JSON only.
       normalized.push({
         startSegmentId: lastCovered + 1,
         endSegmentId: finalSegmentId
+      })
+    }
+
+    return normalized
+  }
+
+  private parseTranscriptCleanupResponse(
+    content: string,
+    segments: Array<{ id: number; start: number; end: number; text: string }>
+  ): CleanedTranscriptUnit[] {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error('No JSON found in transcript cleanup response')
+    }
+
+    const parsed = JSON.parse(jsonString)
+    const rawUnits = Array.isArray(parsed.units) ? parsed.units : null
+    if (!rawUnits) {
+      throw new Error('Invalid transcript cleanup response: missing units')
+    }
+
+    const segmentIds = segments.map((segment) => segment.id)
+    const segmentIdSet = new Set(segmentIds)
+    const validUnitTypes = new Set(['claim', 'example', 'story', 'context', 'transition', 'aside', 'unknown'])
+    const validClipPotential = new Set(['high', 'medium', 'low'])
+
+    const units = rawUnits
+      .map((unit: any, index: number) => {
+        const startSegmentId = Number(unit.start_segment_id)
+        const endSegmentId = Number(unit.end_segment_id)
+        const cleanText = String(unit.clean_text ?? '').replace(/\s+/g, ' ').trim()
+        const unitType = String(unit.unit_type ?? 'unknown').toLowerCase()
+        const clipPotential = String(unit.clip_potential ?? 'low').toLowerCase()
+
+        if (
+          !Number.isInteger(startSegmentId) ||
+          !Number.isInteger(endSegmentId) ||
+          !segmentIdSet.has(startSegmentId) ||
+          !segmentIdSet.has(endSegmentId) ||
+          endSegmentId < startSegmentId ||
+          !cleanText
+        ) {
+          return null
+        }
+
+        return {
+          unitId: Number.isInteger(Number(unit.unit_id)) ? Number(unit.unit_id) : index,
+          startSegmentId,
+          endSegmentId,
+          cleanText,
+          completeThought: Boolean(unit.complete_thought),
+          continuesNext: Boolean(unit.continues_next),
+          unitType: validUnitTypes.has(unitType)
+            ? unitType as CleanedTranscriptUnit['unitType']
+            : 'unknown',
+          clipPotential: validClipPotential.has(clipPotential)
+            ? clipPotential as CleanedTranscriptUnit['clipPotential']
+            : 'low',
+          reason: String(unit.reason ?? '').replace(/\s+/g, ' ').trim()
+        }
+      })
+      .filter((unit: CleanedTranscriptUnit | null): unit is CleanedTranscriptUnit => Boolean(unit))
+      .sort((left: CleanedTranscriptUnit, right: CleanedTranscriptUnit) => left.startSegmentId - right.startSegmentId)
+
+    if (units.length === 0) {
+      throw new Error('No valid transcript cleanup units parsed')
+    }
+
+    const normalized: CleanedTranscriptUnit[] = []
+    let expectedStart = segmentIds[0]
+
+    for (const unit of units) {
+      if (unit.startSegmentId !== expectedStart) {
+        continue
+      }
+
+      normalized.push(unit)
+      expectedStart = unit.endSegmentId + 1
+    }
+
+    if (normalized.length === 0) {
+      throw new Error('Transcript cleanup units did not cover transcript contiguously')
+    }
+
+    const lastCovered = normalized[normalized.length - 1].endSegmentId
+    const finalSegmentId = segmentIds[segmentIds.length - 1]
+    if (lastCovered < finalSegmentId) {
+      const remaining = segments.filter((segment) => segment.id > lastCovered)
+      normalized.push({
+        unitId: normalized.length,
+        startSegmentId: lastCovered + 1,
+        endSegmentId: finalSegmentId,
+        cleanText: remaining.map((segment) => segment.text.trim()).join(' ').replace(/\s+/g, ' ').trim(),
+        completeThought: false,
+        continuesNext: false,
+        unitType: 'unknown',
+        clipPotential: 'low',
+        reason: 'Fallback unit for transcript cleanup coverage.'
       })
     }
 
