@@ -28,6 +28,7 @@ Match the quality bar of leading clipping products:
 - The first v2 boundary run selected a clip from `526.38s` to `574.92s` ending on `...depending on the need`; the next transcript segment continues directly with `I'll use a different tier of model`. This shows the final gate also needs lookahead continuity checks, not only trailing-token checks.
 - The same v2 run started the selected clip with `but the point about the model...`, showing the pipeline also needs final start-boundary enforcement.
 - The first v3 boundary run correctly extended a clip from `177.68s` to `188.06s`, but stopped on `...like that's that's what`; the next transcript segment continues `I'm trying to do...`. This shows the extension loop needs a strict local-ending check, not just whole-clip completeness.
+- The first v4 boundary run correctly rejected an incomplete ending, but returned zero clips. This shows final boundary validation needs a recovery path over deterministic candidates after AI-selected clips are rejected.
 
 ## Architecture Direction
 
@@ -80,6 +81,8 @@ Clip quality should be enforced by a deterministic boundary engine:
 - [ ] Add strict local-ending checks so the extension loop cannot stop on `that's what`, `this is where`, or similar unresolved references.
 - [ ] Strip leading filler before start-boundary checks so `yeah but...` is still treated as a continuation start.
 - [ ] Add regression coverage for the `122.58s -> 188.06s` v3 run.
+- [ ] Add finalization recovery over heuristic candidates when all AI-selected clips fail boundary validation.
+- [ ] Treat clip starts that land inside an overlapping word as invalid starts.
 
 ### Phase 2: Boundary Evaluation Harness
 

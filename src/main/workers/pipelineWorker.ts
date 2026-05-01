@@ -897,6 +897,11 @@ function clipStartsCleanly(
 ) {
   const clipText = buildClipWindowTextFromWords(transcription, clip)
   const leadingWords = getClipLeadingWords(transcription, clip)
+  const firstWord = leadingWords[0]
+  if (firstWord && firstWord.start < clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS) {
+    return false
+  }
+
   const leadingText = leadingWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
   const textToCheck = stripLeadingBoundaryFiller(leadingText || clipText)
   return Boolean(textToCheck) && isCleanClipStart(textToCheck)
@@ -1170,6 +1175,25 @@ function enforceCleanClipStarts(
   }
 
   return { accepted, rejected, decisions }
+}
+
+function buildFallbackClipsFromCandidates(
+  candidates: PipelineWorkerCandidate[],
+  limit = 12
+): PipelineWorkerPotentialClip[] {
+  return candidates
+    .slice(0, limit)
+    .map((candidate, index) => ({
+      id: `boundary_fallback_${index + 1}`,
+      startTime: candidate.startTime,
+      endTime: candidate.endTime,
+      duration: candidate.duration,
+      contentType: 'insight' as const,
+      shareabilityScore: Number(Math.max(1, Math.min(9.2, candidate.heuristicScore * 1.4)).toFixed(1)),
+      keyQuote: candidate.openingLine || candidate.text.slice(0, 120),
+      reason: 'Recovered from deterministic transcript candidate after all AI-selected clips failed final boundary validation.',
+      contextNeeded: 'low' as const
+    }))
 }
 
 async function finalizeClipBoundaries(
@@ -1966,13 +1990,31 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
   if (analysis.potentialClips.length > 0) {
     postProgress(command.workflowJobId, currentStage, 98, 'Finalizing clip boundaries...')
-    const boundaryFinalization = await finalizeClipBoundaries(
+    let boundaryFinalization = await finalizeClipBoundaries(
       transcription,
       analysis.potentialClips,
       aiService,
       command.mediaDuration,
       semanticTranscriptSegments ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments) : undefined
     )
+    const initialBoundaryFinalization = boundaryFinalization
+    let fallbackBoundaryFinalization: Awaited<ReturnType<typeof finalizeClipBoundaries>> | null = null
+
+    if (boundaryFinalization.clips.length === 0 && candidates.length > 0) {
+      const fallbackClips = buildFallbackClipsFromCandidates(candidates)
+      fallbackBoundaryFinalization = await finalizeClipBoundaries(
+        transcription,
+        fallbackClips,
+        null,
+        command.mediaDuration,
+        semanticTranscriptSegments ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments) : undefined
+      )
+
+      if (fallbackBoundaryFinalization.clips.length > 0) {
+        boundaryFinalization = fallbackBoundaryFinalization
+      }
+    }
+
     analysis = { potentialClips: boundaryFinalization.clips }
 
     postStageCompleted(command.workflowJobId, 'clip_ranking', {
@@ -1987,7 +2029,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       })),
       metadata: {
         executor: 'final_boundary_refiner',
-        boundaryRefinementVersion: 'semantic_line_plus_word_boundary_v4',
+        boundaryRefinementVersion: 'semantic_line_plus_word_boundary_v5',
         reviewedClipCount: boundaryFinalization.semanticReview.reviews.length,
         semanticBoundaryReviewUsedAI: boundaryFinalization.semanticReview.usedAI,
         transcriptLineCount: boundaryFinalization.semanticReview.transcriptLineCount,
@@ -1997,6 +2039,9 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         startBoundaryRejectedCount: boundaryFinalization.rejectedStartBoundaryClips.length,
         endBoundaryExtendedCount: boundaryFinalization.endBoundaryDecisions.filter((decision) => decision.status === 'extended').length,
         finalClosureRejectedCount: boundaryFinalization.rejectedFinalClips.length,
+        fallbackBoundaryRecoveryAttempted: Boolean(fallbackBoundaryFinalization),
+        fallbackBoundaryRecoverySucceeded: Boolean(fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0),
+        initialFinalClosureRejectedCount: fallbackBoundaryFinalization ? initialBoundaryFinalization.rejectedFinalClips.length : undefined,
         reviewPreview: boundaryFinalization.semanticReview.reviews.slice(0, 5),
         wordAdjustmentPreview: boundaryFinalization.wordAdjustments.slice(0, 5),
         startBoundaryDecisionPreview: boundaryFinalization.startBoundaryDecisions.slice(0, 5),
