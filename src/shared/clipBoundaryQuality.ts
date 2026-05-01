@@ -50,12 +50,7 @@ export const endsWithDanglingPhrase = (text: string) => {
 
   const words = normalized.split(/\s+/).filter(Boolean)
   const lastWord = words[words.length - 1] || ''
-  const functionalWords = new Set([
-    'it', 'is', 'be', 'we', 'he', 'me', 'so', 'do', 'go', 'no', 'up', 'if',
-    'or', 'as', 'at', 'by', 'on', 'an', 'am', 'us', 'my'
-  ])
-
-  return lastWord.length <= 2 || functionalWords.has(lastWord)
+  return lastWord.length <= 2
 }
 
 export const getTrailingBoundaryIssue = (text: string): string | null => {
@@ -80,12 +75,7 @@ export const getTrailingBoundaryIssue = (text: string): string | null => {
 
   const words = normalized.split(/\s+/).filter(Boolean)
   const lastWord = words[words.length - 1] || ''
-  const functionalWords = new Set([
-    'it', 'is', 'be', 'we', 'he', 'me', 'so', 'do', 'go', 'no', 'up', 'if',
-    'or', 'as', 'at', 'by', 'on', 'an', 'am', 'us', 'my'
-  ])
-
-  if (lastWord.length <= 2 || functionalWords.has(lastWord)) {
+  if (lastWord.length <= 2) {
     return 'trailing_function_word'
   }
 

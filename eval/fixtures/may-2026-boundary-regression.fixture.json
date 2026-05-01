@@ -1,0 +1,27 @@
+{
+  "name": "May 2026 incomplete clip ending regression",
+  "transcriptSegments": [
+    {
+      "start": 314.64,
+      "end": 401.42,
+      "text": "and you can build that in several different places like you could have it all inside Claude Cowork you could have it all inside workflow scripts you all inside custom software that you own and where you decide to build that system is gonna tell you who really controls your business because if you put the whole thing inside Claude your switching costs that you can't you will never leave Claude you'll be working that model for the rest of your life and effectively they can turn your business off by turning off provision of your business and you won't be able to move everything quick enough somewhere else to go and do it so it becomes very like because the question we had is why is wingman open source why are you not charging the license fee for this and I said I morally can't charge you the license fee for this because what I'm saying is that you should use this suite to define all the business processes of your business that's your business it's not my business therefore you need to be able to own that if I get hit by a bus and Andy wins the lottery for some reason Andy came out really good on that one I'm sorry for or Andy gets hit by the bus and then I win the lottery and I'm like oh well you know it could go either way who knows who knows but you still need your business to operate so like if it's now dictated by license fee that I can do then I become the extracted part of that so that's not what we should do like that's the wrong way to develop all small business in the world is that they should be owned by Claude that's"
+    },
+    {
+      "start": 401.42,
+      "end": 407.42,
+      "text": "fucking ridiculous we don't need to do that we shouldn't just go and opt into that world without thinking about it"
+    }
+  ],
+  "expectedGoodClips": [
+    {
+      "startTime": 314.64,
+      "endTime": 407.42
+    }
+  ],
+  "expectedBadRanges": [
+    {
+      "startTime": 314.64,
+      "endTime": 401.42
+    }
+  ]
+}
