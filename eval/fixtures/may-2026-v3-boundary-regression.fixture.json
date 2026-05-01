@@ -1,0 +1,117 @@
+{
+  "name": "May 2026 v3 unresolved reference ending regression",
+  "transcriptSegments": [
+    {
+      "start": 121.06,
+      "end": 124.76,
+      "text": "them in any production yet yeah but an interesting idea to run it as like a"
+    },
+    {
+      "start": 124.76,
+      "end": 129.08,
+      "text": "harness for the other agents I also think that like the the models don't"
+    },
+    {
+      "start": 129.08,
+      "end": 133.5,
+      "text": "have to be that intelligent like I think we keep assuming we need more and more"
+    },
+    {
+      "start": 133.5,
+      "end": 137.2,
+      "text": "intelligence in these models and we have of you like this is what we're"
+    },
+    {
+      "start": 137.2,
+      "end": 140.36,
+      "text": "reflecting in there like the predictions for this year was it's not about models"
+    },
+    {
+      "start": 140.36,
+      "end": 144.0,
+      "text": "game that much more intelligent it's bad the harnesses and the agents and"
+    },
+    {
+      "start": 144.86,
+      "end": 148.36,
+      "text": "the processes that you put around it getting more intelligent and I think what"
+    },
+    {
+      "start": 148.36,
+      "end": 152.72,
+      "text": "you need to run a business is you want your your agent needs to be clever"
+    },
+    {
+      "start": 152.72,
+      "end": 155.82,
+      "text": "enough to write some software and the software doesn't even have to be"
+    },
+    {
+      "start": 155.82,
+      "end": 160.06,
+      "text": "flashy it just needs to be like CLIs and scripts that move data from one thing to"
+    },
+    {
+      "start": 160.06,
+      "end": 163.56,
+      "text": "the next and then you need it to be clever enough to reliably transform"
+    },
+    {
+      "start": 163.56,
+      "end": 168.58,
+      "text": "stuff between different JSON shapes which is like kind of like what you do"
+    },
+    {
+      "start": 168.58,
+      "end": 172.48,
+      "text": "and it's like you got to make a decision you're able to move data from one system"
+    },
+    {
+      "start": 172.48,
+      "end": 176.34,
+      "text": "to another system that's kind of what we use a lot of humans for the workplace"
+    },
+    {
+      "start": 177.28,
+      "end": 181.14,
+      "text": "yeah and then it just comes down to implementation actually getting the"
+    },
+    {
+      "start": 181.14,
+      "end": 186.56,
+      "text": "thing embedded yeah yeah I think about it from like a small business"
+    },
+    {
+      "start": 186.56,
+      "end": 189.04,
+      "text": "perspective right like that's that's what I'm trying to do is help small"
+    },
+    {
+      "start": 189.04,
+      "end": 193.98,
+      "text": "businesses with this sort of stuff and like you guys are and the two kind of"
+    },
+    {
+      "start": 193.98,
+      "end": 198.58,
+      "text": "barrels I'm staring down is do you as a business do you go all in on a provider"
+    },
+    {
+      "start": 198.58,
+      "end": 202.6,
+      "text": "like Anthropic and jump into their ecosystem and use all the great tools"
+    }
+  ],
+  "expectedGoodClips": [
+    {
+      "startTime": 121.06,
+      "endTime": 193.98
+    }
+  ],
+  "expectedBadRanges": [
+    {
+      "startTime": 122.58,
+      "endTime": 188.06
+    }
+  ]
+}

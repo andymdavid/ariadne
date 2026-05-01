@@ -141,10 +141,28 @@ function isQuoteGrounded(clip, segments) {
 function getClipText(clip, segments) {
   return segments
     .filter(segment => segment.end > clip.startTime && segment.start < clip.endTime)
-    .map(segment => segment.text)
+    .map(segment => sliceSegmentTextForClip(segment, clip))
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function sliceSegmentTextForClip(segment, clip) {
+  const text = String(segment.text || '').trim()
+  if (!text) return ''
+
+  const duration = Math.max(0.01, segment.end - segment.start)
+  const overlapStart = Math.max(segment.start, clip.startTime)
+  const overlapEnd = Math.min(segment.end, clip.endTime)
+  const startRatio = Math.max(0, Math.min(1, (overlapStart - segment.start) / duration))
+  const endRatio = Math.max(startRatio, Math.min(1, (overlapEnd - segment.start) / duration))
+
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length <= 1) return text
+
+  const startIndex = Math.max(0, Math.floor(startRatio * words.length))
+  const endIndex = Math.min(words.length, Math.max(startIndex + 1, Math.ceil(endRatio * words.length)))
+  return words.slice(startIndex, endIndex).join(' ')
 }
 
 function findDuplicateRatio(targetClip, clips, targetIndex) {
@@ -178,7 +196,7 @@ function normalize(value) {
 }
 
 function startsLikeContinuation(text) {
-  return /^(and|but|so|because|then|which|that|it|this|these|those|or|if|when|where|while|who|what|how|than|as|to|for|with|of|in|on|at|from|by|about|into|over|after|before)\b/i.test(String(text || '').trim())
+  return /^(and|but|so|because|then|which|that|it|this|these|those|or|if|when|where|while|who|what|how|than|as|to|for|with|of|in|on|at|from|by|about|into|over|after|before)\b/i.test(stripLeadingBoundaryFiller(String(text || '').trim()))
 }
 
 function looksLikeCompleteThought(text) {
@@ -196,6 +214,7 @@ function endsWithDanglingPhrase(text) {
   if (
     /\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/.test(normalized) ||
     /\b(that'?s|there'?s|it'?s|what'?s|who'?s|where'?s|when'?s|why'?s|how'?s)\s*$/.test(normalized) ||
+    /\b(that'?s|this is|that is|it'?s|what'?s|here'?s|there'?s)\s+(what|where|when|why|how|who|which)\s*$/.test(normalized) ||
     /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/.test(normalized) ||
     /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
     /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized) ||
@@ -212,6 +231,13 @@ function endsWithDanglingPhrase(text) {
 
 function stripTerminalPunctuation(text) {
   return text.replace(/[.!?]+["']?\s*$/g, '').trim()
+}
+
+function stripLeadingBoundaryFiller(text) {
+  return text
+    .trim()
+    .replace(/^((yeah|yep|yes|no|right|okay|ok|well|like|so|um|uh|ah|you know|i mean|sort of|kind of)[,\s]+)+/i, '')
+    .trim()
 }
 
 function round(value) {

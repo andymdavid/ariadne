@@ -26,8 +26,14 @@ export const normalizeTranscriptText = (text: string) =>
 
 export const endsWithTerminalPunctuation = (text: string) => /[.!?]["']?\s*$/.test(text.trim())
 
+export const stripLeadingBoundaryFiller = (text: string) =>
+  text
+    .trim()
+    .replace(/^((yeah|yep|yes|no|right|okay|ok|well|like|so|um|uh|ah|you know|i mean|sort of|kind of)[,\s]+)+/i, '')
+    .trim()
+
 export const startsLikeContinuation = (text: string) => {
-  const trimmed = text.trim()
+  const trimmed = stripLeadingBoundaryFiller(text)
   if (!trimmed) return false
   return CONTINUATION_WORD_PATTERN.test(trimmed)
 }
@@ -61,6 +67,7 @@ export const getTrailingBoundaryIssue = (text: string): string | null => {
   const issuePatterns: Array<[RegExp, string]> = [
     [/\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/, 'trailing_connector'],
     [/\b(that'?s|there'?s|it'?s|what'?s|who'?s|where'?s|when'?s|why'?s|how'?s)\s*$/, 'trailing_contraction'],
+    [/\b(that'?s|this is|that is|it'?s|what'?s|here'?s|there'?s)\s+(what|where|when|why|how|who|which)\s*$/, 'trailing_unresolved_reference'],
     [/\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/, 'trailing_determiner'],
     [/\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/, 'trailing_auxiliary'],
     [/\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/, 'trailing_incomplete_phrase'],
@@ -85,6 +92,24 @@ export const getTrailingBoundaryIssue = (text: string): string | null => {
 }
 
 export const isHardIncompleteEnding = (text: string) => getTrailingBoundaryIssue(text) !== null
+
+export const isCleanLocalClipEnd = (text: string) => {
+  const normalized = normalize(stripTerminalPunctuation(text))
+  if (!normalized || getTrailingBoundaryIssue(normalized)) return false
+
+  if (/\b(that'?s|this is|that is|it'?s|what'?s|here'?s|there'?s)\s+(what|where|when|why|how|who|which)\s*$/.test(normalized)) {
+    return false
+  }
+
+  if (endsWithTerminalPunctuation(text)) {
+    return true
+  }
+
+  return (
+    /\b(true|right|exactly|yeah|yes|no|done|finished|complete|matters|works|helps|changes|solves|defines|controls|owns|operates|operate)\s*$/.test(normalized) ||
+    /\b(that'?s why|that'?s how|which means|the point is|the takeaway|bottom line|so basically|therefore)\b[^.!?]{0,80}$/.test(normalized)
+  )
+}
 
 export const looksLikeCompleteThought = (text: string) => {
   const trimmed = text.trim()
@@ -116,8 +141,8 @@ export const getBoundaryQuality = (text: string): BoundaryQuality => ({
 })
 
 export const isCleanClipStart = (text: string) => {
-  const trimmed = text.trim()
+  const trimmed = stripLeadingBoundaryFiller(text)
   return Boolean(trimmed) && !startsLikeContinuation(trimmed)
 }
 
-export const isCleanClipEnd = (text: string) => looksLikeCompleteThought(text) && !isHardIncompleteEnding(text)
+export const isCleanClipEnd = (text: string) => looksLikeCompleteThought(text) && isCleanLocalClipEnd(text)

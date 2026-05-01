@@ -21,7 +21,7 @@ import type {
   PipelineWorkerTranscription,
   StartPipelineWorkerCommand,
 } from '@shared/types/pipelineWorker'
-import { getTrailingBoundaryIssue, isCleanClipEnd, isCleanClipStart } from '../../shared/clipBoundaryQuality'
+import { getTrailingBoundaryIssue, isCleanClipEnd, isCleanClipStart, isCleanLocalClipEnd, stripLeadingBoundaryFiller } from '../../shared/clipBoundaryQuality'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
@@ -898,7 +898,7 @@ function clipStartsCleanly(
   const clipText = buildClipWindowTextFromWords(transcription, clip)
   const leadingWords = getClipLeadingWords(transcription, clip)
   const leadingText = leadingWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-  const textToCheck = leadingText || clipText
+  const textToCheck = stripLeadingBoundaryFiller(leadingText || clipText)
   return Boolean(textToCheck) && isCleanClipStart(textToCheck)
 }
 
@@ -973,7 +973,9 @@ function findCleanExtendedClipEnd(
 
     const candidateClip = buildAdjustedClipEnd(clip, candidateEnd)
     const candidateText = buildClipWindowTextFromWords(transcription, candidateClip)
-    if (isCleanClipEnd(candidateText)) {
+    const localEndingText = candidateText.split(/\s+/).slice(-12).join(' ')
+    const lookaheadIssue = getClipEndLookaheadIssue(transcription, candidateClip)
+    if (!lookaheadIssue && isCleanClipEnd(candidateText) && isCleanLocalClipEnd(localEndingText)) {
       return {
         clip: candidateClip,
         endingPreview: candidateText.split(/\s+/).slice(-18).join(' '),
@@ -1041,9 +1043,13 @@ function enforceCleanClipEnds(
   for (const clip of clips) {
     const clipText = buildClipWindowTextFromWords(transcription, clip)
     const endingPreview = clipText.split(/\s+/).slice(-18).join(' ')
-    const trailingBoundaryIssue = getTrailingBoundaryIssue(clipText) ?? getClipEndLookaheadIssue(transcription, clip)
+    const localEndingText = clipText.split(/\s+/).slice(-12).join(' ')
+    const trailingBoundaryIssue =
+      getTrailingBoundaryIssue(localEndingText) ??
+      getTrailingBoundaryIssue(clipText) ??
+      getClipEndLookaheadIssue(transcription, clip)
 
-    if (!trailingBoundaryIssue && isCleanClipEnd(clipText)) {
+    if (!trailingBoundaryIssue && isCleanClipEnd(clipText) && isCleanLocalClipEnd(localEndingText)) {
       accepted.push(clip)
       decisions.push({
         clipId: clip.id,
@@ -1981,7 +1987,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       })),
       metadata: {
         executor: 'final_boundary_refiner',
-        boundaryRefinementVersion: 'semantic_line_plus_word_boundary_v3',
+        boundaryRefinementVersion: 'semantic_line_plus_word_boundary_v4',
         reviewedClipCount: boundaryFinalization.semanticReview.reviews.length,
         semanticBoundaryReviewUsedAI: boundaryFinalization.semanticReview.usedAI,
         transcriptLineCount: boundaryFinalization.semanticReview.transcriptLineCount,
