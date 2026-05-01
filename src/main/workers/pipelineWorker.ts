@@ -38,6 +38,7 @@ const THOUGHT_UNIT_ABSOLUTE_MAX_WORDS = 110
 const THOUGHT_UNIT_CLAUSE_BREAK_MIN_WORDS = 18
 const SEMANTIC_CLIP_MAX_DURATION_SECONDS = 120
 const RESOLVED_CLIP_MIN_DURATION_SECONDS = 25
+const BOUNDARY_OPTIMIZER_MIN_SCORE = 45
 
 function postMessage(event: PipelineWorkerEvent) {
   if (typeof process.send === 'function') {
@@ -1027,6 +1028,214 @@ function getClipEndLookaheadIssue(
   return null
 }
 
+function uniqueSortedTimes(times: number[]) {
+  return [...new Set(times.map((time) => Number(time.toFixed(3))))]
+    .filter((time) => Number.isFinite(time))
+    .sort((left, right) => left - right)
+}
+
+function buildBoundaryStartAnchors(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip,
+  mediaDuration: number
+) {
+  const minStart = Math.max(0, clip.startTime - 24)
+  const maxStart = Math.min(clip.endTime - RESOLVED_CLIP_MIN_DURATION_SECONDS, clip.startTime + 8)
+  const words = getWordsWithinWindow(transcription, minStart, Math.min(mediaDuration, clip.startTime + 10))
+  const segmentStarts = transcription.segments
+    .filter((segment) => segment.start >= minStart && segment.start <= maxStart)
+    .map((segment) => segment.start)
+  const wordStarts = words
+    .filter((word, index) => {
+      if (word.start < minStart || word.start > maxStart) return false
+      const previous = words[index - 1]
+      const gap = previous ? word.start - previous.end : Number.POSITIVE_INFINITY
+      const leadingText = words.slice(index, index + 8).map((item) => item.word).join(' ')
+      return gap >= 0.22 || isCleanClipStart(leadingText)
+    })
+    .map((word) => word.start)
+
+  return uniqueSortedTimes([clip.startTime, ...segmentStarts, ...wordStarts])
+}
+
+function buildBoundaryEndAnchors(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip,
+  mediaDuration: number
+) {
+  const minEnd = Math.max(clip.startTime + RESOLVED_CLIP_MIN_DURATION_SECONDS, clip.endTime - 10)
+  const maxEnd = Math.min(mediaDuration, clip.startTime + SEMANTIC_CLIP_MAX_DURATION_SECONDS, clip.endTime + 36)
+  const words = getWordsWithinWindow(transcription, Math.max(0, minEnd - 8), maxEnd)
+  const segmentEnds = transcription.segments
+    .filter((segment) => segment.end >= minEnd && segment.end <= maxEnd)
+    .map((segment) => segment.end)
+  const wordEnds = words
+    .map((word, index) => resolveClipEndWithTrailingPad(words, index, mediaDuration))
+    .filter((endTime) => endTime >= minEnd && endTime <= maxEnd)
+
+  return uniqueSortedTimes([clip.endTime, ...segmentEnds, ...wordEnds])
+}
+
+function scoreOptimizedBoundaryPair(
+  transcription: PipelineWorkerTranscription,
+  originalClip: PipelineWorkerPotentialClip,
+  startTime: number,
+  endTime: number
+) {
+  const candidateClip = {
+    ...originalClip,
+    startTime,
+    endTime,
+    duration: Number((endTime - startTime).toFixed(3))
+  }
+  const duration = candidateClip.duration
+  if (duration < RESOLVED_CLIP_MIN_DURATION_SECONDS || duration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+    return null
+  }
+
+  const text = buildClipWindowTextFromWords(transcription, candidateClip)
+  if (!text) return null
+
+  const localEndingText = text.split(/\s+/).slice(-12).join(' ')
+  const hardEndIssue = getTrailingBoundaryIssue(localEndingText) ?? getTrailingBoundaryIssue(text)
+  const lookaheadIssue = getClipEndLookaheadIssue(transcription, candidateClip)
+  const cleanStart = clipStartsCleanly(transcription, candidateClip)
+  const cleanEnd = isCleanClipEnd(text) && isCleanLocalClipEnd(localEndingText)
+  const localEndClean = isCleanLocalClipEnd(localEndingText)
+  const movementPenalty = Math.abs(startTime - originalClip.startTime) * 0.35 + Math.abs(endTime - originalClip.endTime) * 0.25
+  const durationPenalty = duration > 90 ? (duration - 90) * 0.4 : duration < 35 ? (35 - duration) * 0.5 : 0
+
+  let score = 0
+  if (cleanStart) score += 24
+  if (cleanEnd) score += 38
+  if (localEndClean) score += 14
+  if (!hardEndIssue) score += 12
+  if (!lookaheadIssue) score += 8
+  else score -= 8
+  score -= movementPenalty + durationPenalty
+
+  return {
+    clip: candidateClip,
+    score: Number(score.toFixed(3)),
+    cleanStart,
+    cleanEnd,
+    localEndClean,
+    hardEndIssue,
+    lookaheadIssue,
+    endingPreview: text.split(/\s+/).slice(-18).join(' '),
+    openingPreview: getClipLeadingWords(transcription, candidateClip).map((word) => word.word).join(' '),
+    movementSeconds: Number((Math.abs(startTime - originalClip.startTime) + Math.abs(endTime - originalClip.endTime)).toFixed(3))
+  }
+}
+
+function optimizeClipBoundary(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip,
+  mediaDuration: number
+) {
+  const startAnchors = buildBoundaryStartAnchors(transcription, clip, mediaDuration)
+  const endAnchors = buildBoundaryEndAnchors(transcription, clip, mediaDuration)
+  const scored: NonNullable<ReturnType<typeof scoreOptimizedBoundaryPair>>[] = []
+
+  for (const startTime of startAnchors) {
+    for (const endTime of endAnchors) {
+      if (endTime <= startTime) continue
+      const result = scoreOptimizedBoundaryPair(transcription, clip, startTime, endTime)
+      if (result) {
+        scored.push(result)
+      }
+    }
+  }
+
+  scored.sort((left, right) => right.score - left.score)
+  const best = scored[0] ?? null
+  return {
+    best,
+    alternativesConsidered: scored.length,
+    topAlternatives: scored.slice(0, 3).map((item) => ({
+      startTime: item.clip.startTime,
+      endTime: item.clip.endTime,
+      duration: item.clip.duration,
+      score: item.score,
+      cleanStart: item.cleanStart,
+      cleanEnd: item.cleanEnd,
+      hardEndIssue: item.hardEndIssue,
+      lookaheadIssue: item.lookaheadIssue,
+      endingPreview: item.endingPreview
+    }))
+  }
+}
+
+function optimizeClipBoundaries(
+  transcription: PipelineWorkerTranscription,
+  clips: PipelineWorkerPotentialClip[],
+  mediaDuration: number
+) {
+  const accepted: PipelineWorkerPotentialClip[] = []
+  const decisions: Array<{
+    clipId: string
+    status: 'optimized' | 'rejected'
+    originalStartTime: number
+    originalEndTime: number
+    optimizedStartTime: number | null
+    optimizedEndTime: number | null
+    score: number
+    alternativesConsidered: number
+    openingPreview: string
+    endingPreview: string
+    reason: string
+    topAlternatives: Array<Record<string, unknown>>
+  }> = []
+  const rejected: Array<{ clipId: string; reason: string; endingPreview: string; topAlternatives: Array<Record<string, unknown>> }> = []
+
+  for (const clip of clips) {
+    const optimization = optimizeClipBoundary(transcription, clip, mediaDuration)
+    if (optimization.best && optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE) {
+      accepted.push(optimization.best.clip)
+      decisions.push({
+        clipId: clip.id,
+        status: 'optimized',
+        originalStartTime: clip.startTime,
+        originalEndTime: clip.endTime,
+        optimizedStartTime: optimization.best.clip.startTime,
+        optimizedEndTime: optimization.best.clip.endTime,
+        score: optimization.best.score,
+        alternativesConsidered: optimization.alternativesConsidered,
+        openingPreview: optimization.best.openingPreview,
+        endingPreview: optimization.best.endingPreview,
+        reason: 'Selected highest-scoring nearby start/end boundary pair.',
+        topAlternatives: optimization.topAlternatives
+      })
+      continue
+    }
+
+    const endingPreview = optimization.topAlternatives[0]?.endingPreview
+    const rejectedClip = {
+      clipId: clip.id,
+      reason: 'No nearby boundary pair met the optimizer score threshold.',
+      endingPreview: typeof endingPreview === 'string' ? endingPreview : '',
+      topAlternatives: optimization.topAlternatives
+    }
+    rejected.push(rejectedClip)
+    decisions.push({
+      clipId: clip.id,
+      status: 'rejected',
+      originalStartTime: clip.startTime,
+      originalEndTime: clip.endTime,
+      optimizedStartTime: null,
+      optimizedEndTime: null,
+      score: optimization.best?.score ?? 0,
+      alternativesConsidered: optimization.alternativesConsidered,
+      openingPreview: '',
+      endingPreview: rejectedClip.endingPreview,
+      reason: rejectedClip.reason,
+      topAlternatives: optimization.topAlternatives
+    })
+  }
+
+  return { accepted, rejected, decisions }
+}
+
 function enforceCleanClipEnds(
   transcription: PipelineWorkerTranscription,
   clips: PipelineWorkerPotentialClip[],
@@ -1205,17 +1414,24 @@ async function finalizeClipBoundaries(
 ) {
   const semanticReview = await applySemanticBoundaryReview(transcription, clips, aiService, mediaDuration, preferredTranscriptLines)
   const wordRefinement = refinePotentialClips(transcription, semanticReview.clips, mediaDuration)
-  const startClosure = enforceCleanClipStarts(transcription, wordRefinement.clips)
-  const finalClosure = enforceCleanClipEnds(transcription, startClosure.accepted, mediaDuration)
+  const optimizedClosure = optimizeClipBoundaries(transcription, wordRefinement.clips, mediaDuration)
 
   return {
-    clips: finalClosure.accepted,
+    clips: optimizedClosure.accepted,
     semanticReview,
     wordAdjustments: wordRefinement.adjustments,
-    startBoundaryDecisions: startClosure.decisions,
-    rejectedStartBoundaryClips: startClosure.rejected,
-    endBoundaryDecisions: finalClosure.decisions,
-    rejectedFinalClips: finalClosure.rejected
+    boundaryOptimizationDecisions: optimizedClosure.decisions,
+    rejectedOptimizedClips: optimizedClosure.rejected,
+    startBoundaryDecisions: [],
+    rejectedStartBoundaryClips: [],
+    endBoundaryDecisions: [],
+    rejectedFinalClips: optimizedClosure.rejected.map((rejection) => ({
+      clipId: rejection.clipId,
+      endTime: 0,
+      endingPreview: rejection.endingPreview,
+      reason: rejection.reason,
+      trailingBoundaryIssue: null
+    }))
   }
 }
 
@@ -2029,21 +2245,25 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       })),
       metadata: {
         executor: 'final_boundary_refiner',
-        boundaryRefinementVersion: 'semantic_line_plus_word_boundary_v5',
+        boundaryRefinementVersion: 'boundary_optimizer_v1',
         reviewedClipCount: boundaryFinalization.semanticReview.reviews.length,
         semanticBoundaryReviewUsedAI: boundaryFinalization.semanticReview.usedAI,
         transcriptLineCount: boundaryFinalization.semanticReview.transcriptLineCount,
         semanticBoundaryReviewFallbackReason: boundaryFinalization.semanticReview.fallbackReason,
         wordBoundaryAdjustmentCount: boundaryFinalization.wordAdjustments.filter((adjustment) => adjustment.changed).length,
-        startBoundaryExtendedCount: boundaryFinalization.startBoundaryDecisions.filter((decision) => decision.status === 'extended').length,
+        startBoundaryExtendedCount: 0,
         startBoundaryRejectedCount: boundaryFinalization.rejectedStartBoundaryClips.length,
-        endBoundaryExtendedCount: boundaryFinalization.endBoundaryDecisions.filter((decision) => decision.status === 'extended').length,
+        endBoundaryExtendedCount: 0,
         finalClosureRejectedCount: boundaryFinalization.rejectedFinalClips.length,
+        boundaryOptimizerAcceptedCount: boundaryFinalization.boundaryOptimizationDecisions.filter((decision) => decision.status === 'optimized').length,
+        boundaryOptimizerRejectedCount: boundaryFinalization.rejectedOptimizedClips.length,
         fallbackBoundaryRecoveryAttempted: Boolean(fallbackBoundaryFinalization),
         fallbackBoundaryRecoverySucceeded: Boolean(fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0),
         initialFinalClosureRejectedCount: fallbackBoundaryFinalization ? initialBoundaryFinalization.rejectedFinalClips.length : undefined,
         reviewPreview: boundaryFinalization.semanticReview.reviews.slice(0, 5),
         wordAdjustmentPreview: boundaryFinalization.wordAdjustments.slice(0, 5),
+        boundaryOptimizationPreview: boundaryFinalization.boundaryOptimizationDecisions.slice(0, 5),
+        boundaryOptimizationRejectedPreview: boundaryFinalization.rejectedOptimizedClips.slice(0, 5),
         startBoundaryDecisionPreview: boundaryFinalization.startBoundaryDecisions.slice(0, 5),
         startBoundaryRejectedPreview: boundaryFinalization.rejectedStartBoundaryClips.slice(0, 5),
         endBoundaryDecisionPreview: boundaryFinalization.endBoundaryDecisions.slice(0, 5),
