@@ -21,7 +21,7 @@ import type {
   PipelineWorkerTranscription,
   StartPipelineWorkerCommand,
 } from '@shared/types/pipelineWorker'
-import { getTrailingBoundaryIssue, isCleanClipEnd } from '../../shared/clipBoundaryQuality'
+import { getTrailingBoundaryIssue, isCleanClipEnd, isCleanClipStart } from '../../shared/clipBoundaryQuality'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
@@ -867,6 +867,87 @@ function buildAdjustedClipEnd(clip: PipelineWorkerPotentialClip, endTime: number
   }
 }
 
+function buildAdjustedClipStart(clip: PipelineWorkerPotentialClip, startTime: number): PipelineWorkerPotentialClip {
+  return {
+    ...clip,
+    startTime,
+    duration: Number((clip.endTime - startTime).toFixed(3))
+  }
+}
+
+function getClipStartExtensionLimit(clip: PipelineWorkerPotentialClip) {
+  return Math.max(0, clip.startTime - CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS)
+}
+
+function getClipLeadingWords(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip,
+  wordCount = 8
+) {
+  return getWordsWithinWindow(
+    transcription,
+    Math.max(0, clip.startTime - 0.05),
+    Math.min(clip.endTime, clip.startTime + 6)
+  ).slice(0, wordCount)
+}
+
+function clipStartsCleanly(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip
+) {
+  const clipText = buildClipWindowTextFromWords(transcription, clip)
+  const leadingWords = getClipLeadingWords(transcription, clip)
+  const leadingText = leadingWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
+  const textToCheck = leadingText || clipText
+  return Boolean(textToCheck) && isCleanClipStart(textToCheck)
+}
+
+function findCleanExtendedClipStart(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip
+) {
+  const minStart = getClipStartExtensionLimit(clip)
+  const words = getWordsWithinWindow(transcription, minStart, clip.endTime)
+
+  if (words.length === 0) {
+    return null
+  }
+
+  const currentFirstWordIndex = words.findIndex((word) => word.end > clip.startTime)
+  if (currentFirstWordIndex <= 0) {
+    return null
+  }
+
+  for (let index = currentFirstWordIndex - 1; index >= 0; index -= 1) {
+    const word = words[index]
+    const candidateStart = Math.max(0, word.start)
+    const candidateDuration = clip.endTime - candidateStart
+    if (candidateDuration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+      break
+    }
+
+    const previousWord = words[index - 1]
+    const gapFromPrevious = previousWord ? word.start - previousWord.end : Number.POSITIVE_INFINITY
+    const candidateClip = buildAdjustedClipStart(clip, candidateStart)
+    const leadingWords = getClipLeadingWords(transcription, candidateClip)
+    const leadingText = leadingWords.map((item) => item.word).join(' ').replace(/\s+/g, ' ').trim()
+
+    if (!leadingText || startsLikeContinuation(leadingText)) {
+      continue
+    }
+
+    if (gapFromPrevious >= 0.35 || index === 0 || isCleanClipStart(leadingText)) {
+      return {
+        clip: candidateClip,
+        openingPreview: leadingText,
+        reason: 'Extended start backward to the nearest deterministic clean opening boundary.'
+      }
+    }
+  }
+
+  return null
+}
+
 function findCleanExtendedClipEnd(
   transcription: PipelineWorkerTranscription,
   clip: PipelineWorkerPotentialClip,
@@ -904,6 +985,41 @@ function findCleanExtendedClipEnd(
   return null
 }
 
+function getClipEndLookaheadIssue(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip
+) {
+  const words = getWordsWithinWindow(
+    transcription,
+    Math.max(0, clip.endTime - 3),
+    Math.min(clip.endTime + 6, clip.endTime + CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS)
+  )
+  const previousWords = words.filter((word) => word.end <= clip.endTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(-6)
+  const nextWords = words.filter((word) => word.start > clip.endTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(0, 6)
+
+  if (previousWords.length === 0 || nextWords.length === 0) {
+    return null
+  }
+
+  const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
+  if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
+    return null
+  }
+
+  const joined = [...previousWords, ...nextWords].map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  const previousText = previousWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
+  const nextText = nextWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
+
+  if (
+    /\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w+\s+\w+/.test(joined) ||
+    shouldContinueThoughtAcrossBoundary(previousText, nextText, gap)
+  ) {
+    return 'lookahead_continues_current_ending'
+  }
+
+  return null
+}
+
 function enforceCleanClipEnds(
   transcription: PipelineWorkerTranscription,
   clips: PipelineWorkerPotentialClip[],
@@ -925,9 +1041,9 @@ function enforceCleanClipEnds(
   for (const clip of clips) {
     const clipText = buildClipWindowTextFromWords(transcription, clip)
     const endingPreview = clipText.split(/\s+/).slice(-18).join(' ')
-    const trailingBoundaryIssue = getTrailingBoundaryIssue(clipText)
+    const trailingBoundaryIssue = getTrailingBoundaryIssue(clipText) ?? getClipEndLookaheadIssue(transcription, clip)
 
-    if (isCleanClipEnd(clipText)) {
+    if (!trailingBoundaryIssue && isCleanClipEnd(clipText)) {
       accepted.push(clip)
       decisions.push({
         clipId: clip.id,
@@ -981,6 +1097,75 @@ function enforceCleanClipEnds(
   return { accepted, rejected, decisions }
 }
 
+function enforceCleanClipStarts(
+  transcription: PipelineWorkerTranscription,
+  clips: PipelineWorkerPotentialClip[]
+) {
+  const accepted: PipelineWorkerPotentialClip[] = []
+  const decisions: Array<{
+    clipId: string
+    status: 'accepted' | 'extended' | 'rejected'
+    originalStartTime: number
+    finalStartTime: number | null
+    extensionSeconds: number
+    openingPreview: string
+    reason: string
+  }> = []
+  const rejected: Array<{ clipId: string; startTime: number; openingPreview: string; reason: string }> = []
+
+  for (const clip of clips) {
+    const openingPreview = getClipLeadingWords(transcription, clip).map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
+
+    if (clipStartsCleanly(transcription, clip)) {
+      accepted.push(clip)
+      decisions.push({
+        clipId: clip.id,
+        status: 'accepted',
+        originalStartTime: clip.startTime,
+        finalStartTime: clip.startTime,
+        extensionSeconds: 0,
+        openingPreview,
+        reason: 'Clip already starts on a deterministic clean opening boundary.'
+      })
+      continue
+    }
+
+    const extension = findCleanExtendedClipStart(transcription, clip)
+    if (extension) {
+      accepted.push(extension.clip)
+      decisions.push({
+        clipId: clip.id,
+        status: 'extended',
+        originalStartTime: clip.startTime,
+        finalStartTime: extension.clip.startTime,
+        extensionSeconds: Number((clip.startTime - extension.clip.startTime).toFixed(3)),
+        openingPreview: extension.openingPreview,
+        reason: extension.reason
+      })
+      continue
+    }
+
+    const rejectedClip = {
+      clipId: clip.id,
+      startTime: clip.startTime,
+      openingPreview,
+      reason: 'Final clip window could not be moved to a deterministic clean opening boundary within duration limits.'
+    }
+    rejected.push(rejectedClip)
+    decisions.push({
+      clipId: clip.id,
+      status: 'rejected',
+      originalStartTime: clip.startTime,
+      finalStartTime: null,
+      extensionSeconds: 0,
+      openingPreview,
+      reason: rejectedClip.reason
+    })
+  }
+
+  return { accepted, rejected, decisions }
+}
+
 async function finalizeClipBoundaries(
   transcription: PipelineWorkerTranscription,
   clips: PipelineWorkerPotentialClip[],
@@ -990,12 +1175,15 @@ async function finalizeClipBoundaries(
 ) {
   const semanticReview = await applySemanticBoundaryReview(transcription, clips, aiService, mediaDuration, preferredTranscriptLines)
   const wordRefinement = refinePotentialClips(transcription, semanticReview.clips, mediaDuration)
-  const finalClosure = enforceCleanClipEnds(transcription, wordRefinement.clips, mediaDuration)
+  const startClosure = enforceCleanClipStarts(transcription, wordRefinement.clips)
+  const finalClosure = enforceCleanClipEnds(transcription, startClosure.accepted, mediaDuration)
 
   return {
     clips: finalClosure.accepted,
     semanticReview,
     wordAdjustments: wordRefinement.adjustments,
+    startBoundaryDecisions: startClosure.decisions,
+    rejectedStartBoundaryClips: startClosure.rejected,
     endBoundaryDecisions: finalClosure.decisions,
     rejectedFinalClips: finalClosure.rejected
   }
@@ -1793,16 +1981,20 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       })),
       metadata: {
         executor: 'final_boundary_refiner',
-        boundaryRefinementVersion: 'semantic_line_plus_word_boundary_v2',
+        boundaryRefinementVersion: 'semantic_line_plus_word_boundary_v3',
         reviewedClipCount: boundaryFinalization.semanticReview.reviews.length,
         semanticBoundaryReviewUsedAI: boundaryFinalization.semanticReview.usedAI,
         transcriptLineCount: boundaryFinalization.semanticReview.transcriptLineCount,
         semanticBoundaryReviewFallbackReason: boundaryFinalization.semanticReview.fallbackReason,
         wordBoundaryAdjustmentCount: boundaryFinalization.wordAdjustments.filter((adjustment) => adjustment.changed).length,
+        startBoundaryExtendedCount: boundaryFinalization.startBoundaryDecisions.filter((decision) => decision.status === 'extended').length,
+        startBoundaryRejectedCount: boundaryFinalization.rejectedStartBoundaryClips.length,
         endBoundaryExtendedCount: boundaryFinalization.endBoundaryDecisions.filter((decision) => decision.status === 'extended').length,
         finalClosureRejectedCount: boundaryFinalization.rejectedFinalClips.length,
         reviewPreview: boundaryFinalization.semanticReview.reviews.slice(0, 5),
         wordAdjustmentPreview: boundaryFinalization.wordAdjustments.slice(0, 5),
+        startBoundaryDecisionPreview: boundaryFinalization.startBoundaryDecisions.slice(0, 5),
+        startBoundaryRejectedPreview: boundaryFinalization.rejectedStartBoundaryClips.slice(0, 5),
         endBoundaryDecisionPreview: boundaryFinalization.endBoundaryDecisions.slice(0, 5),
         finalClosureRejectedPreview: boundaryFinalization.rejectedFinalClips.slice(0, 5)
       },

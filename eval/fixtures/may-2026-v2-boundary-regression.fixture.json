@@ -1,0 +1,112 @@
+{
+  "name": "May 2026 v2 start and lookahead boundary regression",
+  "transcriptSegments": [
+    {
+      "start": 512.62,
+      "end": 517.88,
+      "text": "loss of labor and people losing their jobs I sort of despise that but I think"
+    },
+    {
+      "start": 517.88,
+      "end": 521.14,
+      "text": "a lot of people are gonna have to learn new ways of doing things yeah rather"
+    },
+    {
+      "start": 521.14,
+      "end": 524.72,
+      "text": "than just do what they do faster so it's like a whole nother challenge for"
+    },
+    {
+      "start": 524.72,
+      "end": 529.0,
+      "text": "business owners to get their head around but the point about the model there as"
+    },
+    {
+      "start": 529.0,
+      "end": 532.7,
+      "text": "well that's really interesting is like I think for a lot of people especially in"
+    },
+    {
+      "start": 532.7,
+      "end": 535.7,
+      "text": "like on Twitter it's like just throw intelligence and everything yeah and"
+    },
+    {
+      "start": 536.54,
+      "end": 540.2,
+      "text": "you don't need to do that you know most of what you do inside the business is"
+    },
+    {
+      "start": 540.2,
+      "end": 544.32,
+      "text": "deterministic you have rules and processes and systems there to"
+    },
+    {
+      "start": 544.32,
+      "end": 547.64,
+      "text": "basically define how people do those things yeah it's the same kind of thing"
+    },
+    {
+      "start": 547.64,
+      "end": 551.1,
+      "text": "you don't just go like let me hire like 20 people tomorrow and just let them run"
+    },
+    {
+      "start": 551.1,
+      "end": 554.44,
+      "text": "right in the business you know they come in you on board them to have a bunch of"
+    },
+    {
+      "start": 554.44,
+      "end": 557.66,
+      "text": "systems yeah exactly you can't scale with more people in the same way you're"
+    },
+    {
+      "start": 557.66,
+      "end": 561.42,
+      "text": "not gonna be able to scale with just a million agents it's gonna be too much"
+    },
+    {
+      "start": 561.42,
+      "end": 567.02,
+      "text": "a lot of those points inside those processes can be done by you know like"
+    },
+    {
+      "start": 567.02,
+      "end": 571.58,
+      "text": "they don't need frontier models yeah yeah true yeah and that's the way I've"
+    },
+    {
+      "start": 571.58,
+      "end": 574.4,
+      "text": "kind of structured things as well at the moment my business is like depending on"
+    },
+    {
+      "start": 574.4,
+      "end": 579.62,
+      "text": "the need I'll use a different tier of model and I just constantly go to the"
+    },
+    {
+      "start": 579.62,
+      "end": 584.68,
+      "text": "top end yeah I do until I run out of my you know my credit limit super quick"
+    },
+    {
+      "start": 584.68,
+      "end": 588.08,
+      "text": "right and I can't be bothered paying the API costs but"
+    }
+  ],
+  "expectedGoodClips": [
+    {
+      "startTime": 524.72,
+      "endTime": 579.62
+    }
+  ],
+  "expectedBadRanges": [
+    {
+      "startTime": 526.38,
+      "endTime": 574.92
+    }
+  ]
+}

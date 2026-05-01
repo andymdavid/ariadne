@@ -199,7 +199,8 @@ function endsWithDanglingPhrase(text) {
     /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/.test(normalized) ||
     /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
     /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized) ||
-    /\b(very|really|so|quite|pretty|rather|extremely|incredibly|absolutely|totally)\s*$/.test(normalized)
+    /\b(very|really|so|quite|pretty|rather|extremely|incredibly|absolutely|totally)\s*$/.test(normalized) ||
+    /\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of|kind of|sort of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w{0,24}\s*$/.test(normalized)
   ) {
     return true
   }

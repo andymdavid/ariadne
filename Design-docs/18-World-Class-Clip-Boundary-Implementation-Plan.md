@@ -25,6 +25,8 @@ Match the quality bar of leading clipping products:
 - Export captions use persisted transcript lines first, so cleanup does not reliably affect captions.
 - The latest reviewed run selected a clip ending at `401.42s` on text equivalent to `...they should be owned by Claude that's`, while the payoff began immediately after.
 - The existing clean-end heuristic is too permissive for long text without terminal punctuation.
+- The first v2 boundary run selected a clip from `526.38s` to `574.92s` ending on `...depending on the need`; the next transcript segment continues directly with `I'll use a different tier of model`. This shows the final gate also needs lookahead continuity checks, not only trailing-token checks.
+- The same v2 run started the selected clip with `but the point about the model...`, showing the pipeline also needs final start-boundary enforcement.
 
 ## Architecture Direction
 
@@ -71,6 +73,9 @@ Clip quality should be enforced by a deterministic boundary engine:
 - [ ] Reject clips that cannot reach a clean end within max duration.
 - [ ] Log final boundary status and reason in `clip_ranking` metadata.
 - [ ] Add regression coverage for the May 1 failure case.
+- [ ] Add start-boundary enforcement after final semantic review.
+- [ ] Add lookahead continuity checks so endings like `depending on the need` cannot pass when the next words complete the phrase.
+- [ ] Add regression coverage for the `526.38s -> 574.92s` v2 run.
 
 ### Phase 2: Boundary Evaluation Harness
 
@@ -137,6 +142,8 @@ Initial verification should cover:
 - Text ending `because` is not clean.
 - Text ending with a complete punctuation sentence is clean.
 - The May 1 clip window ending at `401.42s` is rejected or extended.
+- The May 1 v2 clip window starting with `but` is moved back or rejected.
+- The May 1 v2 clip window ending at `574.92s` on `depending on the need` is extended or rejected.
 - Final metadata includes rejected/adjusted boundary decisions.
 
 ## Commit Strategy
@@ -148,4 +155,3 @@ Commit in small slices:
 3. Pipeline enforce/extend pass.
 4. Evaluation fixture/script.
 5. Metadata and diagnostics.
-

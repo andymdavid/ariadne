@@ -43,7 +43,8 @@ export const endsWithDanglingPhrase = (text: string) => {
     /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
     /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized) ||
     /\b(very|really|so|quite|pretty|rather|extremely|incredibly|absolutely|totally)\s*$/.test(normalized) ||
-    /\b(question|reason|example|case|part|point|bit|way|one)\s*$/.test(normalized)
+    /\b(question|reason|example|case|part|point|bit|way|one)\s*$/.test(normalized) ||
+    /\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of|kind of|sort of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w{0,24}\s*$/.test(normalized)
   ) {
     return true
   }
@@ -63,6 +64,7 @@ export const getTrailingBoundaryIssue = (text: string): string | null => {
     [/\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/, 'trailing_determiner'],
     [/\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/, 'trailing_auxiliary'],
     [/\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/, 'trailing_incomplete_phrase'],
+    [/\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of|kind of|sort of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w{0,24}\s*$/, 'trailing_open_prepositional_phrase'],
     [/\b(very|really|so|quite|pretty|rather|extremely|incredibly|absolutely|totally)\s*$/, 'trailing_modifier'],
     [/\b(question|reason|example|case|part|point|bit|way|one)\s*$/, 'trailing_placeholder_noun']
   ]
