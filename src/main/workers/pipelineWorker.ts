@@ -22,6 +22,7 @@ import type {
   StartPipelineWorkerCommand,
 } from '@shared/types/pipelineWorker'
 import { getLeadingBoundaryIssue, getTrailingBoundaryIssue, isCleanClipEnd, isCleanClipStart, isCleanLocalClipEnd, stripLeadingBoundaryFiller } from '../../shared/clipBoundaryQuality'
+import { buildEditorialUnits, summarizeEditorialUnits } from '../../shared/editorialUnits'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
@@ -1774,6 +1775,9 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   let aiAnalysisSucceeded = command.resumeData?.aiAnalysisSucceeded ?? false
   let contentPackages = command.resumeData?.contentPackages ?? []
   let semanticTranscriptSegments: PipelineWorkerTranscription['segments'] | null = null
+  let editorialUnits = transcription
+    ? buildEditorialUnits(transcription.segments)
+    : []
 
   if (startStageIndex <= stageOrder.indexOf('transcription')) {
     currentStage = 'transcription'
@@ -1867,6 +1871,10 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     throw new Error('Missing transcription data for pipeline resume')
   }
 
+  if (editorialUnits.length === 0) {
+    editorialUnits = buildEditorialUnits(transcription.segments)
+  }
+
   if (startStageIndex <= stageOrder.indexOf('clip_generation')) {
     currentStage = 'clip_generation'
     postStageStarted(command.workflowJobId, currentStage, aiService
@@ -1953,7 +1961,9 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         rawSegmentCount: transcription.segments.length,
         normalizedSegmentCount: normalizedSegments.length,
         transcriptNormalizationVersion,
-        transcriptCleanup: transcriptCleanupMetadata
+        transcriptCleanup: transcriptCleanupMetadata,
+        editorialUnitBuilderVersion: 'editorial_units_v1',
+        editorialUnits: summarizeEditorialUnits(editorialUnits)
       },
       candidates
     })

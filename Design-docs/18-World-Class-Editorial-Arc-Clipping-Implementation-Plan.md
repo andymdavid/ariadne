@@ -228,12 +228,12 @@ Sentiment is a ranking signal, not a standalone clip selector.
 
 ### Phase 1: Editorial Unit Builder
 
-- [ ] Add shared `EditorialUnit` and `TimelineWord` types.
-- [ ] Implement `buildEditorialUnits(transcription)` from word timings, pauses, punctuation inference, and local continuity checks.
-- [ ] Assign initial unit roles deterministically where obvious: filler, aside, transition, claim, payoff.
-- [ ] Persist units as a workflow artifact first; add a table only after schema stabilizes.
-- [ ] Add fixture tests for the TGS053 problem window.
-- [ ] Emit unit diagnostics in `clip_generation` or a new `editorial_unit_build` step.
+- [x] Add shared `EditorialUnit` and `TimelineWord` types.
+- [x] Implement `buildEditorialUnits(transcription)` from word timings, pauses, punctuation inference, and local continuity checks.
+- [x] Assign initial unit roles deterministically where obvious: filler, aside, transition, claim, payoff.
+- [x] Persist units as a workflow artifact first; add a table only after schema stabilizes.
+- [x] Add fixture tests for the TGS053 problem window.
+- [x] Emit unit diagnostics in `clip_generation` or a new `editorial_unit_build` step.
 
 Acceptance:
 
