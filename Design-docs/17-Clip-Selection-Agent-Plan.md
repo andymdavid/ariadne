@@ -1,5 +1,18 @@
 # 17 - Clip Selection Agent Plan
 
+## Status
+
+Superseded by `Design-docs/18-World-Class-Editorial-Arc-Clipping-Implementation-Plan.md`.
+
+This document remains useful historical context for why heuristic-heavy clipping failed, but it should not drive implementation where it conflicts with Plan 18.
+
+The key supersession is:
+
+- do not ask the model to choose timestamps or raw transcript-line boundaries as the primary selection mechanism
+- do generate editorial units and candidate arcs first
+- do ask the model to rank candidate arc IDs
+- keep deterministic boundary logic as final validation only
+
 ## Problem
 
 The current clip pipeline is too heuristic-heavy.
@@ -419,4 +432,3 @@ That is the cleanest way to improve:
 - clip endings
 - virality potential
 - overall maintainability
-

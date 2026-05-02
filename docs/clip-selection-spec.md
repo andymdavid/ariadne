@@ -69,9 +69,9 @@ Penalize:
 
 Every accepted clip must:
 
-- be between 35 and 60 seconds
-- begin on a natural transcript boundary
-- end on a completed sentence or clear payoff
+- fit the selected platform and fully deliver its idea without filler
+- begin on a natural editorial, word, and audio boundary
+- end on a completed sentence, clear payoff, or intentional loop point
 - contain a complete thought or narrative unit
 - stand alone without requiring major prior context
 - be traceable to actual transcript segments
@@ -101,8 +101,8 @@ Prefer windows that:
 
 Candidate set should:
 
-- target ideal windows around 40 to 55 seconds
-- allow 35 to 60 seconds for final acceptance
+- include multiple duration bands rather than one hard target
+- prefer the shortest duration that fully delivers the idea
 - include diverse content types
 - avoid heavy overlap unless ranking alternatives intentionally
 
@@ -152,10 +152,11 @@ The model should not invent timestamps freely.
 
 Preferred model role:
 
-- evaluate grounded candidate windows
+- evaluate grounded candidate arcs
 - explain why a candidate is strong or weak
 - assign structured scores
-- propose a better candidate only by referencing transcript segments or candidate IDs
+- choose candidate arc IDs rather than inventing timestamps
+- propose a better candidate only by referencing editorial units or candidate IDs
 
 ## Output Expectations
 

@@ -11,6 +11,14 @@ Provide a repeatable way to compare clip-selection outputs across:
 
 This harness is intentionally lightweight. It does not run the app directly. It scores saved clip-selection outputs against a fixture.
 
+The harness should evolve with the editorial-arc architecture in `Design-docs/18-World-Class-Editorial-Arc-Clipping-Implementation-Plan.md`. Final clip scoring remains useful, but the primary offline checks should move toward:
+
+- editorial unit quality
+- candidate arc coverage
+- arc score breakdowns
+- selected arc provenance
+- bad-window rejection before final boundary validation
+
 ## Files
 
 - script: `scripts/evaluate-clip-selection.js`
@@ -68,6 +76,13 @@ The harness scores:
 - boundary cleanliness against transcript boundaries
 - quote grounding in transcript text
 - duplicate overlap across selected clips
+
+Next version should also score:
+
+- whether selected clips reference candidate arc IDs
+- whether candidate arcs contain coherent unit sequences
+- hook, context, flow, payoff, and density scores
+- whether known bad windows score poorly before final validation
 
 ## Recommended Workflow
 
