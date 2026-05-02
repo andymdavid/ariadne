@@ -1,0 +1,266 @@
+{
+  "name": "May 2026 optimizer rejected inference-marker end and repair-aside start",
+  "transcriptSegments": [
+    {
+      "start": 272.54,
+      "end": 277.26,
+      "text": "yeah this is the conversation we had gave yesterday we were talking about if"
+    },
+    {
+      "start": 277.26,
+      "end": 281.52,
+      "text": "you project forward to what your business looks like in five years it's"
+    },
+    {
+      "start": 281.52,
+      "end": 284.54,
+      "text": "gonna look quite different to how it is now and a lot you're gonna have like a"
+    },
+    {
+      "start": 284.54,
+      "end": 288.9,
+      "text": "group of people that observe this business that runs and a lot of the work"
+    },
+    {
+      "start": 288.9,
+      "end": 293.34,
+      "text": "inside the business is gonna be done by like very custom software yeah with"
+    },
+    {
+      "start": 293.34,
+      "end": 297.2,
+      "text": "agents stepping in and bits where you need them to step in to make decisions"
+    },
+    {
+      "start": 297.2,
+      "end": 301.38,
+      "text": "push to forward to transform things to highlight things to review things like"
+    },
+    {
+      "start": 301.38,
+      "end": 305.12,
+      "text": "all of those things the agents can do and then gonna push up to this like layer"
+    },
+    {
+      "start": 305.12,
+      "end": 310.6,
+      "text": "of humans over the top and like that system of like the software and the"
+    },
+    {
+      "start": 310.6,
+      "end": 313.32,
+      "text": "alerts and everything else in there that's really like that is the"
+    },
+    {
+      "start": 313.32,
+      "end": 318.28,
+      "text": "definition of your business and you can build that in several different places"
+    },
+    {
+      "start": 318.28,
+      "end": 323.24,
+      "text": "like you could have it all inside Claude Cowork you could have it all inside like"
+    },
+    {
+      "start": 323.24,
+      "end": 327.72,
+      "text": "a set of like workflow scripts you carry all inside like custom software that you"
+    },
+    {
+      "start": 327.72,
+      "end": 331.98,
+      "text": "own and like where you decide to build that system is gonna tell you like who"
+    },
+    {
+      "start": 331.98,
+      "end": 336.24,
+      "text": "really controls your business because if you put the whole thing inside Claude"
+    },
+    {
+      "start": 336.24,
+      "end": 340.66,
+      "text": "you're switching costs that you can't you will never leave Claude you'll be"
+    },
+    {
+      "start": 340.66,
+      "end": 344.74,
+      "text": "working that model for the rest of your life and effectively they can turn your"
+    },
+    {
+      "start": 344.74,
+      "end": 347.54,
+      "text": "business off by turning off the provision of your business and you"
+    },
+    {
+      "start": 347.54,
+      "end": 351.08,
+      "text": "won't be able to move everything quick enough somewhere else to go and do it so"
+    },
+    {
+      "start": 351.08,
+      "end": 354.52,
+      "text": "it becomes very like because the question we had is like we were talking"
+    },
+    {
+      "start": 354.52,
+      "end": 359.12,
+      "text": "to Gabe about the wingman stuff and it was all about why is wingman open source"
+    },
+    {
+      "start": 359.12,
+      "end": 362.66,
+      "text": "why are you not charging the license fee for this and I said I morally can't"
+    },
+    {
+      "start": 362.66,
+      "end": 365.34,
+      "text": "charge you the license fee for this because what I'm saying is that you"
+    },
+    {
+      "start": 365.34,
+      "end": 369.58,
+      "text": "should use this suite to define all the business processes of your business"
+    },
+    {
+      "start": 369.58,
+      "end": 373.52,
+      "text": "that's your business it's not my business therefore you need to be able"
+    },
+    {
+      "start": 373.52,
+      "end": 378.82,
+      "text": "to own that if I get hit by a bus and Andy wins the lottery for some reason Andy came out really good on that one"
+    },
+    {
+      "start": 379.72,
+      "end": 385.28,
+      "text": "I'm sorry for you or Andy gets hit by the bus and then I win the lottery and I'm like oh well you know it could go"
+    },
+    {
+      "start": 385.28,
+      "end": 389.26,
+      "text": "either way who knows who knows but you still need you need your business to"
+    },
+    {
+      "start": 389.26,
+      "end": 392.28,
+      "text": "operate so like if it's like now dictated by license fee that I can do"
+    },
+    {
+      "start": 392.28,
+      "end": 396.04,
+      "text": "then I become the extracted part of that so that's not what we should do like"
+    },
+    {
+      "start": 396.04,
+      "end": 400.1,
+      "text": "that's the wrong way to develop all small business in the world is that they"
+    },
+    {
+      "start": 400.1,
+      "end": 404.06,
+      "text": "should be owned by Claude that's fucking ridiculous we don't need to do that we"
+    },
+    {
+      "start": 404.06,
+      "end": 407.42,
+      "text": "shouldn't just go and opt into that world without thinking about it"
+    },
+    {
+      "start": 407.42,
+      "end": 410.84,
+      "text": "it feels like what they're shooting for yeah I'm sure they want that because"
+    },
+    {
+      "start": 410.84,
+      "end": 414.62,
+      "text": "they're evil like people that constantly tell you that they're evil you can just"
+    },
+    {
+      "start": 414.62,
+      "end": 418.94,
+      "text": "listen to them and say oh the guy that keeps doing all the evil stuff and lying"
+    },
+    {
+      "start": 418.94,
+      "end": 423.28,
+      "text": "about everything and trying to get like regulatory capture like that's what he's"
+    },
+    {
+      "start": 423.42,
+      "end": 427.46,
+      "text": "trying to do that's probably why he keeps doing it but works for Microsoft"
+    },
+    {
+      "start": 427.46,
+      "end": 431.2,
+      "text": "right I mean this is part of the problem because like a lot of this"
+    },
+    {
+      "start": 431.2,
+      "end": 435.36,
+      "text": "decisioning is done by the business and Gabe like is an outlier I mean that in"
+    },
+    {
+      "start": 435.36,
+      "end": 438.48,
+      "text": "the most positive way possible he's experimenting heavily with this stuff"
+    },
+    {
+      "start": 438.48,
+      "end": 442.54,
+      "text": "he's really thinking about how this how he should be rewiring the business most"
+    },
+    {
+      "start": 442.54,
+      "end": 445.46,
+      "text": "small business owners are gonna be abdicating this decision to their people"
+    },
+    {
+      "start": 445.46,
+      "end": 448.26,
+      "text": "inside the business and then they're all gonna just start using Claude"
+    },
+    {
+      "start": 448.26,
+      "end": 452.26,
+      "text": "Cowork individually to do that to help them do their jobs faster that's not"
+    },
+    {
+      "start": 452.26,
+      "end": 456.6,
+      "text": "let's think through how we use these models from a systems design perspective"
+    },
+    {
+      "start": 456.6,
+      "end": 460.26,
+      "text": "to actually not have to do the work again and again and again that's just"
+    },
+    {
+      "start": 460.26,
+      "end": 463.22,
+      "text": "the individual has a bunch of work and I'm gonna continue doing the work I'm"
+    },
+    {
+      "start": 463.22,
+      "end": 467.66,
+      "text": "just gonna do it a bit faster with Claude Cowork yeah and so there there is"
+    }
+  ],
+  "expectedGoodClips": [
+    {
+      "startTime": 272.54,
+      "endTime": 467.66
+    }
+  ],
+  "expectedBadRanges": [
+    {
+      "startTime": 281.98,
+      "endTime": 372.72
+    },
+    {
+      "startTime": 379.72,
+      "endTime": 466.26
+    }
+  ]
+}

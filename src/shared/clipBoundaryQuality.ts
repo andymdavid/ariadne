@@ -1,5 +1,6 @@
 export type BoundaryQuality = {
   startsLikeContinuation: boolean
+  leadingBoundaryIssue: string | null
   endsWithTerminalPunctuation: boolean
   endsWithDanglingPhrase: boolean
   hardIncompleteEnding: boolean
@@ -38,12 +39,42 @@ export const startsLikeContinuation = (text: string) => {
   return CONTINUATION_WORD_PATTERN.test(trimmed)
 }
 
+export const getLeadingBoundaryIssue = (text: string): string | null => {
+  const trimmed = stripLeadingBoundaryFiller(text)
+  if (!trimmed) return 'empty'
+
+  const normalized = normalize(trimmed)
+
+  if (CONTINUATION_WORD_PATTERN.test(normalized)) {
+    return 'leading_continuation'
+  }
+
+  if (/^(i\s*m\s+sorry|im\s+sorry|sorry)\b/.test(normalized)) {
+    return 'leading_repair_aside'
+  }
+
+  if (/^(who knows|either way|anyway|for some reason)\b/.test(normalized)) {
+    return 'leading_aside'
+  }
+
+  if (/^(gonna|going|wanna|want|need|trying|able|owned|doing|done)\b/.test(normalized)) {
+    return 'leading_fragment'
+  }
+
+  if (/^(he|she|they|them|it|this|that|these|those|there)\b/.test(normalized)) {
+    return 'leading_unresolved_reference'
+  }
+
+  return null
+}
+
 export const endsWithDanglingPhrase = (text: string) => {
   const normalized = normalize(stripTerminalPunctuation(text))
   if (!normalized) return false
 
   if (
     /\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/.test(normalized) ||
+    /\b(therefore|and so|so then|which means|that means|this means)\s*$/.test(normalized) ||
     /\b(that'?s|there'?s|it'?s|what'?s|who'?s|where'?s|when'?s|why'?s|how'?s)\s*$/.test(normalized) ||
     /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/.test(normalized) ||
     /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
@@ -66,6 +97,7 @@ export const getTrailingBoundaryIssue = (text: string): string | null => {
 
   const issuePatterns: Array<[RegExp, string]> = [
     [/\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/, 'trailing_connector'],
+    [/\b(therefore|and so|so then|which means|that means|this means)\s*$/, 'trailing_inference_marker'],
     [/\b(that'?s|there'?s|it'?s|what'?s|who'?s|where'?s|when'?s|why'?s|how'?s)\s*$/, 'trailing_contraction'],
     [/\b(that'?s|this is|that is|it'?s|what'?s|here'?s|there'?s)\s+(what|where|when|why|how|who|which)\s*$/, 'trailing_unresolved_reference'],
     [/\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/, 'trailing_determiner'],
@@ -107,7 +139,7 @@ export const isCleanLocalClipEnd = (text: string) => {
 
   return (
     /\b(true|right|exactly|yeah|yes|no|done|finished|complete|matters|works|helps|changes|solves|defines|controls|owns|operates|operate)\s*$/.test(normalized) ||
-    /\b(that'?s why|that'?s how|which means|the point is|the takeaway|bottom line|so basically|therefore)\b[^.!?]{0,80}$/.test(normalized)
+    /\b(that'?s why|that'?s how|which means|the point is|the takeaway|bottom line|so basically)\b[^.!?]{0,80}$/.test(normalized)
   )
 }
 
@@ -126,13 +158,14 @@ export const looksLikeCompleteThought = (text: string) => {
   }
 
   return (
-    /\b(that'?s why|that'?s how|that'?s what|which means|the point is|the takeaway|bottom line|so basically|therefore)\b/.test(normalized) ||
+    /\b(that'?s why|that'?s how|that'?s what|which means|the point is|the takeaway|bottom line|so basically)\b/.test(normalized) ||
     /\b(works|matters|helps|changes|solves|defines|controls|owns|operate|operates|need|should|shouldn'?t|don'?t need)\b[^.!?]{0,80}$/.test(normalized)
   )
 }
 
 export const getBoundaryQuality = (text: string): BoundaryQuality => ({
   startsLikeContinuation: startsLikeContinuation(text),
+  leadingBoundaryIssue: getLeadingBoundaryIssue(text),
   endsWithTerminalPunctuation: endsWithTerminalPunctuation(text),
   endsWithDanglingPhrase: endsWithDanglingPhrase(text),
   hardIncompleteEnding: isHardIncompleteEnding(text),
@@ -142,7 +175,7 @@ export const getBoundaryQuality = (text: string): BoundaryQuality => ({
 
 export const isCleanClipStart = (text: string) => {
   const trimmed = stripLeadingBoundaryFiller(text)
-  return Boolean(trimmed) && !startsLikeContinuation(trimmed)
+  return Boolean(trimmed) && getLeadingBoundaryIssue(trimmed) === null
 }
 
 export const isCleanClipEnd = (text: string) => looksLikeCompleteThought(text) && isCleanLocalClipEnd(text)

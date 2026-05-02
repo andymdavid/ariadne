@@ -21,7 +21,7 @@ import type {
   PipelineWorkerTranscription,
   StartPipelineWorkerCommand,
 } from '@shared/types/pipelineWorker'
-import { getTrailingBoundaryIssue, isCleanClipEnd, isCleanClipStart, isCleanLocalClipEnd, stripLeadingBoundaryFiller } from '../../shared/clipBoundaryQuality'
+import { getLeadingBoundaryIssue, getTrailingBoundaryIssue, isCleanClipEnd, isCleanClipStart, isCleanLocalClipEnd, stripLeadingBoundaryFiller } from '../../shared/clipBoundaryQuality'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
@@ -39,6 +39,7 @@ const THOUGHT_UNIT_CLAUSE_BREAK_MIN_WORDS = 18
 const SEMANTIC_CLIP_MAX_DURATION_SECONDS = 120
 const RESOLVED_CLIP_MIN_DURATION_SECONDS = 25
 const BOUNDARY_OPTIMIZER_MIN_SCORE = 45
+const BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS = 1.1
 
 function postMessage(event: PipelineWorkerEvent) {
   if (typeof process.send === 'function') {
@@ -908,6 +909,57 @@ function clipStartsCleanly(
   return Boolean(textToCheck) && isCleanClipStart(textToCheck)
 }
 
+function getClipOpeningPreview(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip,
+  wordCount = 12
+) {
+  return getClipLeadingWords(transcription, clip, wordCount)
+    .map((word) => word.word)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function getClipStartBoundaryIssue(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip
+) {
+  const openingPreview = getClipOpeningPreview(transcription, clip)
+  return getLeadingBoundaryIssue(openingPreview)
+}
+
+function getClipStartLookbackIssue(
+  transcription: PipelineWorkerTranscription,
+  clip: PipelineWorkerPotentialClip
+) {
+  const words = getWordsWithinWindow(
+    transcription,
+    Math.max(0, clip.startTime - BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS),
+    Math.min(clip.endTime, clip.startTime + 4)
+  )
+  const previousWords = words.filter((word) => word.end <= clip.startTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(-8)
+  const nextWords = words.filter((word) => word.start >= clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(0, 8)
+
+  if (previousWords.length === 0 || nextWords.length === 0) {
+    return null
+  }
+
+  const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
+  if (gap >= BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS) {
+    return null
+  }
+
+  const previousText = previousWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
+  const nextText = nextWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
+
+  if (shouldContinueThoughtAcrossBoundary(previousText, nextText, gap)) {
+    return 'leading_continues_previous_thought'
+  }
+
+  return null
+}
+
 function findCleanExtendedClipStart(
   transcription: PipelineWorkerTranscription,
   clip: PipelineWorkerPotentialClip
@@ -1099,9 +1151,29 @@ function scoreOptimizedBoundaryPair(
   const localEndingText = text.split(/\s+/).slice(-12).join(' ')
   const hardEndIssue = getTrailingBoundaryIssue(localEndingText) ?? getTrailingBoundaryIssue(text)
   const lookaheadIssue = getClipEndLookaheadIssue(transcription, candidateClip)
-  const cleanStart = clipStartsCleanly(transcription, candidateClip)
+  const startBoundaryIssue = getClipStartBoundaryIssue(transcription, candidateClip)
+  const startLookbackIssue = getClipStartLookbackIssue(transcription, candidateClip)
+  const cleanStart = !startBoundaryIssue && clipStartsCleanly(transcription, candidateClip)
   const cleanEnd = isCleanClipEnd(text) && isCleanLocalClipEnd(localEndingText)
   const localEndClean = isCleanLocalClipEnd(localEndingText)
+
+  if (startBoundaryIssue || hardEndIssue || !localEndClean) {
+    return {
+      clip: candidateClip,
+      score: -1000,
+      cleanStart,
+      cleanEnd,
+      localEndClean,
+      hardEndIssue,
+      startBoundaryIssue,
+      startLookbackIssue,
+      lookaheadIssue,
+      endingPreview: text.split(/\s+/).slice(-18).join(' '),
+      openingPreview: getClipOpeningPreview(transcription, candidateClip),
+      movementSeconds: Number((Math.abs(startTime - originalClip.startTime) + Math.abs(endTime - originalClip.endTime)).toFixed(3))
+    }
+  }
+
   const movementPenalty = Math.abs(startTime - originalClip.startTime) * 0.35 + Math.abs(endTime - originalClip.endTime) * 0.25
   const durationPenalty = duration > 90 ? (duration - 90) * 0.4 : duration < 35 ? (35 - duration) * 0.5 : 0
 
@@ -1112,6 +1184,7 @@ function scoreOptimizedBoundaryPair(
   if (!hardEndIssue) score += 12
   if (!lookaheadIssue) score += 8
   else score -= 8
+  if (startLookbackIssue) score -= 10
   score -= movementPenalty + durationPenalty
 
   return {
@@ -1121,9 +1194,11 @@ function scoreOptimizedBoundaryPair(
     cleanEnd,
     localEndClean,
     hardEndIssue,
+    startBoundaryIssue,
+    startLookbackIssue,
     lookaheadIssue,
     endingPreview: text.split(/\s+/).slice(-18).join(' '),
-    openingPreview: getClipLeadingWords(transcription, candidateClip).map((word) => word.word).join(' '),
+    openingPreview: getClipOpeningPreview(transcription, candidateClip),
     movementSeconds: Number((Math.abs(startTime - originalClip.startTime) + Math.abs(endTime - originalClip.endTime)).toFixed(3))
   }
 }
@@ -1160,7 +1235,10 @@ function optimizeClipBoundary(
       cleanStart: item.cleanStart,
       cleanEnd: item.cleanEnd,
       hardEndIssue: item.hardEndIssue,
+      startBoundaryIssue: item.startBoundaryIssue,
+      startLookbackIssue: item.startLookbackIssue,
       lookaheadIssue: item.lookaheadIssue,
+      openingPreview: item.openingPreview,
       endingPreview: item.endingPreview
     }))
   }
@@ -2245,7 +2323,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       })),
       metadata: {
         executor: 'final_boundary_refiner',
-        boundaryRefinementVersion: 'boundary_optimizer_v1',
+        boundaryRefinementVersion: 'boundary_optimizer_v2',
         reviewedClipCount: boundaryFinalization.semanticReview.reviews.length,
         semanticBoundaryReviewUsedAI: boundaryFinalization.semanticReview.usedAI,
         transcriptLineCount: boundaryFinalization.semanticReview.transcriptLineCount,

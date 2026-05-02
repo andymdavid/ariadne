@@ -37,14 +37,17 @@ function evaluateFixture(fixture, clips) {
     const boundaryCoherence = scoreBoundaryCoherence(clip, transcriptSegments)
     const quoteGrounded = isQuoteGrounded(clip, transcriptSegments)
 
-    const score = round(
+    const hardBoundaryIssue = boundaryCoherence.startIssue || boundaryCoherence.endIssue
+    const score = hardBoundaryIssue
+      ? 0
+      : round(
       matchedGood.overlap * 35 +
       boundaryScore * 15 +
       boundaryCoherence.score * 20 +
       (quoteGrounded ? 15 : 0) +
       (1 - matchedBad.overlap) * 15 +
       (1 - duplicateRatio) * 5
-    )
+      )
 
     return {
       id: clip.id || `clip_${index + 1}`,
@@ -58,6 +61,8 @@ function evaluateFixture(fixture, clips) {
       boundaryCoherence: round(boundaryCoherence.score),
       startsCleanly: boundaryCoherence.startsCleanly,
       endsCleanly: boundaryCoherence.endsCleanly,
+      startIssue: boundaryCoherence.startIssue,
+      endIssue: boundaryCoherence.endIssue,
       quoteGrounded,
       totalScore: score
     }
@@ -116,13 +121,17 @@ function scoreBoundaryCoherence(clip, segments) {
     }
   }
 
-  const startsCleanly = !startsLikeContinuation(clipText)
-  const endsCleanly = looksLikeCompleteThought(clipText)
+  const startIssue = getLeadingBoundaryIssue(clipText)
+  const endIssue = getTrailingBoundaryIssue(clipText)
+  const startsCleanly = !startIssue
+  const endsCleanly = !endIssue && looksLikeCompleteThought(clipText)
 
   return {
     score: (startsCleanly ? 0.4 : 0) + (endsCleanly ? 0.6 : 0),
     startsCleanly,
-    endsCleanly
+    endsCleanly,
+    startIssue,
+    endIssue
   }
 }
 
@@ -199,34 +208,77 @@ function startsLikeContinuation(text) {
   return /^(and|but|so|because|then|which|that|it|this|these|those|or|if|when|where|while|who|what|how|than|as|to|for|with|of|in|on|at|from|by|about|into|over|after|before)\b/i.test(stripLeadingBoundaryFiller(String(text || '').trim()))
 }
 
+function getLeadingBoundaryIssue(text) {
+  const trimmed = stripLeadingBoundaryFiller(String(text || '').trim())
+  if (!trimmed) return 'empty'
+
+  const normalized = normalize(trimmed)
+
+  if (startsLikeContinuation(trimmed)) return 'leading_continuation'
+  if (/^(i\s*m\s+sorry|im\s+sorry|sorry)\b/.test(normalized)) return 'leading_repair_aside'
+  if (/^(who knows|either way|anyway|for some reason)\b/.test(normalized)) return 'leading_aside'
+  if (/^(gonna|going|wanna|want|need|trying|able|owned|doing|done)\b/.test(normalized)) return 'leading_fragment'
+  if (/^(he|she|they|them|it|this|that|these|those|there)\b/.test(normalized)) return 'leading_unresolved_reference'
+
+  return null
+}
+
 function looksLikeCompleteThought(text) {
   const trimmed = String(text || '').trim()
   if (!trimmed) return false
-  if (endsWithDanglingPhrase(trimmed)) return false
+  if (getTrailingBoundaryIssue(trimmed)) return false
   if (/[.!?]["']?\s*$/.test(trimmed)) return true
   return trimmed.split(/\s+/).filter(Boolean).length >= 12
 }
 
 function endsWithDanglingPhrase(text) {
+  return getTrailingBoundaryIssue(text) !== null
+}
+
+function getTrailingBoundaryIssue(text) {
   const normalized = stripTerminalPunctuation(String(text || '').trim().toLowerCase())
-  if (!normalized) return false
+  if (!normalized) return 'empty'
 
   if (
-    /\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/.test(normalized) ||
-    /\b(that'?s|there'?s|it'?s|what'?s|who'?s|where'?s|when'?s|why'?s|how'?s)\s*$/.test(normalized) ||
-    /\b(that'?s|this is|that is|it'?s|what'?s|here'?s|there'?s)\s+(what|where|when|why|how|who|which)\s*$/.test(normalized) ||
-    /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/.test(normalized) ||
-    /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
-    /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized) ||
-    /\b(very|really|so|quite|pretty|rather|extremely|incredibly|absolutely|totally)\s*$/.test(normalized) ||
-    /\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of|kind of|sort of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w{0,24}\s*$/.test(normalized)
+    /\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/.test(normalized)
   ) {
-    return true
+    return 'trailing_connector'
+  }
+
+  if (/\b(therefore|and so|so then|which means|that means|this means)\s*$/.test(normalized)) {
+    return 'trailing_inference_marker'
+  }
+
+  if (
+    /\b(that'?s|there'?s|it'?s|what'?s|who'?s|where'?s|when'?s|why'?s|how'?s)\s*$/.test(normalized) ||
+    /\b(that'?s|this is|that is|it'?s|what'?s|here'?s|there'?s)\s+(what|where|when|why|how|who|which)\s*$/.test(normalized)
+  ) {
+    return 'trailing_unresolved_reference'
+  }
+
+  if (/\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/.test(normalized)) {
+    return 'trailing_determiner'
+  }
+
+  if (/\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized)) {
+    return 'trailing_incomplete_phrase'
+  }
+
+  if (/\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized)) {
+    return 'trailing_auxiliary'
+  }
+
+  if (/\b(very|really|so|quite|pretty|rather|extremely|incredibly|absolutely|totally)\s*$/.test(normalized)) {
+    return 'trailing_modifier'
+  }
+
+  if (/\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of|kind of|sort of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w{0,24}\s*$/.test(normalized)) {
+    return 'trailing_open_prepositional_phrase'
   }
 
   const words = normalized.split(/\s+/).filter(Boolean)
   const lastWord = words[words.length - 1] || ''
-  return lastWord.length <= 2
+  return lastWord.length <= 2 ? 'trailing_function_word' : null
 }
 
 function stripTerminalPunctuation(text) {
@@ -256,7 +308,7 @@ function printReport(fixture, resultPath, metrics) {
 
   for (const clip of metrics.clipReports) {
     console.log(
-      `- ${clip.id}: score=${clip.totalScore}, good=${clip.matchedGoodOverlap}, bad=${clip.matchedBadOverlap}, boundary=${clip.boundaryScore}, coherence=${clip.boundaryCoherence}, start=${clip.startsCleanly ? 'clean' : 'rough'}, end=${clip.endsCleanly ? 'clean' : 'rough'}, duplicate=${clip.duplicateRatio}, quote=${clip.quoteGrounded ? 'yes' : 'no'}`
+      `- ${clip.id}: score=${clip.totalScore}, good=${clip.matchedGoodOverlap}, bad=${clip.matchedBadOverlap}, boundary=${clip.boundaryScore}, coherence=${clip.boundaryCoherence}, start=${clip.startsCleanly ? 'clean' : clip.startIssue}, end=${clip.endsCleanly ? 'clean' : clip.endIssue}, duplicate=${clip.duplicateRatio}, quote=${clip.quoteGrounded ? 'yes' : 'no'}`
     )
   }
 }

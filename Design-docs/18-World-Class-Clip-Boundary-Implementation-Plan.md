@@ -30,6 +30,7 @@ Match the quality bar of leading clipping products:
 - The first v3 boundary run correctly extended a clip from `177.68s` to `188.06s`, but stopped on `...like that's that's what`; the next transcript segment continues `I'm trying to do...`. This shows the extension loop needs a strict local-ending check, not just whole-clip completeness.
 - The first v4 boundary run correctly rejected an incomplete ending, but returned zero clips. This shows final boundary validation needs a recovery path over deterministic candidates after AI-selected clips are rejected.
 - The v5 recovery path still returned zero clips because lookahead was treated as binary failure. Boundary finalization needs to optimize nearby start/end choices and score soft continuation separately from hard dangling endings.
+- The first optimizer run recovered to two clips, but exposed two architectural issues: the end scorer treated `therefore` as a valid local close, and the start scorer allowed repair/asides such as `I'm sorry...` as clean openings.
 
 ## Architecture Direction
 
@@ -53,8 +54,15 @@ Clip quality should be enforced by a deterministic boundary engine:
 
 1. Generate safe start/end anchors from transcript words, pauses, punctuation, and thought-unit metadata.
 2. Let AI rank or propose clips using IDs/anchors, not free-form timestamps.
-3. Run a final deterministic extend-or-reject pass.
+3. Run a final deterministic optimize-or-reject pass over only product-safe boundary pairs.
 4. Persist boundary decisions and reasons.
+
+Hard invariants:
+
+- A clip may not end on an inference marker that points forward, including `therefore`, `and so`, `which means`, `that means`, or `this means`.
+- A clip may not start on a repair, apology, aside, or unresolved reference, including starts such as `I'm sorry...`, `who knows...`, `either way...`, `it...`, `this...`, or `that...`.
+- A transcript line boundary is only advisory. Word-level evidence wins if the sentence continues across the line.
+- Lookahead continuation is a ranking penalty unless the local boundary is hard-incomplete; hard local issues are rejection criteria.
 
 ### Cleanup Repositioning
 
@@ -86,6 +94,9 @@ Clip quality should be enforced by a deterministic boundary engine:
 - [ ] Treat clip starts that land inside an overlapping word as invalid starts.
 - [ ] Replace binary final closure with boundary-pair optimization over nearby transcript/word anchors.
 - [ ] Hard-reject only local dangling endings; soft-penalize lookahead continuation when the local ending is otherwise complete.
+- [ ] Reject inference-marker endings such as `therefore`.
+- [ ] Reject repair/aside starts such as `I'm sorry...`.
+- [ ] Record full optimizer start/end issues in alternative previews.
 
 ### Phase 2: Boundary Evaluation Harness
 
