@@ -269,12 +269,12 @@ Acceptance:
 
 ### Phase 4: AI Arc Ranker
 
-- [ ] Add `rankCandidateArcs` to `AIService`.
-- [ ] Prompt the AI to choose candidate arc IDs only.
-- [ ] Require rationale against hook, flow, value, payoff, context independence, and ending quality.
-- [ ] Validate selected IDs and preserve deterministic scores.
+- [x] Add `rankCandidateArcs` to `AIService`.
+- [x] Prompt the AI to choose candidate arc IDs only.
+- [x] Require rationale against hook, flow, value, payoff, context independence, and ending quality.
+- [x] Validate selected IDs and preserve deterministic scores.
 - [ ] Retry once with a smaller candidate set if output is invalid.
-- [ ] Fall back to deterministic top arcs, not heuristic timestamp generation.
+- [x] Fall back to deterministic top arcs, not heuristic timestamp generation.
 
 Acceptance:
 
@@ -291,6 +291,12 @@ Acceptance:
 - [ ] Demote current `clip_generation` and `clip_ranking` timestamp paths to legacy fallback.
 - [ ] Store selected clips with arc IDs and unit IDs in metadata.
 - [ ] Surface arc rationale in review UI later.
+
+Current implementation note:
+
+- `candidate_arc_ranking` now runs before legacy timestamp selectors inside the existing `clip_ranking` stage.
+- Final validation still runs through the existing boundary finalizer.
+- Dedicated stage names can be split out after the arc path proves stable in metadata.
 
 Acceptance:
 

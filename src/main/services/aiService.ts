@@ -1,4 +1,5 @@
 import { APIConfig, ClipMetadataAnalysisDraft } from '@shared/types'
+import type { CandidateArc } from '../../shared/editorialUnits'
 import clipValidationService from './clipValidationService'
 import type { ClipCandidate, RankedClipSelection } from './clipSelectionTypes'
 
@@ -76,6 +77,15 @@ export interface ResolvedClipProposal {
   reason: string
   endResolutionReason: string
   nextSegmentRelation: 'new_topic' | 'same_idea' | 'optional_context' | 'unknown'
+}
+
+export interface RankedCandidateArcSelection {
+  arcId: string
+  shareabilityScore: number
+  contentType: 'insight' | 'story' | 'advice' | 'hot_take' | 'humor' | 'technical'
+  contextNeeded: 'low' | 'medium' | 'high'
+  keyQuote: string
+  reason: string
 }
 
 export interface TranscriptDataWithWords {
@@ -320,6 +330,52 @@ class AIService {
     const proposals = this.parseResolvedClipProposalResponse(response.content, segments)
     onProgress?.(100)
     return proposals
+  }
+
+  async rankCandidateArcs(
+    arcs: CandidateArc[],
+    mediaDuration: number,
+    targetClipCount: number,
+    onProgress?: (progress: number) => void
+  ): Promise<RankedCandidateArcSelection[]> {
+    onProgress?.(10)
+
+    const rankedArcs = arcs
+      .slice()
+      .sort((left, right) => right.scores.overall - left.scores.overall)
+      .slice(0, 24)
+
+    if (rankedArcs.length === 0) {
+      return []
+    }
+
+    const prompt = this.buildCandidateArcRankingPrompt(rankedArcs, mediaDuration, targetClipCount)
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are a senior short-form video editor.',
+            'Rank only the provided candidate arc IDs.',
+            'Do not invent timestamps, clip boundaries, transcript lines, or new arc IDs.',
+            'Optimize for hook, standalone context, narrative flow, value, and resolved payoff.',
+            'Return valid JSON only.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 4500,
+      temperature: 0.15
+    })
+
+    onProgress?.(75)
+    const selections = this.parseCandidateArcRankingResponse(response.content, rankedArcs)
+    onProgress?.(100)
+    return selections
   }
 
   /**
@@ -1365,6 +1421,73 @@ SEGMENTS:
 ${segmentText}
 
 Return JSON only.
+    `.trim()
+  }
+
+  private buildCandidateArcRankingPrompt(
+    arcs: CandidateArc[],
+    mediaDuration: number,
+    targetClipCount: number
+  ) {
+    const arcText = arcs
+      .map((arc) => {
+        const score = arc.scores
+        return [
+          `ARC ${arc.id} [${arc.startTime.toFixed(2)}-${arc.endTime.toFixed(2)}] duration=${arc.duration.toFixed(1)}s topic=${arc.topic}`,
+          `scores overall=${score.overall} hook=${score.hookStrength} context=${score.contextIndependence} flow=${score.narrativeFlow} payoff=${score.payoffStrength} density=${score.density} boundary=${score.audioBoundaryQuality}`,
+          `units=${arc.unitIds.join(',')}`,
+          `hook: ${arc.hookText}`,
+          `payoff: ${arc.payoffText}`,
+          `key_quote: ${arc.keyQuote}`,
+          `summary: ${arc.summary}`
+        ].join('\n')
+      })
+      .join('\n\n')
+
+    return `
+TRANSCRIPT_DURATION: ${mediaDuration.toFixed(2)}s
+TARGET_PLATFORM: youtube_shorts
+TARGET_CLIP_COUNT: ${targetClipCount}
+
+TASK:
+Choose the best publishable candidate arcs from the list below.
+
+You are not selecting timestamps. The timestamps and boundaries have already been generated.
+You may only select ARC IDs that appear in the list.
+
+Evaluate each arc for:
+- hook strength in the opening
+- standalone context
+- one dominant idea
+- narrative flow from setup to development to payoff
+- value, novelty, disagreement, or practical insight
+- whether the payoff feels complete
+- whether the clip is too rambling or too context-dependent
+
+Prefer fewer high-confidence clips over padding weak clips.
+Avoid near-duplicates unless the framing/payoff is materially different.
+
+OUTPUT JSON ONLY:
+{
+  "selected_arcs": [
+    {
+      "arc_id": "arc_1",
+      "shareability_score": 8.6,
+      "content_type": "insight",
+      "context_needed": "low",
+      "key_quote": "Exact quote from the arc transcript.",
+      "reason": "Why this arc works as a short-form clip."
+    }
+  ]
+}
+
+Allowed content_type values: insight, story, advice, hot_take, humor, technical.
+Allowed context_needed values: low, medium, high.
+
+CANDIDATE_ARCS:
+${arcText}
+
+Return JSON only. Do not add commentary.
     `.trim()
   }
 
@@ -2891,6 +3014,54 @@ Return JSON only.
         }
         return left.startSegmentId - right.startSegmentId
       })
+  }
+
+  private parseCandidateArcRankingResponse(
+    content: string,
+    arcs: CandidateArc[]
+  ): RankedCandidateArcSelection[] {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error('No JSON found in candidate arc ranking response')
+    }
+
+    const parsed = JSON.parse(jsonString)
+    const rawSelections = Array.isArray(parsed.selected_arcs) ? parsed.selected_arcs : null
+    if (!rawSelections) {
+      throw new Error('Invalid candidate arc ranking response: missing selected_arcs')
+    }
+
+    const arcIds = new Set(arcs.map((arc) => arc.id))
+    const validContentTypes = new Set(['insight', 'story', 'advice', 'hot_take', 'humor', 'technical'])
+    const validContextNeeded = new Set(['low', 'medium', 'high'])
+    const seen = new Set<string>()
+
+    return rawSelections
+      .map((selection: any) => {
+        const arcId = String(selection.arc_id ?? selection.arcId ?? '').trim()
+        if (!arcIds.has(arcId) || seen.has(arcId)) {
+          return null
+        }
+        seen.add(arcId)
+
+        const rawScore = Number(selection.shareability_score ?? selection.score ?? 7)
+        const contentType = String(selection.content_type ?? selection.contentType ?? 'insight').toLowerCase()
+        const contextNeeded = String(selection.context_needed ?? selection.contextNeeded ?? 'low').toLowerCase()
+
+        return {
+          arcId,
+          shareabilityScore: Number(Math.max(1, Math.min(10, rawScore <= 10 ? rawScore : rawScore / 10)).toFixed(1)),
+          contentType: validContentTypes.has(contentType)
+            ? contentType as RankedCandidateArcSelection['contentType']
+            : 'insight',
+          contextNeeded: validContextNeeded.has(contextNeeded)
+            ? contextNeeded as RankedCandidateArcSelection['contextNeeded']
+            : 'low',
+          keyQuote: String(selection.key_quote ?? selection.keyQuote ?? '').replace(/\s+/g, ' ').trim().slice(0, 220),
+          reason: String(selection.reason ?? 'Selected from a precomputed editorial arc.').replace(/\s+/g, ' ').trim()
+        }
+      })
+      .filter((selection: RankedCandidateArcSelection | null): selection is RankedCandidateArcSelection => Boolean(selection))
   }
   
   updateConfig(config: APIConfig) {

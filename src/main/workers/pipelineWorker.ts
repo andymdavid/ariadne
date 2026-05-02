@@ -2,6 +2,7 @@ import { promises as fs, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 import AIService, { CleanedTranscriptUnit, ClipBoundaryReview, ResolvedClipProposal, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
+import type { RankedCandidateArcSelection } from '../services/aiService'
 import ClipSelectionAgentService, { ClipSelectionAgentError } from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
 import LocalWhisperService from '../services/localWhisperService'
@@ -23,6 +24,7 @@ import type {
 } from '@shared/types/pipelineWorker'
 import { getLeadingBoundaryIssue, getTrailingBoundaryIssue, isCleanClipEnd, isCleanClipStart, isCleanLocalClipEnd, stripLeadingBoundaryFiller } from '../../shared/clipBoundaryQuality'
 import { buildEditorialUnits, generateCandidateArcs, summarizeCandidateArcs, summarizeEditorialUnits } from '../../shared/editorialUnits'
+import type { CandidateArc } from '../../shared/editorialUnits'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
@@ -1484,6 +1486,49 @@ function buildFallbackClipsFromCandidates(
     }))
 }
 
+function buildPotentialClipsFromRankedArcs(
+  arcs: CandidateArc[],
+  selections: RankedCandidateArcSelection[]
+): PipelineWorkerPotentialClip[] {
+  const arcById = new Map(arcs.map((arc) => [arc.id, arc]))
+
+  return selections
+    .map((selection, index) => {
+      const arc = arcById.get(selection.arcId)
+      if (!arc) return null
+
+      return {
+        id: `arc_${index + 1}_${selection.arcId}`,
+        startTime: arc.startTime,
+        endTime: arc.endTime,
+        duration: arc.duration,
+        contentType: selection.contentType,
+        shareabilityScore: selection.shareabilityScore,
+        keyQuote: selection.keyQuote || arc.keyQuote,
+        reason: selection.reason || `Selected from editorial candidate arc ${selection.arcId}.`,
+        contextNeeded: selection.contextNeeded
+      }
+    })
+    .filter((clip): clip is PipelineWorkerPotentialClip => Boolean(clip))
+}
+
+function buildDeterministicClipsFromTopArcs(
+  arcs: CandidateArc[],
+  limit = 8
+): PipelineWorkerPotentialClip[] {
+  return arcs.slice(0, limit).map((arc, index) => ({
+    id: `deterministic_arc_${index + 1}`,
+    startTime: arc.startTime,
+    endTime: arc.endTime,
+    duration: arc.duration,
+    contentType: arc.scores.emotionalEnergy >= 0.65 ? 'hot_take' : 'insight',
+    shareabilityScore: Number(Math.max(1, Math.min(9.2, arc.scores.overall * 10)).toFixed(1)),
+    keyQuote: arc.keyQuote,
+    reason: `Selected from deterministic editorial arc scoring. Hook=${arc.scores.hookStrength}, flow=${arc.scores.narrativeFlow}, payoff=${arc.scores.payoffStrength}.`,
+    contextNeeded: arc.scores.contextIndependence >= 0.7 ? 'low' : arc.scores.contextIndependence >= 0.45 ? 'medium' : 'high'
+  }))
+}
+
 async function finalizeClipBoundaries(
   transcription: PipelineWorkerTranscription,
   clips: PipelineWorkerPotentialClip[],
@@ -1781,6 +1826,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   let candidateArcs = editorialUnits.length > 0
     ? generateCandidateArcs(editorialUnits)
     : []
+  let clipSelectionSourceMetadata: Record<string, unknown> = {}
 
   if (startStageIndex <= stageOrder.indexOf('transcription')) {
     currentStage = 'transcription'
@@ -2017,56 +2063,138 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         })
     } else {
       let agentFailureMetadata: Record<string, unknown> | null = null
-      try {
-        postProgress(command.workflowJobId, currentStage, 10, 'Proposing resolved clip arcs...')
 
-        const resolvedProposals = await aiService.proposeResolvedClips(
-          transcription,
-          command.mediaDuration,
-          (progress) => {
-            postProgress(command.workflowJobId, currentStage, Math.min(10 + progress * 0.35, 45), 'Proposing resolved clip arcs...')
+      if (candidateArcs.length > 0) {
+        try {
+          postProgress(command.workflowJobId, currentStage, 8, 'Ranking editorial candidate arcs...')
+
+          const rankedArcSelections = await aiService.rankCandidateArcs(
+            candidateArcs,
+            command.mediaDuration,
+            Math.max(6, command.runConfigSnapshot.maxClipsPerEpisode),
+            (progress) => {
+              postProgress(command.workflowJobId, currentStage, Math.min(8 + progress * 0.32, 40), 'Ranking editorial candidate arcs...')
+            }
+          )
+          const arcClips = buildPotentialClipsFromRankedArcs(candidateArcs, rankedArcSelections)
+
+          if (arcClips.length >= 1) {
+            analysis = { potentialClips: arcClips }
+            aiAnalysisSucceeded = true
+
+            postStageCompleted(command.workflowJobId, currentStage, {
+              clipCount: analysis.potentialClips.length,
+              mode: 'candidate_arc_ranking',
+              aiAnalysisSucceeded,
+              selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+                id: clip.id,
+                startTime: clip.startTime,
+                endTime: clip.endTime,
+                shareabilityScore: clip.shareabilityScore
+              })),
+              metadata: {
+                executor: 'candidate_arc_ranker',
+                ...getRankingModelMetadata(command),
+                candidateArcRankerVersion: 'candidate_arc_ranker_v1',
+                editorialUnitBuilderVersion: 'editorial_units_v1',
+                candidateArcGeneratorVersion: 'candidate_arcs_v1',
+                editorialUnits: summarizeEditorialUnits(editorialUnits),
+                candidateArcs: summarizeCandidateArcs(candidateArcs),
+                selectedArcIds: rankedArcSelections.map((selection) => selection.arcId),
+                selectedArcCount: rankedArcSelections.length
+              },
+              analysis
+            })
+            clipSelectionSourceMetadata = {
+              selectionSource: 'candidate_arc_ranker',
+              selectedArcIds: rankedArcSelections.map((selection) => selection.arcId)
+            }
+          } else {
+            throw new Error('Candidate arc ranker returned no usable arc selections')
           }
-        )
-        const resolvedClips = buildResolvedClipsFromProposals(
-          transcription,
-          resolvedProposals,
-          command.mediaDuration
-        )
-
-        if (resolvedClips.clips.length >= 2) {
-          analysis = { potentialClips: resolvedClips.clips }
-          aiAnalysisSucceeded = true
-
-          postStageCompleted(command.workflowJobId, currentStage, {
-            clipCount: analysis.potentialClips.length,
-            mode: 'resolved_clip_proposal',
-            aiAnalysisSucceeded,
-            selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
-              id: clip.id,
-              startTime: clip.startTime,
-              endTime: clip.endTime,
-              shareabilityScore: clip.shareabilityScore
-            })),
-            metadata: {
-              executor: 'resolved_clip_proposal',
-              ...getRankingModelMetadata(command),
-              proposedClipCount: resolvedProposals.length,
-              acceptedClipCount: resolvedClips.clips.length,
-              rejectedClipCount: resolvedClips.rejected.length,
-              rejectedPreview: resolvedClips.rejected.slice(0, 5)
-            },
-            analysis
-          })
-        } else {
-          throw new Error(`Resolved clip proposal returned only ${resolvedClips.clips.length} usable clips`)
+        } catch (arcRankingError) {
+          console.warn('Candidate arc ranking failed, falling back to legacy selection paths:', arcRankingError)
+          const deterministicArcClips = buildDeterministicClipsFromTopArcs(candidateArcs)
+          if (deterministicArcClips.length > 0) {
+            analysis = { potentialClips: deterministicArcClips }
+            aiAnalysisSucceeded = false
+            clipSelectionSourceMetadata = {
+              selectionSource: 'deterministic_candidate_arcs',
+              candidateArcRankerFailureReason: arcRankingError instanceof Error
+                ? arcRankingError.message
+                : 'Unknown candidate arc ranking error',
+              selectedArcIds: candidateArcs.slice(0, deterministicArcClips.length).map((arc) => arc.id)
+            }
+            agentFailureMetadata = {
+              candidateArcRankerAttempted: true,
+              candidateArcRankerFailureReason: arcRankingError instanceof Error
+                ? arcRankingError.message
+                : 'Unknown candidate arc ranking error',
+              deterministicArcFallbackUsed: true
+            }
+          } else {
+            agentFailureMetadata = {
+              candidateArcRankerAttempted: true,
+              candidateArcRankerFailureReason: arcRankingError instanceof Error
+                ? arcRankingError.message
+                : 'Unknown candidate arc ranking error'
+            }
+          }
         }
-      } catch (resolvedProposalError) {
-        console.warn('Resolved clip proposal failed, falling back to clip selection agent:', resolvedProposalError)
-        agentFailureMetadata = {
-          agentAttempted: true,
-          resolvedProposalFailureReason: resolvedProposalError instanceof Error
-            ? resolvedProposalError.message
-            : 'Unknown resolved clip proposal error'
+      }
+
+      if (!analysis) {
+        try {
+          postProgress(command.workflowJobId, currentStage, 10, 'Proposing resolved clip arcs...')
+
+          const resolvedProposals = await aiService.proposeResolvedClips(
+            transcription,
+            command.mediaDuration,
+            (progress) => {
+              postProgress(command.workflowJobId, currentStage, Math.min(10 + progress * 0.35, 45), 'Proposing resolved clip arcs...')
+            }
+          )
+          const resolvedClips = buildResolvedClipsFromProposals(
+            transcription,
+            resolvedProposals,
+            command.mediaDuration
+          )
+
+          if (resolvedClips.clips.length >= 2) {
+            analysis = { potentialClips: resolvedClips.clips }
+            aiAnalysisSucceeded = true
+
+            postStageCompleted(command.workflowJobId, currentStage, {
+              clipCount: analysis.potentialClips.length,
+              mode: 'resolved_clip_proposal',
+              aiAnalysisSucceeded,
+              selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+                id: clip.id,
+                startTime: clip.startTime,
+                endTime: clip.endTime,
+                shareabilityScore: clip.shareabilityScore
+              })),
+              metadata: {
+                executor: 'resolved_clip_proposal',
+                ...getRankingModelMetadata(command),
+                proposedClipCount: resolvedProposals.length,
+                acceptedClipCount: resolvedClips.clips.length,
+                rejectedClipCount: resolvedClips.rejected.length,
+                rejectedPreview: resolvedClips.rejected.slice(0, 5)
+              },
+              analysis
+            })
+          } else {
+            throw new Error(`Resolved clip proposal returned only ${resolvedClips.clips.length} usable clips`)
+          }
+        } catch (resolvedProposalError) {
+          console.warn('Resolved clip proposal failed, falling back to clip selection agent:', resolvedProposalError)
+          agentFailureMetadata = {
+            agentAttempted: true,
+            resolvedProposalFailureReason: resolvedProposalError instanceof Error
+              ? resolvedProposalError.message
+              : 'Unknown resolved clip proposal error'
+          }
         }
       }
 
@@ -2342,6 +2470,11 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       metadata: {
         executor: 'final_boundary_refiner',
         boundaryRefinementVersion: 'boundary_optimizer_v2',
+        ...clipSelectionSourceMetadata,
+        editorialUnitBuilderVersion: 'editorial_units_v1',
+        candidateArcGeneratorVersion: 'candidate_arcs_v1',
+        editorialUnits: summarizeEditorialUnits(editorialUnits),
+        candidateArcs: summarizeCandidateArcs(candidateArcs),
         reviewedClipCount: boundaryFinalization.semanticReview.reviews.length,
         semanticBoundaryReviewUsedAI: boundaryFinalization.semanticReview.usedAI,
         transcriptLineCount: boundaryFinalization.semanticReview.transcriptLineCount,
