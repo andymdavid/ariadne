@@ -22,7 +22,7 @@ import type {
   StartPipelineWorkerCommand,
 } from '@shared/types/pipelineWorker'
 import { getLeadingBoundaryIssue, getTrailingBoundaryIssue, isCleanClipEnd, isCleanClipStart, isCleanLocalClipEnd, stripLeadingBoundaryFiller } from '../../shared/clipBoundaryQuality'
-import { buildEditorialUnits, summarizeEditorialUnits } from '../../shared/editorialUnits'
+import { buildEditorialUnits, generateCandidateArcs, summarizeCandidateArcs, summarizeEditorialUnits } from '../../shared/editorialUnits'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
@@ -1778,6 +1778,9 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   let editorialUnits = transcription
     ? buildEditorialUnits(transcription.segments)
     : []
+  let candidateArcs = editorialUnits.length > 0
+    ? generateCandidateArcs(editorialUnits)
+    : []
 
   if (startStageIndex <= stageOrder.indexOf('transcription')) {
     currentStage = 'transcription'
@@ -1874,6 +1877,9 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   if (editorialUnits.length === 0) {
     editorialUnits = buildEditorialUnits(transcription.segments)
   }
+  if (candidateArcs.length === 0) {
+    candidateArcs = generateCandidateArcs(editorialUnits)
+  }
 
   if (startStageIndex <= stageOrder.indexOf('clip_generation')) {
     currentStage = 'clip_generation'
@@ -1963,7 +1969,9 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         transcriptNormalizationVersion,
         transcriptCleanup: transcriptCleanupMetadata,
         editorialUnitBuilderVersion: 'editorial_units_v1',
-        editorialUnits: summarizeEditorialUnits(editorialUnits)
+        editorialUnits: summarizeEditorialUnits(editorialUnits),
+        candidateArcGeneratorVersion: 'candidate_arcs_v1',
+        candidateArcs: summarizeCandidateArcs(candidateArcs)
       },
       candidates
     })

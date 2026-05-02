@@ -104,6 +104,12 @@ export type BuildEditorialUnitsOptions = {
   episodeId?: string
 }
 
+export type GenerateCandidateArcsOptions = {
+  minDurationSeconds?: number
+  maxDurationSeconds?: number
+  maxArcs?: number
+}
+
 const HARD_PAUSE_SECONDS = 1.1
 const SOFT_PAUSE_SECONDS = 0.45
 const PREFERRED_MAX_DURATION_SECONDS = 26
@@ -368,5 +374,227 @@ export const summarizeEditorialUnits = (units: EditorialUnit[]) => ({
     continuesPrevious: unit.continuesPrevious,
     continuesNext: unit.continuesNext,
     text: unit.text
+  }))
+})
+
+const clampScore = (score: number) => Number(Math.max(0, Math.min(1, score)).toFixed(3))
+
+const getDurationFit = (duration: number) => {
+  if (duration < 25 || duration > 120) return 0
+  if (duration >= 35 && duration <= 85) return 1
+  if (duration < 35) return clampScore((duration - 25) / 10)
+  return clampScore(1 - (duration - 85) / 35)
+}
+
+const getTextDensity = (text: string, duration: number) => {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (!words.length || duration <= 0) return 0
+  const wordsPerSecond = words.length / duration
+  return clampScore((wordsPerSecond - 1.2) / 1.25)
+}
+
+const hasHookLanguage = (text: string) =>
+  /\b(why|what|how|should|need|problem|question|if you|when you|the thing is|the point|actually|ridiculous|different|control|own)\b/i.test(text)
+
+const hasPayoffLanguage = (text: string) =>
+  /\b(therefore|that'?s why|that'?s how|so that'?s|the point is|bottom line|you need to|we should|we shouldn'?t|don'?t need to|that'?s ridiculous|you can|you won'?t|operate|controls|own that)\b/i.test(text)
+
+const summarizeArcTopic = (units: EditorialUnit[]) => {
+  const text = units.map((unit) => unit.text).join(' ').toLowerCase()
+  if (/\b(claude|anthropic|model|ai|agent|agents)\b/.test(text)) return 'AI workflow ownership'
+  if (/\b(business|small business|operate|processes)\b/.test(text)) return 'business operations'
+  if (/\b(software|workflow|scripts|system)\b/.test(text)) return 'software systems'
+  return 'general insight'
+}
+
+const summarizeArc = (units: EditorialUnit[]) => {
+  const firstClaim = units.find((unit) => ['hook', 'claim', 'payoff'].includes(unit.role))
+  return firstClaim?.text.slice(0, 180) ?? units[0]?.text.slice(0, 180) ?? ''
+}
+
+const getKeyQuote = (units: EditorialUnit[]) => {
+  const bestUnit = units
+    .filter((unit) => unit.role !== 'filler' && unit.role !== 'transition')
+    .sort((left, right) => {
+      const rightScore = (right.role === 'payoff' ? 2 : 0) + (right.role === 'claim' ? 1 : 0) + right.confidence
+      const leftScore = (left.role === 'payoff' ? 2 : 0) + (left.role === 'claim' ? 1 : 0) + left.confidence
+      return rightScore - leftScore
+    })[0]
+
+  return bestUnit?.text.slice(0, 220) ?? units.map((unit) => unit.text).join(' ').slice(0, 220)
+}
+
+const scoreCandidateArc = (units: EditorialUnit[], duration: number): CandidateArcScore => {
+  const text = units.map((unit) => unit.text).join(' ')
+  const firstUnit = units[0]
+  const lastUnit = units[units.length - 1]
+  const meaningfulUnits = units.filter((unit) => unit.role !== 'filler' && unit.role !== 'transition')
+  const payoffUnits = units.filter((unit) => unit.role === 'payoff')
+  const asideRatio = units.filter((unit) => unit.role === 'aside' || unit.role === 'filler').length / Math.max(1, units.length)
+
+  const hookStrength = clampScore(
+    (firstUnit.startsCleanly ? 0.35 : 0) +
+    (['hook', 'claim', 'escalation'].includes(firstUnit.role) ? 0.3 : 0) +
+    (hasHookLanguage(firstUnit.text) ? 0.25 : 0) +
+    (firstUnit.continuesPrevious ? -0.25 : 0) +
+    (firstUnit.role === 'aside' || firstUnit.role === 'filler' ? -0.35 : 0)
+  )
+
+  const contextIndependence = clampScore(
+    (firstUnit.startsCleanly ? 0.35 : 0) +
+    (!firstUnit.continuesPrevious ? 0.35 : 0) +
+    (asideRatio <= 0.25 ? 0.2 : -0.2) +
+    (/\b(this|that|those|they|he|she)\b/i.test(firstUnit.text.split(/\s+/).slice(0, 8).join(' ')) ? -0.2 : 0)
+  )
+
+  const narrativeFlow = clampScore(
+    (meaningfulUnits.length >= 2 ? 0.25 : 0) +
+    (meaningfulUnits.length >= 3 ? 0.2 : 0) +
+    (units.some((unit) => unit.role === 'claim') ? 0.15 : 0) +
+    (units.some((unit) => unit.role === 'example' || unit.role === 'escalation') ? 0.15 : 0) +
+    (payoffUnits.length > 0 ? 0.2 : 0) +
+    (asideRatio <= 0.2 ? 0.05 : -0.15)
+  )
+
+  const payoffStrength = clampScore(
+    (lastUnit.endsCleanly ? 0.3 : 0) +
+    (!lastUnit.continuesNext ? 0.15 : 0) +
+    (lastUnit.role === 'payoff' ? 0.25 : 0) +
+    (payoffUnits.length > 0 ? 0.15 : 0) +
+    (hasPayoffLanguage(lastUnit.text) || hasPayoffLanguage(text) ? 0.15 : 0)
+  )
+
+  const density = getTextDensity(text, duration)
+  const durationFit = getDurationFit(duration)
+  const audioBoundaryQuality = clampScore(
+    (firstUnit.pauseBeforeSeconds === null || firstUnit.pauseBeforeSeconds >= 0.25 ? 0.4 : 0.2) +
+    (lastUnit.pauseAfterSeconds === null || lastUnit.pauseAfterSeconds >= 0.25 ? 0.4 : 0.2) +
+    (firstUnit.startsCleanly && lastUnit.endsCleanly ? 0.2 : 0)
+  )
+  const emotionalEnergy = clampScore(
+    (/\b(ridiculous|evil|wrong|never|always|really|exactly|control|turn your business off)\b/i.test(text) ? 0.45 : 0.2) +
+    (units.some((unit) => unit.role === 'escalation') ? 0.25 : 0) +
+    (payoffUnits.length > 0 ? 0.15 : 0)
+  )
+  const visualSuitability = 0.5
+  const captionQuality = clampScore((firstUnit.startsCleanly ? 0.3 : 0) + (lastUnit.endsCleanly ? 0.4 : 0) + (durationFit * 0.3))
+  const novelty = clampScore((/\b(control|own|ridiculous|turn your business off|regulatory capture)\b/i.test(text) ? 0.55 : 0.3) + (payoffUnits.length > 0 ? 0.2 : 0))
+
+  const overall = clampScore(
+    hookStrength * 0.16 +
+    contextIndependence * 0.14 +
+    narrativeFlow * 0.18 +
+    payoffStrength * 0.18 +
+    density * 0.08 +
+    novelty * 0.08 +
+    audioBoundaryQuality * 0.07 +
+    emotionalEnergy * 0.05 +
+    visualSuitability * 0.02 +
+    captionQuality * 0.02 +
+    durationFit * 0.02
+  )
+
+  return {
+    hookStrength,
+    contextIndependence,
+    narrativeFlow,
+    payoffStrength,
+    density,
+    novelty,
+    audioBoundaryQuality,
+    emotionalEnergy,
+    visualSuitability,
+    captionQuality,
+    durationFit,
+    overall
+  }
+}
+
+const shouldConsiderArc = (
+  units: EditorialUnit[],
+  duration: number,
+  options: Required<Pick<GenerateCandidateArcsOptions, 'minDurationSeconds' | 'maxDurationSeconds'>>
+) => {
+  if (duration < options.minDurationSeconds || duration > options.maxDurationSeconds) return false
+  const firstUnit = units[0]
+  const lastUnit = units[units.length - 1]
+  if (!firstUnit || !lastUnit) return false
+  if (!firstUnit.startsCleanly || firstUnit.role === 'aside' || firstUnit.role === 'filler') return false
+  if (!lastUnit.endsCleanly) return false
+  if (units.some((unit) => unit.role === 'aside')) return false
+  const nonEditorialCount = units.filter((unit) => unit.role === 'filler' || unit.role === 'transition').length
+  return nonEditorialCount / Math.max(1, units.length) <= 0.3
+}
+
+export const generateCandidateArcs = (
+  units: EditorialUnit[],
+  options: GenerateCandidateArcsOptions = {}
+): CandidateArc[] => {
+  const minDurationSeconds = options.minDurationSeconds ?? 25
+  const maxDurationSeconds = options.maxDurationSeconds ?? 120
+  const maxArcs = options.maxArcs ?? 60
+  const arcs: CandidateArc[] = []
+
+  for (let startIndex = 0; startIndex < units.length; startIndex += 1) {
+    for (let endIndex = startIndex; endIndex < units.length; endIndex += 1) {
+      const arcUnits = units.slice(startIndex, endIndex + 1)
+      const firstUnit = arcUnits[0]
+      const lastUnit = arcUnits[arcUnits.length - 1]
+      const duration = Number((lastUnit.endTime - firstUnit.startTime).toFixed(3))
+
+      if (duration > maxDurationSeconds) break
+      if (!shouldConsiderArc(arcUnits, duration, { minDurationSeconds, maxDurationSeconds })) continue
+
+      const scores = scoreCandidateArc(arcUnits, duration)
+      arcs.push({
+        id: `arc_${arcs.length + 1}`,
+        unitIds: arcUnits.map((unit) => unit.id),
+        startWordIndex: firstUnit.startWordIndex,
+        endWordIndex: lastUnit.endWordIndex,
+        startTime: firstUnit.startTime,
+        endTime: lastUnit.endTime,
+        duration,
+        topic: summarizeArcTopic(arcUnits),
+        summary: summarizeArc(arcUnits),
+        hookText: firstUnit.text,
+        payoffText: lastUnit.text,
+        keyQuote: getKeyQuote(arcUnits),
+        scores,
+        diagnostics: {
+          unitCount: arcUnits.length,
+          roleSequence: arcUnits.map((unit) => unit.role),
+          startsCleanly: firstUnit.startsCleanly,
+          endsCleanly: lastUnit.endsCleanly,
+          firstUnitId: firstUnit.id,
+          lastUnitId: lastUnit.id
+        }
+      })
+    }
+  }
+
+  return arcs
+    .sort((left, right) => right.scores.overall - left.scores.overall)
+    .slice(0, maxArcs)
+    .map((arc, index) => ({
+      ...arc,
+      id: `arc_${index + 1}`
+    }))
+}
+
+export const summarizeCandidateArcs = (arcs: CandidateArc[]) => ({
+  arcCount: arcs.length,
+  preview: arcs.slice(0, 8).map((arc) => ({
+    id: arc.id,
+    startTime: arc.startTime,
+    endTime: arc.endTime,
+    duration: arc.duration,
+    topic: arc.topic,
+    overall: arc.scores.overall,
+    hookStrength: arc.scores.hookStrength,
+    narrativeFlow: arc.scores.narrativeFlow,
+    payoffStrength: arc.scores.payoffStrength,
+    unitIds: arc.unitIds,
+    hookText: arc.hookText,
+    payoffText: arc.payoffText
   }))
 })

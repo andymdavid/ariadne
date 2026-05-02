@@ -13,6 +13,7 @@ function main() {
   const fixture = JSON.parse(fs.readFileSync(path.resolve(fixturePath), 'utf8'))
   const segments = Array.isArray(fixture.transcriptSegments) ? fixture.transcriptSegments : []
   const units = buildEditorialUnits(segments)
+  const arcs = generateCandidateArcs(units)
   const failures = []
 
   const thereforeEnding = units.find((unit) => /\btherefore\s*$/i.test(unit.text))
@@ -35,14 +36,31 @@ function main() {
     failures.push('No ownership/payoff unit found')
   }
 
+  if (arcs.length === 0) {
+    failures.push('No candidate arcs generated from editorial units')
+  }
+
+  const badBoundaryMatch = arcs
+    .slice(0, 5)
+    .some((arc) => matchesBadBoundary(arc, fixture.expectedBadRanges || []))
+  if (badBoundaryMatch) {
+    failures.push('Top candidate arcs still reproduce known bad accepted boundaries')
+  }
+
   console.log(`Fixture: ${fixture.name || path.basename(fixturePath)}`)
   console.log(`Editorial units: ${units.length}`)
+  console.log(`Candidate arcs: ${arcs.length}`)
   console.log(`Clean starts: ${units.filter((unit) => unit.startsCleanly).length}`)
   console.log(`Clean ends: ${units.filter((unit) => unit.endsCleanly).length}`)
   console.log('')
   console.log('Preview:')
   for (const unit of units.slice(0, 10)) {
     console.log(`- ${unit.id} ${unit.start.toFixed(2)}-${unit.end.toFixed(2)} ${unit.role} start=${unit.startsCleanly ? 'clean' : unit.leadingIssue} end=${unit.endsCleanly ? 'clean' : unit.trailingIssue}: ${unit.text.slice(0, 140)}`)
+  }
+  console.log('')
+  console.log('Top arcs:')
+  for (const arc of arcs.slice(0, 5)) {
+    console.log(`- ${arc.id} ${arc.start.toFixed(2)}-${arc.end.toFixed(2)} score=${arc.score.toFixed(3)} units=${arc.unitIds.join(',')}: ${arc.hookText.slice(0, 90)} -> ${arc.payoffText.slice(0, 90)}`)
   }
 
   if (failures.length > 0) {
@@ -56,6 +74,55 @@ function main() {
 
   console.log('')
   console.log('Editorial unit checks passed.')
+}
+
+function generateCandidateArcs(units) {
+  const arcs = []
+  for (let startIndex = 0; startIndex < units.length; startIndex += 1) {
+    for (let endIndex = startIndex; endIndex < units.length; endIndex += 1) {
+      const arcUnits = units.slice(startIndex, endIndex + 1)
+      const first = arcUnits[0]
+      const last = arcUnits[arcUnits.length - 1]
+      const duration = last.end - first.start
+      if (duration > 120) break
+      if (duration < 25) continue
+      if (!first.startsCleanly || first.role === 'aside' || first.role === 'filler') continue
+      if (!last.endsCleanly) continue
+      if (arcUnits.some((unit) => unit.role === 'aside')) continue
+      const score = scoreArc(arcUnits, duration)
+      arcs.push({
+        id: `arc_${arcs.length + 1}`,
+        start: first.start,
+        end: last.end,
+        duration,
+        unitIds: arcUnits.map((unit) => unit.id),
+        hookText: first.text,
+        payoffText: last.text,
+        score
+      })
+    }
+  }
+  return arcs.sort((left, right) => right.score - left.score).map((arc, index) => ({ ...arc, id: `arc_${index + 1}` }))
+}
+
+function scoreArc(units, duration) {
+  const text = units.map((unit) => unit.text).join(' ')
+  const first = units[0]
+  const last = units[units.length - 1]
+  const hasPayoff = units.some((unit) => unit.role === 'payoff')
+  const hasEscalation = units.some((unit) => unit.role === 'escalation' || unit.role === 'example')
+  const hook = (first.startsCleanly ? 0.35 : 0) + (['hook', 'claim', 'escalation'].includes(first.role) ? 0.3 : 0) + (/\b(why|what|how|should|need|problem|question|control|own)\b/i.test(first.text) ? 0.25 : 0)
+  const flow = (units.length >= 2 ? 0.25 : 0) + (units.length >= 3 ? 0.2 : 0) + (hasEscalation ? 0.2 : 0) + (hasPayoff ? 0.25 : 0)
+  const payoff = (last.endsCleanly ? 0.3 : 0) + (last.role === 'payoff' ? 0.3 : 0) + (hasPayoff ? 0.2 : 0) + (/\b(need|should|ridiculous|operate|control|own)\b/i.test(last.text) ? 0.1 : 0)
+  const density = Math.min(1, Math.max(0, (text.split(/\s+/).length / duration - 1.2) / 1.25))
+  const durationFit = duration >= 35 && duration <= 85 ? 1 : duration < 35 ? Math.max(0, (duration - 25) / 10) : Math.max(0, 1 - (duration - 85) / 35)
+  return Math.max(0, Math.min(1, hook * 0.22 + flow * 0.28 + payoff * 0.28 + density * 0.1 + durationFit * 0.12))
+}
+
+function matchesBadBoundary(arc, ranges) {
+  return ranges.some((range) => {
+    return Math.abs(arc.start - range.startTime) <= 0.75 && Math.abs(arc.end - range.endTime) <= 0.75
+  })
 }
 
 function buildEditorialUnits(segments) {

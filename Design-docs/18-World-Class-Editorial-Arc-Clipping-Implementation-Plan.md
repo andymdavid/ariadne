@@ -242,12 +242,12 @@ Acceptance:
 
 ### Phase 2: Candidate Arc Generator
 
-- [ ] Implement `generateCandidateArcs(units, mediaSignals, options)`.
-- [ ] Generate arcs by combining contiguous units around one topic.
-- [ ] Include multiple duration bands instead of one hard duration target.
-- [ ] Reject arcs that are mostly filler, transition, or context debt.
+- [x] Implement `generateCandidateArcs(units, mediaSignals, options)`.
+- [x] Generate arcs by combining contiguous units around one topic.
+- [x] Include multiple duration bands instead of one hard duration target.
+- [x] Reject arcs that are mostly filler, transition, or context debt.
 - [ ] Score overlap and topic redundancy before AI ranking.
-- [ ] Persist candidate arcs and diagnostics in workflow metadata.
+- [x] Persist candidate arcs and diagnostics in workflow metadata.
 
 Acceptance:
 
@@ -256,10 +256,10 @@ Acceptance:
 
 ### Phase 3: Arc Scoring
 
-- [ ] Implement deterministic score components for hook, context independence, flow, payoff, density, duration fit, and boundary confidence.
+- [x] Implement deterministic score components for hook, context independence, flow, payoff, density, duration fit, and boundary confidence.
 - [ ] Add transcript-derived sentiment/tension signals.
 - [ ] Add audio pause and speech-rate features.
-- [ ] Produce an explainable score breakdown for every arc.
+- [x] Produce an explainable score breakdown for every arc.
 - [ ] Update evaluation harness to score arcs as well as final clips.
 
 Acceptance:
