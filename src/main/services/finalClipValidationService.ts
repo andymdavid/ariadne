@@ -753,7 +753,7 @@ class FinalClipValidationService {
   ) {
     const accepted: PipelineWorkerPotentialClip[] = []
     const decisions: FinalClipValidationDecision[] = []
-    const rejected: FinalClipValidationRejectedClip[] = []
+    let rejected: FinalClipValidationRejectedClip[] = []
 
     for (const clip of clips) {
       const optimization = this.optimizeClipBoundary(transcription, clip, mediaDuration)
@@ -810,7 +810,80 @@ class FinalClipValidationService {
       })
     }
 
+    if (accepted.length === 0 && clips.length > 0) {
+      const recoveredClips = this.recoverBestEffortValidatedClips(transcription, clips, mediaDuration)
+      for (const recoveredClip of recoveredClips) {
+        accepted.push(recoveredClip)
+        rejected = rejected.filter((clip) => clip.clipId !== recoveredClip.id)
+        const decision = decisions.find((item) => item.clipId === recoveredClip.id)
+        const openingPreview = this.getClipOpeningPreview(transcription, recoveredClip)
+        const endingPreview = this.buildClipWindowTextFromWords(transcription, recoveredClip).split(/\s+/).slice(-18).join(' ')
+
+        if (decision) {
+          decision.status = 'accepted'
+          decision.validatedStartTime = recoveredClip.startTime
+          decision.validatedEndTime = recoveredClip.endTime
+          decision.score = Math.max(decision.score, BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE)
+          decision.openingPreview = openingPreview
+          decision.endingPreview = endingPreview
+          decision.reason = 'Accepted by final boundary validator best-effort recovery because all ranked arc boundaries were rejected.'
+        }
+      }
+    }
+
     return { accepted, rejected, decisions }
+  }
+
+  private recoverBestEffortValidatedClips(
+    transcription: PipelineWorkerTranscription,
+    clips: PipelineWorkerPotentialClip[],
+    mediaDuration: number,
+    limit = 2
+  ) {
+    const recovered: PipelineWorkerPotentialClip[] = []
+
+    for (const clip of clips) {
+      if (recovered.length >= limit) {
+        break
+      }
+
+      const duration = clip.endTime - clip.startTime
+      if (duration < RESOLVED_CLIP_MIN_DURATION_SECONDS || duration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+        continue
+      }
+
+      const text = this.buildClipWindowTextFromWords(transcription, clip)
+      if (!text) {
+        continue
+      }
+
+      const hardStartIssue = this.getClipStartBoundaryIssue(transcription, clip)
+      const hardEndIssue = getTrailingBoundaryIssue(text.split(/\s+/).slice(-12).join(' ')) ?? getTrailingBoundaryIssue(text)
+      if (hardStartIssue || hardEndIssue) {
+        continue
+      }
+
+      recovered.push({
+        ...clip,
+        endTime: Math.min(mediaDuration, clip.endTime),
+        duration: Number((Math.min(mediaDuration, clip.endTime) - clip.startTime).toFixed(3)),
+        reason: `${clip.reason} Recovered for review after strict boundary optimization rejected all selected arcs.`
+      })
+    }
+
+    if (recovered.length > 0) {
+      return recovered
+    }
+
+    return clips
+      .filter((clip) => clip.endTime > clip.startTime)
+      .slice(0, limit)
+      .map((clip) => ({
+        ...clip,
+        endTime: Math.min(mediaDuration, clip.endTime),
+        duration: Number((Math.min(mediaDuration, clip.endTime) - clip.startTime).toFixed(3)),
+        reason: `${clip.reason} Recovered for review after all selected arcs failed strict boundary validation.`
+      }))
   }
 
   private mapClipsToTranscriptLines(

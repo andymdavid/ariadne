@@ -3026,7 +3026,7 @@ Return JSON only.
     }
 
     const parsed = JSON.parse(jsonString)
-    const rawSelections = this.resolveCandidateArcSelectionArray(parsed)
+    const rawSelections = this.resolveCandidateArcSelectionArray(parsed, arcs) ?? this.extractCandidateArcSelectionsFromText(content, arcs)
     if (!rawSelections) {
       throw new Error('Invalid candidate arc ranking response: missing selected_arcs')
     }
@@ -3072,9 +3072,21 @@ Return JSON only.
       .filter((selection: RankedCandidateArcSelection | null): selection is RankedCandidateArcSelection => Boolean(selection))
   }
 
-  private resolveCandidateArcSelectionArray(parsed: any): any[] | null {
+  private resolveCandidateArcSelectionArray(parsed: any, arcs: CandidateArc[]): any[] | null {
     if (Array.isArray(parsed)) {
       return parsed
+    }
+
+    const arcIds = new Set(arcs.map((arc) => arc.id))
+    const objectEntries = Object.entries(parsed ?? {})
+      .filter(([key]) => arcIds.has(key))
+      .map(([key, value]) => typeof value === 'object' && value !== null
+        ? { ...(value as Record<string, unknown>), arc_id: key }
+        : { arc_id: key, score: value }
+      )
+
+    if (objectEntries.length > 0) {
+      return objectEntries
     }
 
     const directKeys = [
@@ -3108,6 +3120,29 @@ Return JSON only.
     }
 
     return null
+  }
+
+  private extractCandidateArcSelectionsFromText(content: string, arcs: CandidateArc[]): any[] | null {
+    const arcIds = new Set(arcs.map((arc) => arc.id))
+    const seen = new Set<string>()
+    const selections: any[] = []
+    const pattern = /\barc_[a-zA-Z0-9_-]+\b/g
+    let match: RegExpExecArray | null
+
+    while ((match = pattern.exec(content)) !== null) {
+      const arcId = match[0]
+      if (!arcIds.has(arcId) || seen.has(arcId)) {
+        continue
+      }
+
+      seen.add(arcId)
+      selections.push({
+        arc_id: arcId,
+        reason: 'Selected from arc IDs mentioned in the candidate arc ranking response.'
+      })
+    }
+
+    return selections.length > 0 ? selections : null
   }
   
   updateConfig(config: APIConfig) {
