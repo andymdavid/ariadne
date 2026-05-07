@@ -60,6 +60,14 @@ type TranscriptTimingQuality = {
   issues: string[]
 }
 
+function resolveArcTargetClipCount(maxClipsPerEpisode: number, mediaDuration: number) {
+  const configuredLimit = Number.isFinite(maxClipsPerEpisode)
+    ? Math.max(1, Math.floor(maxClipsPerEpisode))
+    : 6
+  const durationBasedTarget = Math.max(1, Math.min(6, Math.ceil(mediaDuration / 240)))
+  return Math.min(configuredLimit, durationBasedTarget)
+}
+
 function postMessage(event: PipelineWorkerEvent) {
   if (typeof process.send === 'function') {
     process.send(event)
@@ -1244,7 +1252,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         const arcSelection = await arcSelectionService.selectCandidateArcs(
           candidateArcs,
           command.mediaDuration,
-          Math.max(6, command.runConfigSnapshot.maxClipsPerEpisode),
+          resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
           null
         )
         analysis = { potentialClips: arcSelection.clips }
@@ -1320,7 +1328,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           const arcSelection = await arcSelectionService.selectCandidateArcs(
             candidateArcs,
             command.mediaDuration,
-            Math.max(6, command.runConfigSnapshot.maxClipsPerEpisode),
+            resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
             aiService,
             (progress) => {
               postProgress(command.workflowJobId, currentStage, Math.min(8 + progress * 0.32, 40), 'Ranking editorial candidate arcs...')

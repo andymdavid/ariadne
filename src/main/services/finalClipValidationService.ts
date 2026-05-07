@@ -657,7 +657,7 @@ class FinalClipValidationService {
     const cleanEnd = isCleanClipEnd(text) && isCleanLocalClipEnd(localEndingText)
     const localEndClean = isCleanLocalClipEnd(localEndingText)
 
-    if (startBoundaryIssue || startLookbackIssue || hardEndIssue || lookaheadIssue || !localEndClean) {
+    if (startBoundaryIssue || hardEndIssue || !localEndClean) {
       return {
         clip: candidateClip,
         score: -1000,
@@ -683,8 +683,8 @@ class FinalClipValidationService {
     if (localEndClean) score += 14
     if (!hardEndIssue) score += 12
     if (!lookaheadIssue) score += 8
-    else score -= 8
-    if (startLookbackIssue) score -= 10
+    else score -= 18
+    if (startLookbackIssue) score -= 18
     score -= movementPenalty + durationPenalty
 
     return {

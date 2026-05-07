@@ -3026,7 +3026,7 @@ Return JSON only.
     }
 
     const parsed = JSON.parse(jsonString)
-    const rawSelections = Array.isArray(parsed.selected_arcs) ? parsed.selected_arcs : null
+    const rawSelections = this.resolveCandidateArcSelectionArray(parsed)
     if (!rawSelections) {
       throw new Error('Invalid candidate arc ranking response: missing selected_arcs')
     }
@@ -3038,15 +3038,23 @@ Return JSON only.
 
     return rawSelections
       .map((selection: any) => {
-        const arcId = String(selection.arc_id ?? selection.arcId ?? '').trim()
+        const selectionObject = typeof selection === 'string' ? { arc_id: selection } : selection
+        const arcId = String(
+          selectionObject.arc_id ??
+          selectionObject.arcId ??
+          selectionObject.id ??
+          selectionObject.candidate_arc_id ??
+          selectionObject.candidateArcId ??
+          ''
+        ).trim()
         if (!arcIds.has(arcId) || seen.has(arcId)) {
           return null
         }
         seen.add(arcId)
 
-        const rawScore = Number(selection.shareability_score ?? selection.score ?? 7)
-        const contentType = String(selection.content_type ?? selection.contentType ?? 'insight').toLowerCase()
-        const contextNeeded = String(selection.context_needed ?? selection.contextNeeded ?? 'low').toLowerCase()
+        const rawScore = Number(selectionObject.shareability_score ?? selectionObject.shareabilityScore ?? selectionObject.score ?? 7)
+        const contentType = String(selectionObject.content_type ?? selectionObject.contentType ?? 'insight').toLowerCase()
+        const contextNeeded = String(selectionObject.context_needed ?? selectionObject.contextNeeded ?? 'low').toLowerCase()
 
         return {
           arcId,
@@ -3057,11 +3065,49 @@ Return JSON only.
           contextNeeded: validContextNeeded.has(contextNeeded)
             ? contextNeeded as RankedCandidateArcSelection['contextNeeded']
             : 'low',
-          keyQuote: String(selection.key_quote ?? selection.keyQuote ?? '').replace(/\s+/g, ' ').trim().slice(0, 220),
-          reason: String(selection.reason ?? 'Selected from a precomputed editorial arc.').replace(/\s+/g, ' ').trim()
+          keyQuote: String(selectionObject.key_quote ?? selectionObject.keyQuote ?? '').replace(/\s+/g, ' ').trim().slice(0, 220),
+          reason: String(selectionObject.reason ?? selectionObject.rationale ?? 'Selected from a precomputed editorial arc.').replace(/\s+/g, ' ').trim()
         }
       })
       .filter((selection: RankedCandidateArcSelection | null): selection is RankedCandidateArcSelection => Boolean(selection))
+  }
+
+  private resolveCandidateArcSelectionArray(parsed: any): any[] | null {
+    if (Array.isArray(parsed)) {
+      return parsed
+    }
+
+    const directKeys = [
+      'selected_arcs',
+      'selectedArcs',
+      'selected',
+      'selections',
+      'clips',
+      'arcs',
+      'ranked_arcs',
+      'rankedArcs'
+    ]
+
+    for (const key of directKeys) {
+      if (Array.isArray(parsed?.[key])) {
+        return parsed[key]
+      }
+    }
+
+    if (Array.isArray(parsed?.result?.selected_arcs)) {
+      return parsed.result.selected_arcs
+    }
+    if (Array.isArray(parsed?.result?.selectedArcs)) {
+      return parsed.result.selectedArcs
+    }
+    if (Array.isArray(parsed?.data?.selected_arcs)) {
+      return parsed.data.selected_arcs
+    }
+    if (Array.isArray(parsed?.data?.selectedArcs)) {
+      return parsed.data.selectedArcs
+    }
+
+    return null
   }
   
   updateConfig(config: APIConfig) {
