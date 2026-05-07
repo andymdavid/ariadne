@@ -492,7 +492,7 @@ class FinalClipValidationService {
 
     const leadingText = leadingWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
     const textToCheck = stripLeadingBoundaryFiller(leadingText || clipText)
-    return Boolean(textToCheck) && isCleanClipStart(textToCheck)
+    return Boolean(textToCheck) && (isCleanClipStart(textToCheck) || this.isRecoverableLeadInStart(leadingText))
   }
 
   private getClipOpeningPreview(
@@ -512,7 +512,11 @@ class FinalClipValidationService {
     clip: PipelineWorkerPotentialClip
   ) {
     const openingPreview = this.getClipOpeningPreview(transcription, clip)
-    return getLeadingBoundaryIssue(openingPreview)
+    const issue = getLeadingBoundaryIssue(openingPreview)
+    if (issue === 'leading_continuation' && this.isRecoverableLeadInStart(openingPreview)) {
+      return null
+    }
+    return issue
   }
 
   private getClipStartLookbackIssue(
@@ -587,6 +591,48 @@ class FinalClipValidationService {
       .sort((left, right) => left - right)
   }
 
+  private isRecoverableLeadInStart(text: string) {
+    const normalized = text.trim().replace(/\s+/g, ' ').toLowerCase()
+    return /^(and\s+i\s+(think|mean|guess|would|can|was|have)|and\s+so\b|but\s+i\b)/.test(normalized)
+  }
+
+  private getConnectedStartAnchor(
+    transcription: PipelineWorkerTranscription,
+    clip: PipelineWorkerPotentialClip
+  ) {
+    if (!this.getClipStartLookbackIssue(transcription, clip)) {
+      return null
+    }
+
+    const maxLeadInSeconds = 5
+    const maxLeadInWords = 10
+    const words = this.getWordsWithinWindow(
+      transcription,
+      Math.max(0, clip.startTime - maxLeadInSeconds),
+      Math.min(clip.endTime, clip.startTime + 4)
+    )
+    const firstInsideIndex = words.findIndex((word) => word.start >= clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS)
+    if (firstInsideIndex <= 0) {
+      return null
+    }
+
+    let anchorIndex = firstInsideIndex
+    while (anchorIndex > 0 && firstInsideIndex - anchorIndex < maxLeadInWords) {
+      const current = words[anchorIndex]
+      const previous = words[anchorIndex - 1]
+      const gap = current.start - previous.end
+      if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS || clip.startTime - previous.start > maxLeadInSeconds) {
+        break
+      }
+      anchorIndex -= 1
+    }
+
+    const anchor = words[anchorIndex]
+    return anchor && anchor.start < clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS
+      ? anchor.start
+      : null
+  }
+
   private buildBoundaryStartAnchors(
     transcription: PipelineWorkerTranscription,
     clip: PipelineWorkerPotentialClip,
@@ -598,17 +644,23 @@ class FinalClipValidationService {
     const segmentStarts = transcription.segments
       .filter((segment) => segment.start >= minStart && segment.start <= maxStart)
       .map((segment) => segment.start)
+    const connectedStartAnchor = this.getConnectedStartAnchor(transcription, clip)
     const wordStarts = words
       .filter((word, index) => {
         if (word.start < minStart || word.start > maxStart) return false
         const previous = words[index - 1]
         const gap = previous ? word.start - previous.end : Number.POSITIVE_INFINITY
         const leadingText = words.slice(index, index + 8).map((item) => item.word).join(' ')
-        return gap >= 0.22 || isCleanClipStart(leadingText)
+        return gap >= 0.22 || isCleanClipStart(leadingText) || this.isRecoverableLeadInStart(leadingText)
       })
       .map((word) => word.start)
 
-    return this.uniqueSortedTimes([clip.startTime, ...segmentStarts, ...wordStarts])
+    return this.uniqueSortedTimes([
+      clip.startTime,
+      connectedStartAnchor,
+      ...segmentStarts,
+      ...wordStarts
+    ].filter((time): time is number => typeof time === 'number'))
   }
 
   private buildBoundaryEndAnchors(
@@ -725,7 +777,14 @@ class FinalClipValidationService {
     }
 
     scored.sort((left, right) => right.score - left.score)
-    const best = scored[0] ?? null
+    const acceptable = scored.find((item) =>
+      item.score >= BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE &&
+      !item.startBoundaryIssue &&
+      !item.hardEndIssue &&
+      !item.startLookbackIssue &&
+      !item.lookaheadIssue
+    ) ?? null
+    const best = acceptable ?? scored[0] ?? null
     return {
       best,
       alternativesConsidered: scored.length,
@@ -761,7 +820,9 @@ class FinalClipValidationService {
         optimization.best &&
         optimization.best.score >= BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE &&
         !optimization.best.startBoundaryIssue &&
-        !optimization.best.hardEndIssue
+        !optimization.best.hardEndIssue &&
+        !optimization.best.startLookbackIssue &&
+        !optimization.best.lookaheadIssue
       )
       if (optimization.best && (optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE || softAccepted)) {
         accepted.push(optimization.best.clip)
@@ -859,7 +920,9 @@ class FinalClipValidationService {
 
       const hardStartIssue = this.getClipStartBoundaryIssue(transcription, clip)
       const hardEndIssue = getTrailingBoundaryIssue(text.split(/\s+/).slice(-12).join(' ')) ?? getTrailingBoundaryIssue(text)
-      if (hardStartIssue || hardEndIssue) {
+      const startLookbackIssue = this.getClipStartLookbackIssue(transcription, clip)
+      const lookaheadIssue = this.getClipEndLookaheadIssue(transcription, clip)
+      if (hardStartIssue || hardEndIssue || startLookbackIssue || lookaheadIssue) {
         continue
       }
 
@@ -875,15 +938,7 @@ class FinalClipValidationService {
       return recovered
     }
 
-    return clips
-      .filter((clip) => clip.endTime > clip.startTime)
-      .slice(0, limit)
-      .map((clip) => ({
-        ...clip,
-        endTime: Math.min(mediaDuration, clip.endTime),
-        duration: Number((Math.min(mediaDuration, clip.endTime) - clip.startTime).toFixed(3)),
-        reason: `${clip.reason} Recovered for review after all selected arcs failed strict boundary validation.`
-      }))
+    return []
   }
 
   private mapClipsToTranscriptLines(

@@ -925,6 +925,45 @@ function applyFinalClipValidationToSelectionDecisions(
   })
 }
 
+function getClipOverlapRatio(left: PipelineWorkerPotentialClip, right: PipelineWorkerPotentialClip) {
+  const overlapStart = Math.max(left.startTime, right.startTime)
+  const overlapEnd = Math.min(left.endTime, right.endTime)
+  const overlap = Math.max(0, overlapEnd - overlapStart)
+  if (overlap <= 0) {
+    return 0
+  }
+
+  const shortestDuration = Math.min(left.endTime - left.startTime, right.endTime - right.startTime)
+  return shortestDuration > 0 ? overlap / shortestDuration : 0
+}
+
+function suppressOverlappingFinalClips(clips: PipelineWorkerPotentialClip[], maxOverlapRatio = 0.5) {
+  const ranked = [...clips].sort((left, right) => {
+    const shareabilityDelta = right.shareabilityScore - left.shareabilityScore
+    if (shareabilityDelta !== 0) return shareabilityDelta
+    return left.startTime - right.startTime
+  })
+  const accepted: PipelineWorkerPotentialClip[] = []
+  const suppressed: PipelineWorkerPotentialClip[] = []
+
+  for (const clip of ranked) {
+    const overlapsAcceptedClip = accepted.some((acceptedClip) =>
+      getClipOverlapRatio(clip, acceptedClip) > maxOverlapRatio
+    )
+    if (overlapsAcceptedClip) {
+      suppressed.push(clip)
+      continue
+    }
+    accepted.push(clip)
+  }
+
+  const acceptedIds = new Set(accepted.map((clip) => clip.id))
+  return {
+    clips: clips.filter((clip) => acceptedIds.has(clip.id)),
+    suppressed
+  }
+}
+
 async function generateContentPackages(
   workflowJobId: string,
   aiService: AIService | null,
@@ -1724,7 +1763,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         : initialBoundaryFinalization,
       Boolean(fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0)
     )
-    analysis = { potentialClips: boundaryFinalization.clips }
+    const overlapSuppression = suppressOverlappingFinalClips(boundaryFinalization.clips)
+    analysis = { potentialClips: overlapSuppression.clips }
 
     postStageCompleted(command.workflowJobId, 'clip_ranking', {
       clipCount: analysis.potentialClips.length,
@@ -1757,6 +1797,14 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         fallbackBoundaryRecoveredArcIds: fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0
           ? fallbackBoundaryFinalization.clips.map((clip) => clip.sourceArcId).filter(Boolean)
           : undefined,
+        overlapSuppressedClipCount: overlapSuppression.suppressed.length,
+        overlapSuppressedClipPreview: overlapSuppression.suppressed.slice(0, 5).map((clip) => ({
+          id: clip.id,
+          sourceArcId: clip.sourceArcId,
+          startTime: clip.startTime,
+          endTime: clip.endTime,
+          shareabilityScore: clip.shareabilityScore
+        })),
         initialFinalBoundaryRejectedCount: fallbackBoundaryFinalization ? initialBoundaryFinalization.rejectedClips.length : undefined,
         reviewPreview: boundaryFinalization.semanticReview.reviews.slice(0, 5),
         wordAdjustmentPreview: boundaryFinalization.wordAdjustments.slice(0, 5),
