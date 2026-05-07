@@ -30,7 +30,7 @@ import type {
   PublishingAccount,
   TrimBoundaryAnchor
 } from '@shared/types';
-import { normalizeClipStatus } from '@shared/types';
+import { normalizeClipStatus } from '../shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,

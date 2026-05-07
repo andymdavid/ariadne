@@ -1,5 +1,5 @@
 import Store from 'electron-store'
-import { APIConfig, BrandTemplate, BrandTemplatePreset } from '@shared/types'
+import type { APIConfig, BrandTemplate, BrandTemplatePreset } from '@shared/types'
 
 function createDefaultBrandTemplate(): BrandTemplate {
   return {

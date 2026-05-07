@@ -1,4 +1,4 @@
-import { APIConfig, ClipMetadataAnalysisDraft } from '@shared/types'
+import type { APIConfig, ClipMetadataAnalysisDraft } from '@shared/types'
 import type { CandidateArc } from '../../shared/editorialUnits'
 import clipValidationService from './clipValidationService'
 import type { ClipCandidate, RankedClipSelection } from './clipSelectionTypes'
