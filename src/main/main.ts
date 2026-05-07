@@ -30,6 +30,7 @@ import type {
   PublishingAccount,
   TrimBoundaryAnchor
 } from '@shared/types';
+import { normalizeClipStatus } from '@shared/types';
 import type {
   GetActivePipelineJobRequestDTO,
   GetActivePipelineJobResponseDTO,
@@ -685,9 +686,10 @@ ipcMain.handle('get-clip-trim-state', (event, clipId: string) => {
 });
 
 ipcMain.handle('update-clip-status', async (_event, clipId: string, status: string) => {
-  const result = database.updateClipStatus(clipId, status);
+  const normalizedStatus = normalizeClipStatus(status);
+  const result = database.updateClipStatus(clipId, normalizedStatus);
 
-  if (status === 'approved') {
+  if (normalizedStatus === 'approved_by_user') {
     const scheduling = schedulingService.autoScheduleApprovedClip(clipId)
     return {
       result,

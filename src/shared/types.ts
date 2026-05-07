@@ -48,6 +48,37 @@ export interface TranscriptLine {
   updatedAt: string;
 }
 
+export type ClipReviewStatus = 'pending_review' | 'approved_by_user' | 'rejected_by_user';
+export type LegacyClipReviewStatus = 'pending' | 'approved' | 'rejected';
+export type ClipStatus = ClipReviewStatus | LegacyClipReviewStatus;
+
+export function normalizeClipStatus(status?: string | null): ClipReviewStatus {
+  switch (status) {
+    case 'approved':
+    case 'approved_by_user':
+      return 'approved_by_user';
+    case 'rejected':
+    case 'rejected_by_user':
+      return 'rejected_by_user';
+    case 'pending':
+    case 'pending_review':
+    default:
+      return 'pending_review';
+  }
+}
+
+export function isClipApproved(status?: string | null): boolean {
+  return normalizeClipStatus(status) === 'approved_by_user';
+}
+
+export function isClipRejected(status?: string | null): boolean {
+  return normalizeClipStatus(status) === 'rejected_by_user';
+}
+
+export function isClipPendingReview(status?: string | null): boolean {
+  return normalizeClipStatus(status) === 'pending_review';
+}
+
 export interface Clip {
   id: string;
   episodeId: string;
@@ -61,7 +92,7 @@ export interface Clip {
   contextNeeded: 'low' | 'medium' | 'high';
   videoWidth?: number | null;
   videoHeight?: number | null;
-  status: 'pending' | 'approved' | 'rejected';
+  status: ClipReviewStatus;
   createdAt: string;
 }
 

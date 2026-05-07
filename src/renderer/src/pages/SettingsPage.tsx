@@ -17,7 +17,6 @@ interface ConfigState {
     | 'deepseek-r1'
     | 'google-gemini-2.5-flash-lite'
   clipSelectionPlatform: 'youtube_shorts' | 'instagram_reels' | 'tiktok'
-  autoApproveThreshold: number
   defaultExportFormat: '9:16' | '1:1' | '16:9'
   isValid: boolean
   errors: string[]
@@ -75,7 +74,6 @@ export function SettingsPage() {
     openRouterKey: '',
     model: 'google-gemini-2.5-flash',
     clipSelectionPlatform: 'youtube_shorts',
-    autoApproveThreshold: 8.0,
     defaultExportFormat: '9:16',
     isValid: false,
     errors: []
@@ -102,7 +100,6 @@ export function SettingsPage() {
           openRouterKey: data.apiConfig.openRouterKey || '',
           model: data.apiConfig.model || 'google-gemini-2.5-flash',
           clipSelectionPlatform: data.apiConfig.clipSelectionPlatform || 'youtube_shorts',
-          autoApproveThreshold: data.userPreferences.autoApproveThreshold || 8.0,
           defaultExportFormat: data.userPreferences.defaultExportFormat || '9:16',
           isValid: data.isConfigured,
           errors: []
@@ -165,7 +162,6 @@ export function SettingsPage() {
       })
 
       await window.electronAPI?.updateUserPreferences({
-        autoApproveThreshold: config.autoApproveThreshold,
         defaultExportFormat: config.defaultExportFormat
       })
 
@@ -825,27 +821,8 @@ export function SettingsPage() {
                   </div>
 
                   <div className="space-y-5">
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-text-secondary">
-                        Auto-Approve Threshold: {config.autoApproveThreshold.toFixed(1)}
-                      </label>
-                      <input
-                        type="range"
-                        min="6.0"
-                        max="10.0"
-                        step="0.1"
-                        value={config.autoApproveThreshold}
-                        onChange={(e) =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            autoApproveThreshold: parseFloat(e.target.value)
-                          }))
-                        }
-                        className="w-full"
-                      />
-                      <p className="mt-2 text-xs text-text-muted">
-                        Clips above this threshold will be automatically approved.
-                      </p>
+                    <div className="app-surface-muted p-4 text-xs text-text-muted">
+                      Generated clips now always enter `Review` as pending. Approval is an explicit editorial action rather than a score threshold.
                     </div>
 
                     {config.errors.length > 0 && (

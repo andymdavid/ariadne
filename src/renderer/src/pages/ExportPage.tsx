@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { IoCheckmarkCircle, IoClose, IoDownload, IoVideocam, IoWarning } from 'react-icons/io5'
+import { isClipApproved, normalizeClipStatus } from '@shared/types'
 import type { ExportJobDTO } from '@shared/types/exportIpc'
 import { MainContentPanel } from '../components/MainContentPanel'
 
@@ -13,7 +14,7 @@ interface Clip {
   shareabilityScore: number
   keyQuote: string
   reason: string
-  status: 'pending' | 'approved' | 'rejected'
+  status: 'pending_review' | 'approved_by_user' | 'rejected_by_user'
 }
 
 interface ClipTitle {
@@ -103,7 +104,7 @@ export function ExportPage() {
         shareabilityScore: Number(clip.shareability_score) || 0,
         keyQuote: clip.key_quote || '',
         reason: clip.reason || '',
-        status: clip.status || 'approved'
+        status: normalizeClipStatus(clip.status)
       }))
 
       setApprovedClips(clips)
@@ -439,7 +440,7 @@ export function ExportPage() {
                         cursor: 'default'
                       }}
                     >
-                      {clip.status === 'approved' && (
+                      {isClipApproved(clip.status) && (
                         <div className="status-badge approved">✓</div>
                       )}
 

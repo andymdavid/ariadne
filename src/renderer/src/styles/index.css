@@ -4916,13 +4916,15 @@
   opacity: 0.85;
 }
 
-.status-badge.approved {
+.status-badge.approved,
+.status-badge.approved_by_user {
   background: #171717;
   color: #f3f5f7;
   border: 1px solid rgba(245, 245, 245, 0.24);
 }
 
-.status-badge.rejected {
+.status-badge.rejected,
+.status-badge.rejected_by_user {
   background: #171717;
   color: rgba(240, 246, 252, 0.82);
   border: 1px solid #262626;

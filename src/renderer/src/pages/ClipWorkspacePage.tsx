@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { IoArrowBack, IoCheckmark, IoClose, IoCreateOutline, IoPlay, IoPause, IoShareOutline } from 'react-icons/io5'
+import { isClipApproved, isClipPendingReview, normalizeClipStatus } from '@shared/types'
 import type { Clip, ClipVisualSource, GeneratedVideoAsset, ResolvedClipVideoSource, ScheduledPublication } from '@shared/types'
 
 type ClipCardData = Clip & {
@@ -27,7 +28,7 @@ const mapClip = (clip: RawClip, episodeId: string): Clip => ({
   contextNeeded: (clip.context_needed || clip.contextNeeded || 'low') as Clip['contextNeeded'],
   videoWidth: clip.video_width ?? clip.videoWidth ?? null,
   videoHeight: clip.video_height ?? clip.videoHeight ?? null,
-  status: (clip.status || 'pending') as Clip['status'],
+  status: normalizeClipStatus(clip.status),
   createdAt: clip.created_at || clip.createdAt || new Date().toISOString()
 })
 
@@ -299,7 +300,7 @@ export function ClipWorkspacePage() {
                 ...clip,
                 status,
                 publicationStatus:
-                  status === 'approved'
+                  isClipApproved(status)
                     ? (response as any)?.scheduling?.publication?.status ?? clip.publicationStatus
                     : clip.publicationStatus
               }
@@ -378,9 +379,9 @@ export function ClipWorkspacePage() {
                 }}
                 className={`clip-card clip-card-grid ${isFocused ? 'selected' : ''}`}
               >
-                {clip.status !== 'pending' && (
+                {!isClipPendingReview(clip.status) && (
                   <div className={`status-badge ${clip.status}`}>
-                    {clip.status === 'approved' ? '✓' : '✗'}
+                    {isClipApproved(clip.status) ? '✓' : '✗'}
                   </div>
                 )}
 
@@ -453,7 +454,7 @@ export function ClipWorkspacePage() {
                   <button
                     type="button"
                     className="clip-card-button clip-card-button-approve clip-card-button-icon"
-                    onClick={() => updateClipStatus(clip.id, 'approved')}
+                    onClick={() => updateClipStatus(clip.id, 'approved_by_user')}
                     aria-label="Approve clip"
                     title="Approve"
                   >
@@ -462,7 +463,7 @@ export function ClipWorkspacePage() {
                   <button
                     type="button"
                     className="clip-card-button clip-card-button-reject clip-card-button-icon"
-                    onClick={() => updateClipStatus(clip.id, 'rejected')}
+                    onClick={() => updateClipStatus(clip.id, 'rejected_by_user')}
                     aria-label="Reject clip"
                     title="Reject"
                   >

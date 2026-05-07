@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { isClipApproved, isClipPendingReview } from '@shared/types'
 import type { Clip } from '@shared/types'
 
 interface ClipCarouselProps {
@@ -151,9 +152,9 @@ export function ClipCarousel({
               onClick={() => handleCardClick(clip, index)}
             >
               {/* Status Indicator */}
-              {clip.status !== 'pending' && (
+              {!isClipPendingReview(clip.status) && (
                 <div className={`status-badge ${clip.status}`}>
-                  {clip.status === 'approved' ? '✓' : '✗'}
+                  {isClipApproved(clip.status) ? '✓' : '✗'}
                 </div>
               )}
 
@@ -206,7 +207,7 @@ export function ClipCarousel({
                       : '🎵 Play'}
                   </button>
 
-                  {clip.status === 'pending' && (
+                  {isClipPendingReview(clip.status) && (
                     <>
                       <button
                         className="btn-approve btn-sm"

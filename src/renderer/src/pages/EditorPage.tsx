@@ -10,6 +10,7 @@ import {
   IoShareOutline
 } from 'react-icons/io5'
 import { MainContentPanel } from '../components/MainContentPanel'
+import { isClipApproved, normalizeClipStatus } from '@shared/types'
 import type { Clip, ScheduledPublication } from '@shared/types'
 
 type RawClip = Record<string, any>
@@ -54,7 +55,7 @@ const mapClip = (clip: RawClip, episodeId: string): Clip => ({
   contextNeeded: (clip.context_needed || clip.contextNeeded || 'low') as Clip['contextNeeded'],
   videoWidth: clip.video_width ?? clip.videoWidth ?? null,
   videoHeight: clip.video_height ?? clip.videoHeight ?? null,
-  status: (clip.status || 'pending') as Clip['status'],
+  status: normalizeClipStatus(clip.status),
   createdAt: clip.created_at || clip.createdAt || new Date().toISOString()
 })
 
@@ -123,7 +124,7 @@ export function ContentPage() {
 
       const approvedClips = ((rawClips || []) as RawClip[])
         .map((clip) => mapClip(clip, episodeId))
-        .filter((clip) => clip.status === 'approved')
+        .filter((clip) => isClipApproved(clip.status))
 
       const detailedClips = await Promise.all(
         approvedClips.map(async (clip) => {

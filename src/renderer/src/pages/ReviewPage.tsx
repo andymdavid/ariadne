@@ -5,6 +5,7 @@ import { ClipCarousel } from '../components/ClipCarousel'
 import { MainContentPanel } from '../components/MainContentPanel'
 import { PipelineRunInspector } from '../components/PipelineRunInspector'
 import { useClipsData, useProjectStore } from '../stores/projectStore'
+import { normalizeClipStatus } from '@shared/types'
 import type { Clip as ProjectClip, ScheduledPublication } from '@shared/types'
 
 export function ReviewPage() {
@@ -123,7 +124,7 @@ export function ReviewPage() {
             contextNeeded: clip.contextNeeded,
             videoWidth: clip.videoWidth ?? null,
             videoHeight: clip.videoHeight ?? null,
-            status: clip.status,
+            status: normalizeClipStatus(clip.status),
             episodeId: clip.episodeId,
             createdAt: clip.createdAt
           }))
@@ -155,7 +156,7 @@ export function ReviewPage() {
             contextNeeded: clip.context_needed || clip.contextNeeded || 'low',
             videoWidth: clip.video_width ?? clip.videoWidth ?? null,
             videoHeight: clip.video_height ?? clip.videoHeight ?? null,
-            status: (clip.status || 'pending') as ProjectClip['status'],
+            status: normalizeClipStatus(clip.status),
             episodeId: clip.episode_id || episodeId || '',
             createdAt: clip.created_at || new Date().toISOString()
           }
@@ -182,15 +183,15 @@ export function ReviewPage() {
   const handleApprove = async (clipId: string) => {
     try {
       // Update database
-      const response = await window.electronAPI?.updateClipStatus(clipId, 'approved')
+      const response = await window.electronAPI?.updateClipStatus(clipId, 'approved_by_user')
       
       // Update local state
       setClips(clips.map(clip => 
-        clip.id === clipId ? { ...clip, status: 'approved' as const } : clip
+        clip.id === clipId ? { ...clip, status: 'approved_by_user' as const } : clip
       ))
       
       // Update project store
-      updateProjectClipStatus(clipId, 'approved')
+      updateProjectClipStatus(clipId, 'approved_by_user')
 
       if ((response as any)?.scheduling?.publication?.status) {
         setPublicationStatusByClipId((current) => ({
@@ -211,15 +212,15 @@ export function ReviewPage() {
   const handleReject = async (clipId: string) => {
     try {
       // Update database
-      await window.electronAPI?.updateClipStatus(clipId, 'rejected')
+      await window.electronAPI?.updateClipStatus(clipId, 'rejected_by_user')
       
       // Update local state
       setClips(clips.map(clip => 
-        clip.id === clipId ? { ...clip, status: 'rejected' as const } : clip
+        clip.id === clipId ? { ...clip, status: 'rejected_by_user' as const } : clip
       ))
       
       // Update project store
-      updateProjectClipStatus(clipId, 'rejected')
+      updateProjectClipStatus(clipId, 'rejected_by_user')
       
       console.log(`Rejected clip: ${clipId}`)
     } catch (err) {

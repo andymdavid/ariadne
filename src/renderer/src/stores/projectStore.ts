@@ -1,5 +1,11 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
+import {
+  isClipApproved,
+  isClipPendingReview,
+  isClipRejected,
+  normalizeClipStatus
+} from '@shared/types'
 import type { Project, Episode, TranscriptSegment, Clip, ProcessingProgress } from '@shared/types'
 
 const buildRecoveredEpisode = (fileInfo: NonNullable<ProjectState['fileInfo']>): Episode => ({
@@ -10,6 +16,18 @@ const buildRecoveredEpisode = (fileInfo: NonNullable<ProjectState['fileInfo']>):
   duration: fileInfo.duration || 0,
   createdAt: fileInfo.uploadDate || new Date().toISOString(),
   processingStatus: 'completed'
+})
+
+const normalizeClipForState = (clip: Clip): Clip => ({
+  ...clip,
+  status: normalizeClipStatus(clip.status)
+})
+
+const buildClipMetadata = (clips: Clip[]) => ({
+  generationDate: new Date().toISOString(),
+  totalClips: clips.length,
+  approvedCount: clips.filter((clip) => isClipApproved(clip.status)).length,
+  rejectedCount: clips.filter((clip) => isClipRejected(clip.status)).length
 })
 
 // Saved project interface for library management
@@ -526,12 +544,12 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           currentEpisode: savedProject.episode,
           transcriptSegments: savedProject.transcriptSegments,
           fullTranscript: savedProject.fullTranscript,
-          clips: savedProject.clips,
+          clips: savedProject.clips.map(normalizeClipForState),
           clipsMetadata: {
             generationDate: savedProject.dateCreated,
             totalClips: savedProject.clipCount,
-            approvedCount: savedProject.clips.filter(c => c.status === 'approved').length,
-            rejectedCount: savedProject.clips.filter(c => c.status === 'rejected').length
+            approvedCount: savedProject.clips.filter((clip) => isClipApproved(clip.status)).length,
+            rejectedCount: savedProject.clips.filter((clip) => isClipRejected(clip.status)).length
           },
           fileInfo: {
             name: savedProject.filename,
@@ -595,25 +613,21 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       
       // Clips management
       setClips: (clips) => {
-        const metadata = {
-          generationDate: new Date().toISOString(),
-          totalClips: clips.length,
-          approvedCount: clips.filter(c => c.status === 'approved').length,
-          rejectedCount: clips.filter(c => c.status === 'rejected').length
-        }
-        set({ clips, clipsMetadata: metadata })
+        const normalizedClips = clips.map(normalizeClipForState)
+        const metadata = buildClipMetadata(normalizedClips)
+        set({ clips: normalizedClips, clipsMetadata: metadata })
         get().updateSession()
       },
       
       updateClip: (clipId, updates) => {
         set((state) => {
           const updatedClips = state.clips.map(clip =>
-            clip.id === clipId ? { ...clip, ...updates } : clip
+            clip.id === clipId ? normalizeClipForState({ ...clip, ...updates }) : clip
           )
           const metadata = {
             ...state.clipsMetadata,
-            approvedCount: updatedClips.filter(c => c.status === 'approved').length,
-            rejectedCount: updatedClips.filter(c => c.status === 'rejected').length
+            approvedCount: updatedClips.filter((clip) => isClipApproved(clip.status)).length,
+            rejectedCount: updatedClips.filter((clip) => isClipRejected(clip.status)).length
           }
           return { clips: updatedClips, clipsMetadata: metadata }
         })
@@ -626,12 +640,12 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       
       addClip: (clip) => {
         set((state) => {
-          const updatedClips = [...state.clips, clip]
+          const updatedClips = [...state.clips, normalizeClipForState(clip)]
           const metadata = {
             generationDate: state.clipsMetadata.generationDate || new Date().toISOString(),
             totalClips: updatedClips.length,
-            approvedCount: updatedClips.filter(c => c.status === 'approved').length,
-            rejectedCount: updatedClips.filter(c => c.status === 'rejected').length
+            approvedCount: updatedClips.filter((clip) => isClipApproved(clip.status)).length,
+            rejectedCount: updatedClips.filter((clip) => isClipRejected(clip.status)).length
           }
           return { clips: updatedClips, clipsMetadata: metadata }
         })
@@ -644,8 +658,8 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           const metadata = {
             ...state.clipsMetadata,
             totalClips: updatedClips.length,
-            approvedCount: updatedClips.filter(c => c.status === 'approved').length,
-            rejectedCount: updatedClips.filter(c => c.status === 'rejected').length
+            approvedCount: updatedClips.filter((clip) => isClipApproved(clip.status)).length,
+            rejectedCount: updatedClips.filter((clip) => isClipRejected(clip.status)).length
           }
           return { clips: updatedClips, clipsMetadata: metadata }
         })
@@ -787,15 +801,15 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       
       // Computed getters
       getApprovedClips: () => {
-        return get().clips.filter(clip => clip.status === 'approved')
+        return get().clips.filter((clip) => isClipApproved(clip.status))
       },
       
       getRejectedClips: () => {
-        return get().clips.filter(clip => clip.status === 'rejected')
+        return get().clips.filter((clip) => isClipRejected(clip.status))
       },
       
       getPendingClips: () => {
-        return get().clips.filter(clip => clip.status === 'pending')
+        return get().clips.filter((clip) => isClipPendingReview(clip.status))
       },
       
       getClipsByContentType: (contentType) => {

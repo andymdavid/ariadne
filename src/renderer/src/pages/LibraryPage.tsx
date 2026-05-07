@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { isClipApproved, isClipPendingReview, isClipRejected } from '@shared/types'
 import { MainContentPanel } from '../components/MainContentPanel'
 import { useProjectStore, SavedProject } from '../stores/projectStore'
 import { IoPlay, IoTrash, IoCheckmarkCircle, IoWarning, IoRefresh, IoTrashBin } from 'react-icons/io5'
@@ -183,9 +184,9 @@ export function LibraryPage() {
 
   // Get status info for project
   const getProjectStatus = (project: SavedProject) => {
-    const approvedCount = project.clips.filter(c => c.status === 'approved').length
-    const rejectedCount = project.clips.filter(c => c.status === 'rejected').length
-    const pendingCount = project.clips.filter(c => c.status === 'pending').length
+    const approvedCount = project.clips.filter((clip) => isClipApproved(clip.status)).length
+    const rejectedCount = project.clips.filter((clip) => isClipRejected(clip.status)).length
+    const pendingCount = project.clips.filter((clip) => isClipPendingReview(clip.status)).length
     
     return { approvedCount, rejectedCount, pendingCount }
   }
