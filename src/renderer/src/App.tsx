@@ -425,6 +425,65 @@ function App() {
     }
   }
 
+  const startCommandFileProcessing = async (filePath: string) => {
+    const processingStore = useProcessingStore.getState()
+    processingStore.reset()
+    processingStore.setActiveJobId(undefined)
+    processingStore.setProcessing(true)
+    processingStore.updateProgress({
+      stage: 'uploading',
+      progress: 0,
+      message: 'Starting processing...'
+    })
+
+    const fileName = filePath.split('/').pop() || 'Unknown Episode'
+    const projectName = fileName.split('.')[0]
+
+    if (!window.electronAPI?.processEpisode) {
+      throw new Error('Processing API not available')
+    }
+
+    const processingCompletePromise = new Promise<any>((resolve, reject) => {
+      let timeoutId: ReturnType<typeof setTimeout>
+      let errorCleanup: (() => void) | undefined
+
+      const cleanup = window.electronAPI?.onProcessingComplete?.((data) => {
+        clearTimeout(timeoutId)
+        cleanup?.()
+        errorCleanup?.()
+        resolve(data)
+      })
+
+      errorCleanup = window.electronAPI?.onProcessingError?.((error) => {
+        clearTimeout(timeoutId)
+        cleanup?.()
+        errorCleanup?.()
+        reject(new Error(error.message))
+      })
+
+      timeoutId = setTimeout(() => {
+        cleanup?.()
+        errorCleanup?.()
+        reject(new Error('Processing timed out after 20 minutes'))
+      }, 20 * 60 * 1000)
+    })
+
+    try {
+      const result = await Promise.race([
+        processingCompletePromise,
+        window.electronAPI.processEpisode(filePath, projectName)
+      ])
+
+      markScreenCompleted('processing')
+      const episodeId = useProjectStore.getState().currentEpisode?.id ?? result?.episodeId
+      if (episodeId) {
+        navigate(`/review/${episodeId}`)
+      }
+    } finally {
+      useProcessingStore.getState().setProcessing(false)
+    }
+  }
+
   // Handle specific command actions
   const handleCommandAction = async (actionData: any) => {
     switch (actionData.action) {
@@ -447,8 +506,8 @@ function App() {
             
             // Mark upload screen as completed
             markScreenCompleted('upload')
-            
-            // TODO: Start processing
+
+            await startCommandFileProcessing(filePath)
           }
         }
         break
