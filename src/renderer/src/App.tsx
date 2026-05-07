@@ -271,18 +271,20 @@ function App() {
       
     } else if (!isProcessing && processingAnnouncementActiveRef.current) {
       processingAnnouncementActiveRef.current = false
-      // When processing ends, add final completion message and reset
-      const generatedClipCount = projectClips.length
-      const completionMessage: StatusMessage = {
-        id: nextMessageId(), 
-        type: generatedClipCount > 0 ? 'success' : 'info',
-        message: generatedClipCount > 0
-          ? '🎉 Clips generated successfully! Ready to review your content.'
-          : 'Processing finished, but no clips were identified.',
-        timestamp: new Date(),
-        icon: generatedClipCount > 0 ? IoCheckmarkCircle : IoAnalytics
-      }
-      addSessionMessage(completionMessage)
+      // DB clip sync can complete just after the processing flag flips.
+      setTimeout(() => {
+        const generatedClipCount = Math.max(projectClips.length, useProjectStore.getState().clips.length)
+        const completionMessage: StatusMessage = {
+          id: nextMessageId(),
+          type: generatedClipCount > 0 ? 'success' : 'info',
+          message: generatedClipCount > 0
+            ? '🎉 Clips generated successfully! Ready to review your content.'
+            : 'Processing finished, but no clips were identified.',
+          timestamp: new Date(),
+          icon: generatedClipCount > 0 ? IoCheckmarkCircle : IoAnalytics
+        }
+        addSessionMessage(completionMessage)
+      }, 500)
       setIsCommandMode(false)
       setHasActivatedAriadne(false)
       setPreviousStage('')
