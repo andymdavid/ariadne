@@ -24,6 +24,7 @@ const THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS = 1.1
 const SEMANTIC_CLIP_MAX_DURATION_SECONDS = 120
 const RESOLVED_CLIP_MIN_DURATION_SECONDS = 25
 const BOUNDARY_OPTIMIZER_MIN_SCORE = 45
+const BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE = 25
 const BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS = 1.1
 
 export interface SemanticBoundaryReviewResult {
@@ -657,7 +658,7 @@ class FinalClipValidationService {
     const cleanEnd = isCleanClipEnd(text) && isCleanLocalClipEnd(localEndingText)
     const localEndClean = isCleanLocalClipEnd(localEndingText)
 
-    if (startBoundaryIssue || hardEndIssue || !localEndClean) {
+    if (startBoundaryIssue || hardEndIssue) {
       return {
         clip: candidateClip,
         score: -1000,
@@ -681,6 +682,7 @@ class FinalClipValidationService {
     if (cleanStart) score += 24
     if (cleanEnd) score += 38
     if (localEndClean) score += 14
+    else score -= 18
     if (!hardEndIssue) score += 12
     if (!lookaheadIssue) score += 8
     else score -= 18
@@ -755,7 +757,13 @@ class FinalClipValidationService {
 
     for (const clip of clips) {
       const optimization = this.optimizeClipBoundary(transcription, clip, mediaDuration)
-      if (optimization.best && optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE) {
+      const softAccepted = Boolean(
+        optimization.best &&
+        optimization.best.score >= BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE &&
+        !optimization.best.startBoundaryIssue &&
+        !optimization.best.hardEndIssue
+      )
+      if (optimization.best && (optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE || softAccepted)) {
         accepted.push(optimization.best.clip)
         decisions.push({
           clipId: clip.id,
@@ -768,7 +776,9 @@ class FinalClipValidationService {
           alternativesConsidered: optimization.alternativesConsidered,
           openingPreview: optimization.best.openingPreview,
           endingPreview: optimization.best.endingPreview,
-          reason: 'Accepted by final boundary validator using the highest-scoring nearby start/end boundary pair.',
+          reason: optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE
+            ? 'Accepted by final boundary validator using the highest-scoring nearby start/end boundary pair.'
+            : 'Accepted by final boundary validator using a usable nearby boundary pair below the preferred score threshold.',
           topAlternatives: optimization.topAlternatives
         })
         continue
