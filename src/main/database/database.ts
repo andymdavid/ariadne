@@ -196,6 +196,76 @@ interface PipelineRunEvaluationRecord {
   createdAt: string
 }
 
+interface PipelineSelectionRunRecord {
+  id: string
+  workflowJobId: string
+  episodeId: string
+  selectorVersion: string
+  status: string
+  productionMode: string
+  summaryJson: string
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+}
+
+interface EditorialUnitRecord {
+  id: string
+  selectionRunId: string
+  episodeId: string
+  startWordIndex: number | null
+  endWordIndex: number | null
+  startTime: number
+  endTime: number
+  text: string
+  role: string | null
+  startsCleanly: boolean
+  endsCleanly: boolean
+  continuesPrevious: boolean
+  continuesNext: boolean
+  pauseBeforeSeconds: number | null
+  pauseAfterSeconds: number | null
+  speechRate: number | null
+  confidence: number | null
+  source: string | null
+  diagnosticsJson: string
+  createdAt: string
+}
+
+interface CandidateArcRecord {
+  id: string
+  selectionRunId: string
+  episodeId: string
+  startWordIndex: number | null
+  endWordIndex: number | null
+  startTime: number
+  endTime: number
+  duration: number
+  unitIdsJson: string
+  topic: string | null
+  summary: string | null
+  hookText: string | null
+  payoffText: string | null
+  keyQuote: string | null
+  scoresJson: string
+  diagnosticsJson: string
+  createdAt: string
+}
+
+interface SelectionDecisionRecord {
+  id: string
+  selectionRunId: string
+  candidateArcId: string | null
+  decision: string
+  rankOrder: number | null
+  modelScore: number | null
+  finalScore: number | null
+  rejectionCode: string | null
+  reason: string | null
+  validatorResultJson: string
+  createdAt: string
+}
+
 interface PublishingAccountRecord {
   id: string
   platform: 'youtube'
@@ -537,6 +607,84 @@ class DatabaseManager {
       candidateJobId: row.candidate_job_id,
       summaryJson: row.summary_json,
       notes: row.notes ?? null,
+      createdAt: row.created_at
+    }
+  }
+
+  private mapPipelineSelectionRun(row: any): PipelineSelectionRunRecord {
+    return {
+      id: row.id,
+      workflowJobId: row.workflow_job_id,
+      episodeId: row.episode_id,
+      selectorVersion: row.selector_version,
+      status: row.status,
+      productionMode: row.production_mode,
+      summaryJson: row.summary_json ?? '{}',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      completedAt: row.completed_at ?? null
+    }
+  }
+
+  private mapEditorialUnit(row: any): EditorialUnitRecord {
+    return {
+      id: row.id,
+      selectionRunId: row.selection_run_id,
+      episodeId: row.episode_id,
+      startWordIndex: row.start_word_index ?? null,
+      endWordIndex: row.end_word_index ?? null,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      text: row.text,
+      role: row.role ?? null,
+      startsCleanly: Boolean(row.starts_cleanly),
+      endsCleanly: Boolean(row.ends_cleanly),
+      continuesPrevious: Boolean(row.continues_previous),
+      continuesNext: Boolean(row.continues_next),
+      pauseBeforeSeconds: row.pause_before_seconds ?? null,
+      pauseAfterSeconds: row.pause_after_seconds ?? null,
+      speechRate: row.speech_rate ?? null,
+      confidence: row.confidence ?? null,
+      source: row.source ?? null,
+      diagnosticsJson: row.diagnostics_json ?? '{}',
+      createdAt: row.created_at
+    }
+  }
+
+  private mapCandidateArc(row: any): CandidateArcRecord {
+    return {
+      id: row.id,
+      selectionRunId: row.selection_run_id,
+      episodeId: row.episode_id,
+      startWordIndex: row.start_word_index ?? null,
+      endWordIndex: row.end_word_index ?? null,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      duration: row.duration,
+      unitIdsJson: row.unit_ids_json ?? '[]',
+      topic: row.topic ?? null,
+      summary: row.summary ?? null,
+      hookText: row.hook_text ?? null,
+      payoffText: row.payoff_text ?? null,
+      keyQuote: row.key_quote ?? null,
+      scoresJson: row.scores_json ?? '{}',
+      diagnosticsJson: row.diagnostics_json ?? '{}',
+      createdAt: row.created_at
+    }
+  }
+
+  private mapSelectionDecision(row: any): SelectionDecisionRecord {
+    return {
+      id: row.id,
+      selectionRunId: row.selection_run_id,
+      candidateArcId: row.candidate_arc_id ?? null,
+      decision: row.decision,
+      rankOrder: row.rank_order ?? null,
+      modelScore: row.model_score ?? null,
+      finalScore: row.final_score ?? null,
+      rejectionCode: row.rejection_code ?? null,
+      reason: row.reason ?? null,
+      validatorResultJson: row.validator_result_json ?? '{}',
       createdAt: row.created_at
     }
   }
@@ -1912,6 +2060,113 @@ class DatabaseManager {
         this.db.pragma('user_version = 26')
       }
     }
+
+    if (preVersion <= 26) {
+      try {
+        this.addColumnIfMissing('clips', 'workflow_job_id', 'TEXT')
+        this.addColumnIfMissing('clips', 'selection_run_id', 'TEXT')
+        this.addColumnIfMissing('clips', 'source_arc_id', 'TEXT')
+        this.addColumnIfMissing('clips', 'selection_source', 'TEXT')
+        this.addColumnIfMissing('clips', 'selection_confidence', 'REAL')
+        this.addColumnIfMissing('clips', 'approval_source', 'TEXT')
+        this.addColumnIfMissing('clips', 'replaced_by_clip_id', 'TEXT')
+        this.addColumnIfMissing('clips', 'is_active', 'INTEGER NOT NULL DEFAULT 1')
+        this.addColumnIfMissing('clips', 'provenance_json', "TEXT NOT NULL DEFAULT '{}'")
+
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS pipeline_selection_runs (
+            id TEXT PRIMARY KEY,
+            workflow_job_id TEXT NOT NULL,
+            episode_id TEXT NOT NULL,
+            selector_version TEXT NOT NULL,
+            status TEXT NOT NULL,
+            production_mode TEXT NOT NULL,
+            summary_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+            FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+          );
+          CREATE TABLE IF NOT EXISTS editorial_units (
+            id TEXT PRIMARY KEY,
+            selection_run_id TEXT NOT NULL,
+            episode_id TEXT NOT NULL,
+            start_word_index INTEGER,
+            end_word_index INTEGER,
+            start_time REAL NOT NULL,
+            end_time REAL NOT NULL,
+            text TEXT NOT NULL,
+            role TEXT,
+            starts_cleanly INTEGER NOT NULL DEFAULT 0,
+            ends_cleanly INTEGER NOT NULL DEFAULT 0,
+            continues_previous INTEGER NOT NULL DEFAULT 0,
+            continues_next INTEGER NOT NULL DEFAULT 0,
+            pause_before_seconds REAL,
+            pause_after_seconds REAL,
+            speech_rate REAL,
+            confidence REAL,
+            source TEXT,
+            diagnostics_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (selection_run_id) REFERENCES pipeline_selection_runs (id) ON DELETE CASCADE,
+            FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+          );
+          CREATE TABLE IF NOT EXISTS candidate_arcs (
+            id TEXT PRIMARY KEY,
+            selection_run_id TEXT NOT NULL,
+            episode_id TEXT NOT NULL,
+            start_word_index INTEGER,
+            end_word_index INTEGER,
+            start_time REAL NOT NULL,
+            end_time REAL NOT NULL,
+            duration REAL NOT NULL,
+            unit_ids_json TEXT NOT NULL DEFAULT '[]',
+            topic TEXT,
+            summary TEXT,
+            hook_text TEXT,
+            payoff_text TEXT,
+            key_quote TEXT,
+            scores_json TEXT NOT NULL DEFAULT '{}',
+            diagnostics_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (selection_run_id) REFERENCES pipeline_selection_runs (id) ON DELETE CASCADE,
+            FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+          );
+          CREATE TABLE IF NOT EXISTS selection_decisions (
+            id TEXT PRIMARY KEY,
+            selection_run_id TEXT NOT NULL,
+            candidate_arc_id TEXT,
+            decision TEXT NOT NULL,
+            rank_order INTEGER,
+            model_score REAL,
+            final_score REAL,
+            rejection_code TEXT,
+            reason TEXT,
+            validator_result_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (selection_run_id) REFERENCES pipeline_selection_runs (id) ON DELETE CASCADE,
+            FOREIGN KEY (candidate_arc_id) REFERENCES candidate_arcs (id) ON DELETE SET NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_clips_selection_run ON clips (selection_run_id, is_active);
+          CREATE INDEX IF NOT EXISTS idx_clips_workflow_job ON clips (workflow_job_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_clips_source_arc ON clips (source_arc_id);
+          CREATE INDEX IF NOT EXISTS idx_pipeline_selection_runs_episode ON pipeline_selection_runs (episode_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_pipeline_selection_runs_workflow_job ON pipeline_selection_runs (workflow_job_id);
+          CREATE INDEX IF NOT EXISTS idx_editorial_units_run ON editorial_units (selection_run_id, start_time ASC);
+          CREATE INDEX IF NOT EXISTS idx_editorial_units_episode ON editorial_units (episode_id, start_time ASC);
+          CREATE INDEX IF NOT EXISTS idx_candidate_arcs_run ON candidate_arcs (selection_run_id, start_time ASC);
+          CREATE INDEX IF NOT EXISTS idx_candidate_arcs_episode ON candidate_arcs (episode_id, start_time ASC);
+          CREATE INDEX IF NOT EXISTS idx_selection_decisions_run ON selection_decisions (selection_run_id, rank_order ASC);
+          CREATE INDEX IF NOT EXISTS idx_selection_decisions_arc ON selection_decisions (candidate_arc_id);
+        `)
+        console.log('✅ Added selection run provenance schema (v27)')
+        this.db.pragma('user_version = 27')
+      } catch (error) {
+        console.log('Selection run provenance migration skipped (may already exist)')
+        this.db.pragma('user_version = 27')
+      }
+    }
   }
   
   private initializeSchema() {
@@ -2021,6 +2276,15 @@ class DatabaseManager {
           context_needed TEXT NOT NULL DEFAULT 'low',
           video_width INTEGER,
           video_height INTEGER,
+          workflow_job_id TEXT,
+          selection_run_id TEXT,
+          source_arc_id TEXT,
+          selection_source TEXT,
+          selection_confidence REAL,
+          approval_source TEXT,
+          replaced_by_clip_id TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          provenance_json TEXT NOT NULL DEFAULT '{}',
           status TEXT NOT NULL DEFAULT 'pending',
           created_at TEXT NOT NULL,
           FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
@@ -2210,6 +2474,76 @@ class DatabaseManager {
           created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS pipeline_selection_runs (
+          id TEXT PRIMARY KEY,
+          workflow_job_id TEXT NOT NULL,
+          episode_id TEXT NOT NULL,
+          selector_version TEXT NOT NULL,
+          status TEXT NOT NULL,
+          production_mode TEXT NOT NULL,
+          summary_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS editorial_units (
+          id TEXT PRIMARY KEY,
+          selection_run_id TEXT NOT NULL,
+          episode_id TEXT NOT NULL,
+          start_word_index INTEGER,
+          end_word_index INTEGER,
+          start_time REAL NOT NULL,
+          end_time REAL NOT NULL,
+          text TEXT NOT NULL,
+          role TEXT,
+          starts_cleanly INTEGER NOT NULL DEFAULT 0,
+          ends_cleanly INTEGER NOT NULL DEFAULT 0,
+          continues_previous INTEGER NOT NULL DEFAULT 0,
+          continues_next INTEGER NOT NULL DEFAULT 0,
+          pause_before_seconds REAL,
+          pause_after_seconds REAL,
+          speech_rate REAL,
+          confidence REAL,
+          source TEXT,
+          diagnostics_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS candidate_arcs (
+          id TEXT PRIMARY KEY,
+          selection_run_id TEXT NOT NULL,
+          episode_id TEXT NOT NULL,
+          start_word_index INTEGER,
+          end_word_index INTEGER,
+          start_time REAL NOT NULL,
+          end_time REAL NOT NULL,
+          duration REAL NOT NULL,
+          unit_ids_json TEXT NOT NULL DEFAULT '[]',
+          topic TEXT,
+          summary TEXT,
+          hook_text TEXT,
+          payoff_text TEXT,
+          key_quote TEXT,
+          scores_json TEXT NOT NULL DEFAULT '{}',
+          diagnostics_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS selection_decisions (
+          id TEXT PRIMARY KEY,
+          selection_run_id TEXT NOT NULL,
+          candidate_arc_id TEXT,
+          decision TEXT NOT NULL,
+          rank_order INTEGER,
+          model_score REAL,
+          final_score REAL,
+          rejection_code TEXT,
+          reason TEXT,
+          validator_result_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS generated_video_assets (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -2299,7 +2633,7 @@ class DatabaseManager {
           SELECT ct.file_path
           FROM clip_thumbnails ct
           INNER JOIN clips clip_thumb ON clip_thumb.id = ct.clip_id
-          WHERE clip_thumb.episode_id = e.id
+          WHERE clip_thumb.episode_id = e.id AND clip_thumb.is_active = 1
           ORDER BY ct.is_selected DESC, ct.timestamp ASC
           LIMIT 1
         ) as thumbnail_path,
@@ -2310,7 +2644,7 @@ class DatabaseManager {
         COUNT(CASE WHEN c.status = 'rejected' THEN 1 END) as rejected_count
       FROM projects p
       LEFT JOIN episodes e ON p.id = e.project_id
-      LEFT JOIN clips c ON e.id = c.episode_id
+      LEFT JOIN clips c ON e.id = c.episode_id AND c.is_active = 1
       GROUP BY p.id
       ORDER BY p.updated_at DESC
       LIMIT 50
@@ -2747,13 +3081,24 @@ class DatabaseManager {
     status?: string
     videoWidth?: number | null
     videoHeight?: number | null
+    workflowJobId?: string | null
+    selectionRunId?: string | null
+    sourceArcId?: string | null
+    selectionSource?: string | null
+    selectionConfidence?: number | null
+    approvalSource?: string | null
+    replacedByClipId?: string | null
+    isActive?: boolean
+    provenanceJson?: string | null
   }>) {
     const now = new Date().toISOString()
     const stmt = this.db.prepare(`
       INSERT INTO clips 
       (id, episode_id, start_time, end_time, duration, content_type, shareability_score, 
-       key_quote, reason, context_needed, status, video_width, video_height, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       key_quote, reason, context_needed, video_width, video_height, workflow_job_id, selection_run_id,
+       source_arc_id, selection_source, selection_confidence, approval_source, replaced_by_clip_id,
+       is_active, provenance_json, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     
     const insertMany = this.db.transaction((clipsToInsert: typeof clips) => {
@@ -2769,15 +3114,134 @@ class DatabaseManager {
           clip.keyQuote,
           clip.reason,
           clip.contextNeeded,
-          clip.status || 'pending',
           clip.videoWidth ?? null,
           clip.videoHeight ?? null,
+          clip.workflowJobId ?? null,
+          clip.selectionRunId ?? null,
+          clip.sourceArcId ?? null,
+          clip.selectionSource ?? null,
+          clip.selectionConfidence ?? null,
+          clip.approvalSource ?? null,
+          clip.replacedByClipId ?? null,
+          clip.isActive === false ? 0 : 1,
+          clip.provenanceJson ?? '{}',
+          clip.status || 'pending',
           now
         )
       }
     })
-    
+
     return insertMany(clips)
+  }
+
+  replaceActiveClipSetForEpisode(
+    episodeId: string,
+    clips: Array<{
+      id: string
+      episodeId: string
+      startTime: number
+      endTime: number
+      duration: number
+      contentType: string
+      shareabilityScore: number
+      keyQuote: string
+      reason: string
+      contextNeeded: string
+      status?: string
+      videoWidth?: number | null
+      videoHeight?: number | null
+      workflowJobId?: string | null
+      selectionRunId?: string | null
+      sourceArcId?: string | null
+      selectionSource?: string | null
+      selectionConfidence?: number | null
+      approvalSource?: string | null
+      replacedByClipId?: string | null
+      isActive?: boolean
+      provenanceJson?: string | null
+    }>
+  ) {
+    const now = new Date().toISOString()
+    const selectActiveStmt = this.db.prepare(`
+      SELECT id, source_arc_id
+      FROM clips
+      WHERE episode_id = ? AND is_active = 1
+    `)
+    const deactivateStmt = this.db.prepare(`
+      UPDATE clips
+      SET is_active = 0
+      WHERE episode_id = ? AND is_active = 1
+    `)
+    const updateReplacementStmt = this.db.prepare(`
+      UPDATE clips
+      SET replaced_by_clip_id = ?
+      WHERE id = ?
+    `)
+    const insertStmt = this.db.prepare(`
+      INSERT INTO clips
+      (id, episode_id, start_time, end_time, duration, content_type, shareability_score,
+       key_quote, reason, context_needed, video_width, video_height, workflow_job_id, selection_run_id,
+       source_arc_id, selection_source, selection_confidence, approval_source, replaced_by_clip_id,
+       is_active, provenance_json, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const replace = this.db.transaction((clipsToInsert: typeof clips) => {
+      const previousActiveClips = selectActiveStmt.all(episodeId) as Array<{
+        id: string
+        source_arc_id: string | null
+      }>
+
+      deactivateStmt.run(episodeId)
+      for (const clip of clipsToInsert) {
+        insertStmt.run(
+          clip.id,
+          clip.episodeId,
+          clip.startTime,
+          clip.endTime,
+          clip.duration,
+          clip.contentType,
+          clip.shareabilityScore,
+          clip.keyQuote,
+          clip.reason,
+          clip.contextNeeded,
+          clip.videoWidth ?? null,
+          clip.videoHeight ?? null,
+          clip.workflowJobId ?? null,
+          clip.selectionRunId ?? null,
+          clip.sourceArcId ?? null,
+          clip.selectionSource ?? null,
+          clip.selectionConfidence ?? null,
+          clip.approvalSource ?? null,
+          clip.replacedByClipId ?? null,
+          clip.isActive === false ? 0 : 1,
+          clip.provenanceJson ?? '{}',
+          clip.status || 'pending',
+          now
+        )
+      }
+
+      if (previousActiveClips.length > 0) {
+        const newClipBySourceArcId = new Map(
+          clipsToInsert
+            .filter((clip) => clip.sourceArcId)
+            .map((clip) => [clip.sourceArcId as string, clip.id])
+        )
+
+        for (const previousClip of previousActiveClips) {
+          if (!previousClip.source_arc_id) {
+            continue
+          }
+
+          const replacementClipId = newClipBySourceArcId.get(previousClip.source_arc_id)
+          if (replacementClipId) {
+            updateReplacementStmt.run(replacementClipId, previousClip.id)
+          }
+        }
+      }
+    })
+
+    return replace(clips)
   }
   
   updateClipStatus(id: string, status: string) {
@@ -2800,7 +3264,7 @@ class DatabaseManager {
       SELECT c.id, c.episode_id, e.file_path
       FROM clips c
       INNER JOIN episodes e ON c.episode_id = e.id
-      WHERE c.video_width IS NULL OR c.video_height IS NULL
+      WHERE c.is_active = 1 AND (c.video_width IS NULL OR c.video_height IS NULL)
       LIMIT ?
     `)
     return stmt.all(limit)
@@ -2818,7 +3282,7 @@ class DatabaseManager {
   getClips(episodeId: string) {
     const stmt = this.db.prepare(`
       SELECT * FROM clips
-      WHERE episode_id = ?
+      WHERE episode_id = ? AND is_active = 1
       ORDER BY shareability_score DESC, start_time ASC
     `)
     return stmt.all(episodeId)
@@ -2832,10 +3296,302 @@ class DatabaseManager {
   getApprovedClips(episodeId: string) {
     const stmt = this.db.prepare(`
       SELECT * FROM clips
-      WHERE episode_id = ? AND status = 'approved'
+      WHERE episode_id = ? AND is_active = 1 AND status IN ('approved_by_user', 'approved')
       ORDER BY start_time ASC
     `)
     return stmt.all(episodeId)
+  }
+
+  createPipelineSelectionRun(run: {
+    id: string
+    workflowJobId: string
+    episodeId: string
+    selectorVersion: string
+    status: string
+    productionMode: string
+    summaryJson?: string
+    completedAt?: string | null
+  }) {
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare(`
+      INSERT INTO pipeline_selection_runs (
+        id, workflow_job_id, episode_id, selector_version, status,
+        production_mode, summary_json, created_at, updated_at, completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    return stmt.run(
+      run.id,
+      run.workflowJobId,
+      run.episodeId,
+      run.selectorVersion,
+      run.status,
+      run.productionMode,
+      run.summaryJson ?? '{}',
+      now,
+      now,
+      run.completedAt ?? null
+    )
+  }
+
+  updatePipelineSelectionRun(
+    id: string,
+    patch: {
+      workflowJobId?: string
+      episodeId?: string
+      selectorVersion?: string
+      status?: string
+      productionMode?: string
+      summaryJson?: string
+      completedAt?: string | null
+    }
+  ) {
+    const stmt = this.db.prepare(`
+      UPDATE pipeline_selection_runs
+      SET workflow_job_id = COALESCE(?, workflow_job_id),
+          episode_id = COALESCE(?, episode_id),
+          selector_version = COALESCE(?, selector_version),
+          status = COALESCE(?, status),
+          production_mode = COALESCE(?, production_mode),
+          summary_json = COALESCE(?, summary_json),
+          completed_at = COALESCE(?, completed_at),
+          updated_at = ?
+      WHERE id = ?
+    `)
+    return stmt.run(
+      patch.workflowJobId ?? null,
+      patch.episodeId ?? null,
+      patch.selectorVersion ?? null,
+      patch.status ?? null,
+      patch.productionMode ?? null,
+      patch.summaryJson ?? null,
+      patch.completedAt ?? null,
+      new Date().toISOString(),
+      id
+    )
+  }
+
+  getPipelineSelectionRun(id: string) {
+    const stmt = this.db.prepare('SELECT * FROM pipeline_selection_runs WHERE id = ? LIMIT 1')
+    const row = stmt.get(id) as any
+    return row ? this.mapPipelineSelectionRun(row) : undefined
+  }
+
+  getPipelineSelectionRunByWorkflowJob(workflowJobId: string) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM pipeline_selection_runs
+      WHERE workflow_job_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `)
+    const row = stmt.get(workflowJobId) as any
+    return row ? this.mapPipelineSelectionRun(row) : undefined
+  }
+
+  getPipelineSelectionRunsForEpisode(episodeId: string) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM pipeline_selection_runs
+      WHERE episode_id = ?
+      ORDER BY created_at DESC
+    `)
+    return (stmt.all(episodeId) as any[]).map((row) => this.mapPipelineSelectionRun(row))
+  }
+
+  replaceEditorialUnitsForSelectionRun(
+    selectionRunId: string,
+    units: Array<{
+      id: string
+      selectionRunId: string
+      episodeId: string
+      startWordIndex?: number | null
+      endWordIndex?: number | null
+      startTime: number
+      endTime: number
+      text: string
+      role?: string | null
+      startsCleanly?: boolean
+      endsCleanly?: boolean
+      continuesPrevious?: boolean
+      continuesNext?: boolean
+      pauseBeforeSeconds?: number | null
+      pauseAfterSeconds?: number | null
+      speechRate?: number | null
+      confidence?: number | null
+      source?: string | null
+      diagnosticsJson?: string | null
+    }>
+  ) {
+    const now = new Date().toISOString()
+    const deleteStmt = this.db.prepare(`DELETE FROM editorial_units WHERE selection_run_id = ?`)
+    const insertStmt = this.db.prepare(`
+      INSERT INTO editorial_units (
+        id, selection_run_id, episode_id, start_word_index, end_word_index,
+        start_time, end_time, text, role, starts_cleanly, ends_cleanly,
+        continues_previous, continues_next, pause_before_seconds, pause_after_seconds,
+        speech_rate, confidence, source, diagnostics_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const replace = this.db.transaction((unitsToInsert: typeof units) => {
+      deleteStmt.run(selectionRunId)
+      for (const unit of unitsToInsert) {
+        insertStmt.run(
+          unit.id,
+          unit.selectionRunId,
+          unit.episodeId,
+          unit.startWordIndex ?? null,
+          unit.endWordIndex ?? null,
+          unit.startTime,
+          unit.endTime,
+          unit.text,
+          unit.role ?? null,
+          unit.startsCleanly ? 1 : 0,
+          unit.endsCleanly ? 1 : 0,
+          unit.continuesPrevious ? 1 : 0,
+          unit.continuesNext ? 1 : 0,
+          unit.pauseBeforeSeconds ?? null,
+          unit.pauseAfterSeconds ?? null,
+          unit.speechRate ?? null,
+          unit.confidence ?? null,
+          unit.source ?? null,
+          unit.diagnosticsJson ?? '{}',
+          now
+        )
+      }
+    })
+
+    return replace(units)
+  }
+
+  getEditorialUnitsForSelectionRun(selectionRunId: string) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM editorial_units
+      WHERE selection_run_id = ?
+      ORDER BY start_time ASC, end_time ASC
+    `)
+    return (stmt.all(selectionRunId) as any[]).map((row) => this.mapEditorialUnit(row))
+  }
+
+  replaceCandidateArcsForSelectionRun(
+    selectionRunId: string,
+    arcs: Array<{
+      id: string
+      selectionRunId: string
+      episodeId: string
+      startWordIndex?: number | null
+      endWordIndex?: number | null
+      startTime: number
+      endTime: number
+      duration: number
+      unitIdsJson?: string | null
+      topic?: string | null
+      summary?: string | null
+      hookText?: string | null
+      payoffText?: string | null
+      keyQuote?: string | null
+      scoresJson?: string | null
+      diagnosticsJson?: string | null
+    }>
+  ) {
+    const now = new Date().toISOString()
+    const deleteStmt = this.db.prepare(`DELETE FROM candidate_arcs WHERE selection_run_id = ?`)
+    const insertStmt = this.db.prepare(`
+      INSERT INTO candidate_arcs (
+        id, selection_run_id, episode_id, start_word_index, end_word_index,
+        start_time, end_time, duration, unit_ids_json, topic, summary,
+        hook_text, payoff_text, key_quote, scores_json, diagnostics_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const replace = this.db.transaction((arcsToInsert: typeof arcs) => {
+      deleteStmt.run(selectionRunId)
+      for (const arc of arcsToInsert) {
+        insertStmt.run(
+          arc.id,
+          arc.selectionRunId,
+          arc.episodeId,
+          arc.startWordIndex ?? null,
+          arc.endWordIndex ?? null,
+          arc.startTime,
+          arc.endTime,
+          arc.duration,
+          arc.unitIdsJson ?? '[]',
+          arc.topic ?? null,
+          arc.summary ?? null,
+          arc.hookText ?? null,
+          arc.payoffText ?? null,
+          arc.keyQuote ?? null,
+          arc.scoresJson ?? '{}',
+          arc.diagnosticsJson ?? '{}',
+          now
+        )
+      }
+    })
+
+    return replace(arcs)
+  }
+
+  getCandidateArcsForSelectionRun(selectionRunId: string) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM candidate_arcs
+      WHERE selection_run_id = ?
+      ORDER BY start_time ASC, end_time ASC
+    `)
+    return (stmt.all(selectionRunId) as any[]).map((row) => this.mapCandidateArc(row))
+  }
+
+  replaceSelectionDecisionsForSelectionRun(
+    selectionRunId: string,
+    decisions: Array<{
+      id: string
+      selectionRunId: string
+      candidateArcId?: string | null
+      decision: string
+      rankOrder?: number | null
+      modelScore?: number | null
+      finalScore?: number | null
+      rejectionCode?: string | null
+      reason?: string | null
+      validatorResultJson?: string | null
+    }>
+  ) {
+    const now = new Date().toISOString()
+    const deleteStmt = this.db.prepare(`DELETE FROM selection_decisions WHERE selection_run_id = ?`)
+    const insertStmt = this.db.prepare(`
+      INSERT INTO selection_decisions (
+        id, selection_run_id, candidate_arc_id, decision, rank_order,
+        model_score, final_score, rejection_code, reason, validator_result_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const replace = this.db.transaction((decisionsToInsert: typeof decisions) => {
+      deleteStmt.run(selectionRunId)
+      for (const decision of decisionsToInsert) {
+        insertStmt.run(
+          decision.id,
+          decision.selectionRunId,
+          decision.candidateArcId ?? null,
+          decision.decision,
+          decision.rankOrder ?? null,
+          decision.modelScore ?? null,
+          decision.finalScore ?? null,
+          decision.rejectionCode ?? null,
+          decision.reason ?? null,
+          decision.validatorResultJson ?? '{}',
+          now
+        )
+      }
+    })
+
+    return replace(decisions)
+  }
+
+  getSelectionDecisionsForSelectionRun(selectionRunId: string) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM selection_decisions
+      WHERE selection_run_id = ?
+      ORDER BY rank_order ASC, created_at ASC
+    `)
+    return (stmt.all(selectionRunId) as any[]).map((row) => this.mapSelectionDecision(row))
   }
 
   upsertGeneratedVideoAsset(asset: GeneratedVideoAsset) {

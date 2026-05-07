@@ -116,10 +116,59 @@ export interface PipelineComparableRunSummaryDTO {
   }>
 }
 
+export interface PipelineRunSelectionArcDTO {
+  id: string
+  startTime: number
+  endTime: number
+  duration: number
+  topic: string | null
+  summary: string | null
+  hookText: string | null
+  payoffText: string | null
+  keyQuote: string | null
+  scoresJson: string
+  diagnosticsJson: string
+}
+
+export interface PipelineRunSelectionDecisionDTO {
+  id: string
+  candidateArcId: string | null
+  decision: 'selected' | 'rejected' | 'fallback_selected'
+  rankOrder: number | null
+  modelScore: number | null
+  finalScore: number | null
+  rejectionCode: string | null
+  reason: string | null
+  validatorResultJson: string
+  createdAt: string
+  arc: PipelineRunSelectionArcDTO | null
+}
+
+export interface PipelineRunSelectionDetailDTO {
+  selectionRunId: string
+  workflowJobId: string
+  episodeId: string
+  selectorVersion: string
+  status: string
+  productionMode: string
+  summaryJson: string
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+  editorialUnitCount: number
+  candidateArcCount: number
+  decisionCount: number
+  selectedCount: number
+  rejectedCount: number
+  fallbackSelectedCount: number
+  decisions: PipelineRunSelectionDecisionDTO[]
+}
+
 export interface PipelineRunDetailDTO {
   summary: PipelineRunSummaryDTO
   steps: PipelineRunStageDTO[]
   artifacts: PipelineRunArtifactDTO[]
+  selection: PipelineRunSelectionDetailDTO | null
 }
 
 export interface GetPipelineRunsForEpisodeRequestDTO {

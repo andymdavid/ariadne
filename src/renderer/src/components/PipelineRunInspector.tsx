@@ -3,6 +3,7 @@ import type {
   GetPipelineRunEvaluationsResponseDTO,
   GetPipelineRunsForEpisodeResponseDTO,
   PipelineComparableRunSummaryDTO,
+  PipelineRunSelectionDecisionDTO,
   PipelineRunDetailDTO
 } from '@shared/types/pipelineIpc'
 import type {
@@ -32,6 +33,14 @@ function shortId(value: string) {
   return value.slice(0, 8)
 }
 
+function formatSeconds(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 'n/a'
+  }
+
+  return `${value.toFixed(1)}s`
+}
+
 function parseJson<T>(value: string | null | undefined): T | null {
   if (!value) {
     return null
@@ -42,6 +51,58 @@ function parseJson<T>(value: string | null | undefined): T | null {
   } catch {
     return null
   }
+}
+
+function formatCompactValue(value: unknown): string {
+  if (value == null) {
+    return 'null'
+  }
+
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function summarizeDetail(value: Record<string, unknown> | null) {
+  if (!value) {
+    return null
+  }
+
+  const entries = Object.entries(value).slice(0, 4)
+  if (entries.length === 0) {
+    return null
+  }
+
+  return entries
+    .map(([key, entryValue]) => `${key}: ${formatCompactValue(entryValue)}`)
+    .join(' · ')
+}
+
+function formatDecisionLabel(decision: PipelineRunSelectionDecisionDTO['decision']) {
+  switch (decision) {
+    case 'selected':
+      return 'Selected'
+    case 'fallback_selected':
+      return 'Fallback'
+    default:
+      return 'Rejected'
+  }
+}
+
+function getStepOutput(selectedRun: PipelineRunDetailDTO | null, stepKey: string) {
+  return parseJson<Record<string, unknown>>(
+    selectedRun?.steps.find((step) => step.stepKey === stepKey)?.outputJson
+  )
 }
 
 export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
@@ -142,6 +203,18 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
   )
 
   const selectedConfig = parseJson<Record<string, unknown>>(selectedRun?.summary.configSnapshotJson)
+  const selectedSelection = selectedRun?.selection ?? null
+  const selectionSummary = parseJson<Record<string, unknown>>(selectedSelection?.summaryJson)
+  const clipRankingOutput = getStepOutput(selectedRun, 'clip_ranking')
+  const clipRankingMetadata = clipRankingOutput && typeof clipRankingOutput.metadata === 'object'
+    ? clipRankingOutput.metadata as Record<string, unknown>
+    : null
+  const selectedDecisions = (selectedSelection?.decisions ?? [])
+    .filter((decision) => decision.decision !== 'rejected')
+    .sort((left, right) => (left.rankOrder ?? Number.MAX_SAFE_INTEGER) - (right.rankOrder ?? Number.MAX_SAFE_INTEGER))
+  const rejectedDecisions = (selectedSelection?.decisions ?? [])
+    .filter((decision) => decision.decision === 'rejected')
+    .sort((left, right) => (right.finalScore ?? -1) - (left.finalScore ?? -1))
   const recentWorkflowEvents = workflowEvents.slice(0, 5)
   const recentFailureEvents = failureEvents.slice(0, 5)
 
@@ -265,6 +338,131 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
             </div>
           )}
 
+          {selectedSelection && (
+            <div className="inspector-card">
+              <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Selection Provenance</div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                <span>Selection Run</span>
+                <span className="font-mono text-right text-text-primary">{shortId(selectedSelection.selectionRunId)}</span>
+                <span>Selector</span>
+                <span className="text-right text-text-primary">{selectedSelection.selectorVersion}</span>
+                <span>Status</span>
+                <span className="text-right text-text-primary">{selectedSelection.status}</span>
+                <span>Mode</span>
+                <span className="text-right text-text-primary">{selectedSelection.productionMode}</span>
+                <span>Editorial Units</span>
+                <span className="text-right text-text-primary">{selectedSelection.editorialUnitCount}</span>
+                <span>Candidate Arcs</span>
+                <span className="text-right text-text-primary">{selectedSelection.candidateArcCount}</span>
+                <span>Selected</span>
+                <span className="text-right text-text-primary">{selectedSelection.selectedCount}</span>
+                <span>Fallback Selected</span>
+                <span className="text-right text-text-primary">{selectedSelection.fallbackSelectedCount}</span>
+                <span>Rejected</span>
+                <span className="text-right text-text-primary">{selectedSelection.rejectedCount}</span>
+              </div>
+
+              {selectionSummary && (
+                <div className="inspector-subcard mt-3 text-[11px] text-text-muted">
+                  <div>Selection summary</div>
+                  <div className="mt-1 text-text-primary">{summarizeDetail(selectionSummary) ?? 'No summary recorded'}</div>
+                </div>
+              )}
+
+              {clipRankingMetadata && (
+                <div className="mt-3">
+                  <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Final Validator</div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                    <span>Executor</span>
+                    <span className="text-right text-text-primary">{String(clipRankingMetadata.executor ?? 'n/a')}</span>
+                    <span>Word Adjustments</span>
+                    <span className="text-right text-text-primary">{String(clipRankingMetadata.wordBoundaryAdjustmentCount ?? 0)}</span>
+                    <span>Accepted</span>
+                    <span className="text-right text-text-primary">{String(clipRankingMetadata.finalBoundaryValidatorAcceptedCount ?? 0)}</span>
+                    <span>Rejected</span>
+                    <span className="text-right text-text-primary">{String(clipRankingMetadata.finalBoundaryValidatorRejectedCount ?? 0)}</span>
+                    <span>Recovery Attempted</span>
+                    <span className="text-right text-text-primary">{clipRankingMetadata.fallbackBoundaryRecoveryAttempted ? 'yes' : 'no'}</span>
+                    <span>Recovery Succeeded</span>
+                    <span className="text-right text-text-primary">{clipRankingMetadata.fallbackBoundaryRecoverySucceeded ? 'yes' : 'no'}</span>
+                  </div>
+                </div>
+              )}
+
+              {selectedDecisions.length > 0 && (
+                <div className="mt-3">
+                  <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Selected Arcs</div>
+                  <div className="space-y-2">
+                    {selectedDecisions.slice(0, 6).map((decision) => {
+                      const scores = parseJson<Record<string, number>>(decision.arc?.scoresJson)
+                      const validatorResult = parseJson<Record<string, unknown>>(decision.validatorResultJson)
+                      const validatorStatus = typeof validatorResult?.status === 'string' ? validatorResult.status : null
+                      return (
+                        <div key={decision.id} className="inspector-subcard text-[11px]">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-text-primary">
+                              {decision.rankOrder ? `#${decision.rankOrder}` : 'Unranked'} · {formatDecisionLabel(decision.decision)}
+                            </span>
+                            <span className="text-text-muted">
+                              {formatSeconds(decision.arc?.startTime)} - {formatSeconds(decision.arc?.endTime)}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-text-secondary">
+                            {decision.arc?.summary || decision.arc?.topic || decision.arc?.keyQuote || decision.reason || 'No arc summary recorded'}
+                          </div>
+                          <div className="mt-1 text-text-muted">
+                            score {decision.finalScore?.toFixed(1) ?? 'n/a'}
+                            {scores?.overall != null ? ` · overall ${(Number(scores.overall) * 10).toFixed(1)}` : ''}
+                            {scores?.hookStrength != null ? ` · hook ${Number(scores.hookStrength).toFixed(2)}` : ''}
+                            {scores?.payoffStrength != null ? ` · payoff ${Number(scores.payoffStrength).toFixed(2)}` : ''}
+                          </div>
+                          {validatorStatus && (
+                            <div className="mt-1 text-text-muted">
+                              Validator {validatorStatus}
+                              {typeof validatorResult?.score === 'number' ? ` · score ${Number(validatorResult.score).toFixed(1)}` : ''}
+                            </div>
+                          )}
+                          {decision.reason && <div className="mt-1 text-text-muted">{decision.reason}</div>}
+                          {(validatorResult && Object.keys(validatorResult).length > 0) && (
+                            <details className="mt-2">
+                              <summary className="cursor-pointer text-text-muted">Validator detail</summary>
+                              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[10px] text-text-muted">
+                                {JSON.stringify(validatorResult, null, 2)}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {rejectedDecisions.length > 0 && (
+                <div className="mt-3">
+                  <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Rejected Arcs</div>
+                  <div className="space-y-2">
+                    {rejectedDecisions.slice(0, 6).map((decision) => (
+                      <div key={decision.id} className="inspector-subcard text-[11px]">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-text-primary">{decision.rejectionCode || formatDecisionLabel(decision.decision)}</span>
+                          <span className="text-text-muted">
+                            {decision.finalScore?.toFixed(1) ?? 'n/a'}
+                            {decision.arc ? ` · ${formatSeconds(decision.arc.startTime)} - ${formatSeconds(decision.arc.endTime)}` : ''}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-text-secondary">
+                          {decision.arc?.summary || decision.arc?.topic || decision.arc?.keyQuote || 'No arc summary recorded'}
+                        </div>
+                        {decision.reason && <div className="mt-1 text-text-muted">{decision.reason}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {selectedWorkflowJob && (
             <div className="inspector-card">
               <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-text-muted">Workflow Diagnostics</div>
@@ -302,6 +500,16 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                           <span className="text-text-muted">{formatDateTime(event.createdAt)}</span>
                         </div>
                         <div className="mt-1 text-text-secondary">{event.message || event.scope}</div>
+                        {parseJson<Record<string, unknown>>(event.detailJson) && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-text-muted">
+                              {summarizeDetail(parseJson<Record<string, unknown>>(event.detailJson)) ?? 'View detail'}
+                            </summary>
+                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[10px] text-text-muted">
+                              {JSON.stringify(parseJson<Record<string, unknown>>(event.detailJson), null, 2)}
+                            </pre>
+                          </details>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -321,6 +529,16 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                           <span className="text-text-muted">{formatDateTime(event.createdAt)}</span>
                         </div>
                         <div className="mt-1 text-text-secondary">{event.message}</div>
+                        {parseJson<Record<string, unknown>>(event.detailJson) && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-text-muted">
+                              {summarizeDetail(parseJson<Record<string, unknown>>(event.detailJson)) ?? 'View detail'}
+                            </summary>
+                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[10px] text-text-muted">
+                              {JSON.stringify(parseJson<Record<string, unknown>>(event.detailJson), null, 2)}
+                            </pre>
+                          </details>
+                        )}
                       </div>
                     ))}
                   </div>

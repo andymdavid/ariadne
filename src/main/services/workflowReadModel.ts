@@ -9,6 +9,9 @@ import type {
   PipelineJobViewDTO,
   PipelineComparableRunSummaryDTO,
   PipelineRunArtifactDTO,
+  PipelineRunSelectionArcDTO,
+  PipelineRunSelectionDecisionDTO,
+  PipelineRunSelectionDetailDTO,
   PipelineRunDetailDTO,
   PipelineRunEvaluationDTO,
   PipelineRunStageDTO,
@@ -124,6 +127,8 @@ class WorkflowReadModel {
       return null
     }
 
+    const selectionRun = database.getPipelineSelectionRunByWorkflowJob(jobId)
+
     return {
       summary: this.mapPipelineRunSummary(workflowJob),
       steps: database.getWorkflowStepRunsByJob(jobId).map((step): PipelineRunStageDTO => ({
@@ -148,7 +153,8 @@ class WorkflowReadModel {
         metadataJson: artifact.metadataJson,
         createdAt: artifact.createdAt,
         completedAt: artifact.completedAt
-      }))
+      })),
+      selection: selectionRun ? this.mapPipelineRunSelectionDetail(selectionRun) : null
     }
   }
 
@@ -400,7 +406,16 @@ class WorkflowReadModel {
 
     try {
       const parsed = JSON.parse(step.outputJson) as Record<string, unknown>
-      const { transcription, candidates, analysis, contentPackages, ...summary } = parsed
+      const {
+        transcription,
+        candidates,
+        editorialUnits,
+        candidateArcs,
+        selectionDecisions,
+        analysis,
+        contentPackages,
+        ...summary
+      } = parsed
       return {
         status: step.status,
         ...summary
@@ -420,6 +435,88 @@ class WorkflowReadModel {
       return JSON.parse(step.outputJson) as Record<string, unknown>
     } catch {
       return null
+    }
+  }
+
+  private mapPipelineRunSelectionDetail(selectionRun: {
+    id: string
+    workflowJobId: string
+    episodeId: string
+    selectorVersion: string
+    status: string
+    productionMode: string
+    summaryJson: string
+    createdAt: string
+    updatedAt: string
+    completedAt: string | null
+  }): PipelineRunSelectionDetailDTO {
+    const editorialUnits = database.getEditorialUnitsForSelectionRun(selectionRun.id)
+    const candidateArcs = database.getCandidateArcsForSelectionRun(selectionRun.id)
+    const decisions = database.getSelectionDecisionsForSelectionRun(selectionRun.id)
+    const candidateArcMap = new Map(
+      candidateArcs.map((arc) => [arc.id, this.mapPipelineRunSelectionArc(arc)])
+    )
+
+    const mappedDecisions = decisions.map((decision): PipelineRunSelectionDecisionDTO => ({
+      id: decision.id,
+      candidateArcId: decision.candidateArcId ?? null,
+      decision: decision.decision as PipelineRunSelectionDecisionDTO['decision'],
+      rankOrder: decision.rankOrder ?? null,
+      modelScore: decision.modelScore ?? null,
+      finalScore: decision.finalScore ?? null,
+      rejectionCode: decision.rejectionCode ?? null,
+      reason: decision.reason ?? null,
+      validatorResultJson: decision.validatorResultJson ?? '{}',
+      createdAt: decision.createdAt,
+      arc: decision.candidateArcId ? candidateArcMap.get(decision.candidateArcId) ?? null : null
+    }))
+
+    return {
+      selectionRunId: selectionRun.id,
+      workflowJobId: selectionRun.workflowJobId,
+      episodeId: selectionRun.episodeId,
+      selectorVersion: selectionRun.selectorVersion,
+      status: selectionRun.status,
+      productionMode: selectionRun.productionMode,
+      summaryJson: selectionRun.summaryJson,
+      createdAt: selectionRun.createdAt,
+      updatedAt: selectionRun.updatedAt,
+      completedAt: selectionRun.completedAt,
+      editorialUnitCount: editorialUnits.length,
+      candidateArcCount: candidateArcs.length,
+      decisionCount: mappedDecisions.length,
+      selectedCount: mappedDecisions.filter((decision) => decision.decision === 'selected').length,
+      rejectedCount: mappedDecisions.filter((decision) => decision.decision === 'rejected').length,
+      fallbackSelectedCount: mappedDecisions.filter((decision) => decision.decision === 'fallback_selected').length,
+      decisions: mappedDecisions
+    }
+  }
+
+  private mapPipelineRunSelectionArc(arc: {
+    id: string
+    startTime: number
+    endTime: number
+    duration: number
+    topic: string | null
+    summary: string | null
+    hookText: string | null
+    payoffText: string | null
+    keyQuote: string | null
+    scoresJson: string
+    diagnosticsJson: string
+  }): PipelineRunSelectionArcDTO {
+    return {
+      id: arc.id,
+      startTime: arc.startTime,
+      endTime: arc.endTime,
+      duration: arc.duration,
+      topic: arc.topic ?? null,
+      summary: arc.summary ?? null,
+      hookText: arc.hookText ?? null,
+      payoffText: arc.payoffText ?? null,
+      keyQuote: arc.keyQuote ?? null,
+      scoresJson: arc.scoresJson ?? '{}',
+      diagnosticsJson: arc.diagnosticsJson ?? '{}'
     }
   }
 }

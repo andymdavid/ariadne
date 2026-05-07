@@ -69,9 +69,22 @@ CREATE TABLE IF NOT EXISTS clips (
     context_needed TEXT NOT NULL DEFAULT 'low',
     video_width INTEGER,
     video_height INTEGER,
+    workflow_job_id TEXT,
+    selection_run_id TEXT,
+    source_arc_id TEXT,
+    selection_source TEXT,
+    selection_confidence REAL,
+    approval_source TEXT,
+    replaced_by_clip_id TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    provenance_json TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL,
-    FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+    FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE,
+    FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE SET NULL,
+    FOREIGN KEY (selection_run_id) REFERENCES pipeline_selection_runs (id) ON DELETE SET NULL,
+    FOREIGN KEY (source_arc_id) REFERENCES candidate_arcs (id) ON DELETE SET NULL,
+    FOREIGN KEY (replaced_by_clip_id) REFERENCES clips (id) ON DELETE SET NULL
 );
 
 -- Content packages table
@@ -450,6 +463,84 @@ CREATE TABLE IF NOT EXISTS pipeline_run_evaluations (
     FOREIGN KEY (candidate_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS pipeline_selection_runs (
+    id TEXT PRIMARY KEY,
+    workflow_job_id TEXT NOT NULL,
+    episode_id TEXT NOT NULL,
+    selector_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    production_mode TEXT NOT NULL,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs (id) ON DELETE CASCADE,
+    FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS editorial_units (
+    id TEXT PRIMARY KEY,
+    selection_run_id TEXT NOT NULL,
+    episode_id TEXT NOT NULL,
+    start_word_index INTEGER,
+    end_word_index INTEGER,
+    start_time REAL NOT NULL,
+    end_time REAL NOT NULL,
+    text TEXT NOT NULL,
+    role TEXT,
+    starts_cleanly INTEGER NOT NULL DEFAULT 0,
+    ends_cleanly INTEGER NOT NULL DEFAULT 0,
+    continues_previous INTEGER NOT NULL DEFAULT 0,
+    continues_next INTEGER NOT NULL DEFAULT 0,
+    pause_before_seconds REAL,
+    pause_after_seconds REAL,
+    speech_rate REAL,
+    confidence REAL,
+    source TEXT,
+    diagnostics_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (selection_run_id) REFERENCES pipeline_selection_runs (id) ON DELETE CASCADE,
+    FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS candidate_arcs (
+    id TEXT PRIMARY KEY,
+    selection_run_id TEXT NOT NULL,
+    episode_id TEXT NOT NULL,
+    start_word_index INTEGER,
+    end_word_index INTEGER,
+    start_time REAL NOT NULL,
+    end_time REAL NOT NULL,
+    duration REAL NOT NULL,
+    unit_ids_json TEXT NOT NULL DEFAULT '[]',
+    topic TEXT,
+    summary TEXT,
+    hook_text TEXT,
+    payoff_text TEXT,
+    key_quote TEXT,
+    scores_json TEXT NOT NULL DEFAULT '{}',
+    diagnostics_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (selection_run_id) REFERENCES pipeline_selection_runs (id) ON DELETE CASCADE,
+    FOREIGN KEY (episode_id) REFERENCES episodes (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS selection_decisions (
+    id TEXT PRIMARY KEY,
+    selection_run_id TEXT NOT NULL,
+    candidate_arc_id TEXT,
+    decision TEXT NOT NULL,
+    rank_order INTEGER,
+    model_score REAL,
+    final_score REAL,
+    rejection_code TEXT,
+    reason TEXT,
+    validator_result_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (selection_run_id) REFERENCES pipeline_selection_runs (id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_arc_id) REFERENCES candidate_arcs (id) ON DELETE SET NULL
+);
+
 -- Exports table
 CREATE TABLE IF NOT EXISTS exports (
     id TEXT PRIMARY KEY,
@@ -478,6 +569,9 @@ CREATE INDEX IF NOT EXISTS idx_episodes_project_id ON episodes (project_id);
 CREATE INDEX IF NOT EXISTS idx_transcript_segments_episode_id ON transcript_segments (episode_id);
 CREATE INDEX IF NOT EXISTS idx_clips_episode_id ON clips (episode_id);
 CREATE INDEX IF NOT EXISTS idx_clips_status ON clips (status);
+CREATE INDEX IF NOT EXISTS idx_clips_selection_run ON clips (selection_run_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_clips_workflow_job ON clips (workflow_job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clips_source_arc ON clips (source_arc_id);
 CREATE INDEX IF NOT EXISTS idx_content_packages_clip_id ON content_packages (clip_id);
 CREATE INDEX IF NOT EXISTS idx_clip_titles_clip_id ON clip_titles (clip_id);
 CREATE INDEX IF NOT EXISTS idx_clip_descriptions_clip_id ON clip_descriptions (clip_id);
@@ -516,6 +610,14 @@ CREATE INDEX IF NOT EXISTS idx_workflow_events_scope ON workflow_events (scope, 
 CREATE INDEX IF NOT EXISTS idx_pipeline_run_evaluations_episode ON pipeline_run_evaluations (episode_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pipeline_run_evaluations_baseline ON pipeline_run_evaluations (baseline_job_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pipeline_run_evaluations_candidate ON pipeline_run_evaluations (candidate_job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_selection_runs_episode ON pipeline_selection_runs (episode_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_selection_runs_workflow_job ON pipeline_selection_runs (workflow_job_id);
+CREATE INDEX IF NOT EXISTS idx_editorial_units_run ON editorial_units (selection_run_id, start_time ASC);
+CREATE INDEX IF NOT EXISTS idx_editorial_units_episode ON editorial_units (episode_id, start_time ASC);
+CREATE INDEX IF NOT EXISTS idx_candidate_arcs_run ON candidate_arcs (selection_run_id, start_time ASC);
+CREATE INDEX IF NOT EXISTS idx_candidate_arcs_episode ON candidate_arcs (episode_id, start_time ASC);
+CREATE INDEX IF NOT EXISTS idx_selection_decisions_run ON selection_decisions (selection_run_id, rank_order ASC);
+CREATE INDEX IF NOT EXISTS idx_selection_decisions_arc ON selection_decisions (candidate_arc_id);
 CREATE INDEX IF NOT EXISTS idx_exports_clip_id ON exports (clip_id);
 CREATE INDEX IF NOT EXISTS idx_exports_export_job ON exports (export_job_id, clip_id);
 CREATE INDEX IF NOT EXISTS idx_exports_artifact ON exports (artifact_id);
