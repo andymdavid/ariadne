@@ -32,6 +32,7 @@ ariadne.db
 config.json
 ariadne-config.json
 *-config.json
+ecosystem.config.cjs
 
 # Logs
 logs/
