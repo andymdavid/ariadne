@@ -24,6 +24,9 @@ import { useProjectStore } from './stores/projectStore'
 import { ErrorBoundary, ProcessingErrorBoundary, NavigationErrorBoundary, LibraryErrorBoundary } from './components/ErrorBoundary'
 import { IoFlash, IoCheckmarkCircle, IoCreate, IoCloudUpload, IoAnalytics } from 'react-icons/io5'
 
+const PROCESSING_TIMEOUT_MS = 90 * 60 * 1000
+const PROCESSING_TIMEOUT_MESSAGE = 'Processing timed out after 90 minutes'
+
 function App() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -466,8 +469,8 @@ function App() {
       timeoutId = setTimeout(() => {
         cleanup?.()
         errorCleanup?.()
-        reject(new Error('Processing timed out after 20 minutes'))
-      }, 20 * 60 * 1000)
+        reject(new Error(PROCESSING_TIMEOUT_MESSAGE))
+      }, PROCESSING_TIMEOUT_MS)
     })
 
     try {

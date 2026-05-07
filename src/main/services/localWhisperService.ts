@@ -188,10 +188,7 @@ class LocalWhisperService {
         if (progressMatch) {
           const progress = parseInt(progressMatch[1])
           console.log(`Whisper progress: ${progress}%`)
-          
-          // Generate simulated partial text based on progress
-          const partialText = this.generateSimulatedPartialText(progress)
-          onProgress?.(progress, partialText)
+          onProgress?.(progress)
         }
       })
       
@@ -318,30 +315,6 @@ class LocalWhisperService {
     } catch {
       return false
     }
-  }
-
-  /**
-   * Generate simulated partial text to show progress
-   */
-  private generateSimulatedPartialText(progress: number): string {
-    const sampleTexts = [
-      "Welcome to today's podcast episode where we'll be discussing...",
-      "So I was thinking about this the other day and it really struck me that...",
-      "The most important thing to understand about this topic is...",
-      "Let me tell you a story that happened to me last week...",
-      "What I find fascinating about this research is how it shows...",
-      "If you're just joining us, we're talking about...",
-      "The data clearly indicates that we need to consider...",
-      "One of the things that really surprised me during this interview was...",
-      "Looking at the trends over the past few years, it's become clear that...",
-      "The key takeaway from this conversation should be..."
-    ]
-    
-    const selectedText = sampleTexts[Math.floor(progress / 10) % sampleTexts.length]
-    const wordsToShow = Math.floor((progress / 100) * selectedText.split(' ').length)
-    
-    return selectedText.split(' ').slice(0, Math.max(1, wordsToShow)).join(' ') + 
-           (wordsToShow < selectedText.split(' ').length ? '...' : '')
   }
 }
 

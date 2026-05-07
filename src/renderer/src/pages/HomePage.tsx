@@ -7,6 +7,9 @@ import { useProjectStore, type SavedProject } from '../stores/projectStore'
 import { TranscriptionProgress } from '../components/TranscriptionProgress'
 import { MainContentPanel } from '../components/MainContentPanel'
 
+const PROCESSING_TIMEOUT_MS = 90 * 60 * 1000
+const PROCESSING_TIMEOUT_MESSAGE = 'Processing timed out after 90 minutes'
+
 function ProjectCardPreview({ project }: { project: SavedProject }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
@@ -139,8 +142,8 @@ export function HomePage() {
         timeoutId = setTimeout(() => {
           cleanup?.()
           errorCleanup?.()
-          reject(new Error('Processing timed out after 20 minutes'))
-        }, 20 * 60 * 1000)
+          reject(new Error(PROCESSING_TIMEOUT_MESSAGE))
+        }, PROCESSING_TIMEOUT_MS)
       })
 
       const processRequest = window.electronAPI.processEpisode(filePath, projectName).catch((startError) => {
@@ -213,8 +216,8 @@ export function HomePage() {
         timeoutId = setTimeout(() => {
           cleanup?.()
           errorCleanup?.()
-          reject(new Error('Processing timed out after 20 minutes'))
-        }, 20 * 60 * 1000)
+          reject(new Error(PROCESSING_TIMEOUT_MESSAGE))
+        }, PROCESSING_TIMEOUT_MS)
       })
 
       const result = await Promise.race([
