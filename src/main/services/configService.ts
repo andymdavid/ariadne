@@ -93,8 +93,15 @@ interface ConfigSchema {
   userPreferences: {
     theme: 'dark' | 'light'
     defaultExportFormat: '9:16' | '1:1' | '16:9'
+    // Deprecated legacy setting retained for config compatibility during migration.
     autoApproveThreshold: number
     maxClipsPerEpisode: number
+    productionSelectorMode: 'legacy' | 'arc_v1'
+    enableLegacyResolvedClipProposal: boolean
+    enableLegacyTranscriptLineAgent: boolean
+    enableLegacyBoundaryProposal: boolean
+    enableLegacyCandidateRanking: boolean
+    enableHeuristicSupplementation: boolean
   }
   recentProjects: Array<{
     id: string
@@ -131,7 +138,13 @@ class ConfigService {
           theme: 'dark',
           defaultExportFormat: '9:16',
           autoApproveThreshold: 8.0,
-          maxClipsPerEpisode: 25
+          maxClipsPerEpisode: 25,
+          productionSelectorMode: 'arc_v1',
+          enableLegacyResolvedClipProposal: false,
+          enableLegacyTranscriptLineAgent: false,
+          enableLegacyBoundaryProposal: false,
+          enableLegacyCandidateRanking: false,
+          enableHeuristicSupplementation: false
         },
         recentProjects: [],
         brandVoice: {
@@ -209,14 +222,6 @@ class ConfigService {
   
   getDefaultExportFormat(): '9:16' | '1:1' | '16:9' {
     return this.getUserPreferences().defaultExportFormat
-  }
-  
-  setAutoApproveThreshold(threshold: number): void {
-    this.updateUserPreferences({ autoApproveThreshold: threshold })
-  }
-  
-  getAutoApproveThreshold(): number {
-    return this.getUserPreferences().autoApproveThreshold
   }
   
   // Recent Projects

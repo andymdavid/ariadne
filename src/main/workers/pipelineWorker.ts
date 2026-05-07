@@ -1,10 +1,14 @@
 import { promises as fs, existsSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
-import AIService, { CleanedTranscriptUnit, ClipBoundaryReview, ResolvedClipProposal, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
-import type { RankedCandidateArcSelection } from '../services/aiService'
+import AIService, { CleanedTranscriptUnit, ResolvedClipProposal, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
+import { arcSelectionService } from '../services/arcSelectionService'
 import ClipSelectionAgentService, { ClipSelectionAgentError } from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
+import { canonicalTimelineService } from '../services/canonicalTimelineService'
+import { finalClipValidationService } from '../services/finalClipValidationService'
+import type { FinalClipValidationResult } from '../services/finalClipValidationService'
 import LocalWhisperService from '../services/localWhisperService'
 import type { AudioChunk } from '../services/clipSelectionTypes'
 import type {
@@ -16,22 +20,18 @@ import type {
   PipelineWorkerFailureEvent,
   PipelineWorkerPotentialClip,
   PipelineWorkerProgressEvent,
+  PipelineWorkerSelectionDecision,
   PipelineWorkerStageCompletedEvent,
   PipelineWorkerStageKey,
   PipelineWorkerStageStartedEvent,
   PipelineWorkerTranscription,
   StartPipelineWorkerCommand,
 } from '@shared/types/pipelineWorker'
-import { getLeadingBoundaryIssue, getTrailingBoundaryIssue, isCleanClipEnd, isCleanClipStart, isCleanLocalClipEnd, stripLeadingBoundaryFiller } from '../../shared/clipBoundaryQuality'
+import { isCleanClipEnd } from '../../shared/clipBoundaryQuality'
 import { buildEditorialUnits, generateCandidateArcs, summarizeCandidateArcs, summarizeEditorialUnits } from '../../shared/editorialUnits'
 import type { CandidateArc } from '../../shared/editorialUnits'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 
-const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
-const CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS = 24
-const CLIP_REFINEMENT_TRAILING_PAD_SECONDS = 0.22
-const CLIP_REFINEMENT_MAX_TRAILING_PAD_SECONDS = 0.45
-const CLIP_REFINEMENT_WORD_GUARD_SECONDS = 0.04
 const THOUGHT_UNIT_SOFT_BREAK_GAP_SECONDS = 0.5
 const THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS = 1.1
 const THOUGHT_UNIT_PREFERRED_MAX_DURATION_SECONDS = 24
@@ -41,8 +41,24 @@ const THOUGHT_UNIT_ABSOLUTE_MAX_WORDS = 110
 const THOUGHT_UNIT_CLAUSE_BREAK_MIN_WORDS = 18
 const SEMANTIC_CLIP_MAX_DURATION_SECONDS = 120
 const RESOLVED_CLIP_MIN_DURATION_SECONDS = 25
-const BOUNDARY_OPTIMIZER_MIN_SCORE = 45
-const BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS = 1.1
+const TRANSCRIPT_MIN_WORD_TIMING_COVERAGE = 0.7
+const TRANSCRIPT_MAX_INVALID_WORD_TIMING_RATIO = 0.02
+const TRANSCRIPT_MAX_NON_MONOTONIC_WORD_TIMING_RATIO = 0.005
+
+type TranscriptTimingQuality = {
+  status: 'pass' | 'warn' | 'fail'
+  timedWordCount: number
+  estimatedWordCount: number
+  wordTimingCoverage: number
+  segmentCount: number
+  segmentsWithWordTimings: number
+  invalidWordTimingCount: number
+  nonMonotonicWordTimingCount: number
+  longWordDurationCount: number
+  largeInterWordGapCount: number
+  maxInterWordGapSeconds: number
+  issues: string[]
+}
 
 function postMessage(event: PipelineWorkerEvent) {
   if (typeof process.send === 'function') {
@@ -131,6 +147,110 @@ function buildHeuristicAnalysis(
       reason: 'Generated from local heuristic ranking because AI ranking was unavailable.',
       contextNeeded: 'low' as const
     }))
+  }
+}
+
+function estimateTranscriptWordCount(transcription: PipelineWorkerTranscription) {
+  const text = transcription.text?.trim()
+    ? transcription.text
+    : transcription.segments.map((segment) => segment.text).join(' ')
+
+  return text.split(/\s+/).map((word) => word.trim()).filter(Boolean).length
+}
+
+function assessTranscriptTimingQuality(transcription: PipelineWorkerTranscription): TranscriptTimingQuality {
+  const estimatedWordCount = estimateTranscriptWordCount(transcription)
+  const timedWords = transcription.segments
+    .flatMap((segment) => Array.isArray(segment.words) ? segment.words : [])
+    .map((word) => ({
+      word: String(word.word ?? '').trim(),
+      start: Number(word.start),
+      end: Number(word.end)
+    }))
+    .filter((word) => word.word)
+    .sort((left, right) => left.start - right.start)
+
+  let invalidWordTimingCount = 0
+  let nonMonotonicWordTimingCount = 0
+  let longWordDurationCount = 0
+  let largeInterWordGapCount = 0
+  let maxInterWordGapSeconds = 0
+  let previousEnd: number | null = null
+
+  for (const word of timedWords) {
+    const validTiming = Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start
+    if (!validTiming) {
+      invalidWordTimingCount += 1
+      continue
+    }
+
+    const duration = word.end - word.start
+    if (duration > 3.5) {
+      longWordDurationCount += 1
+    }
+
+    if (previousEnd !== null) {
+      const gap = word.start - previousEnd
+      if (gap < -0.05) {
+        nonMonotonicWordTimingCount += 1
+      }
+      if (gap > 2.5) {
+        largeInterWordGapCount += 1
+        maxInterWordGapSeconds = Math.max(maxInterWordGapSeconds, gap)
+      }
+    }
+    previousEnd = Math.max(previousEnd ?? word.end, word.end)
+  }
+
+  const timedWordCount = timedWords.length
+  const wordTimingCoverage = estimatedWordCount > 0
+    ? Number(Math.min(1, timedWordCount / estimatedWordCount).toFixed(3))
+    : 0
+  const invalidWordTimingRatio = timedWordCount > 0 ? invalidWordTimingCount / timedWordCount : 1
+  const nonMonotonicWordTimingRatio = timedWordCount > 0 ? nonMonotonicWordTimingCount / timedWordCount : 1
+  const issues: string[] = []
+
+  if (timedWordCount === 0) {
+    issues.push('missing_word_timestamps')
+  }
+  if (wordTimingCoverage < TRANSCRIPT_MIN_WORD_TIMING_COVERAGE) {
+    issues.push('low_word_timing_coverage')
+  }
+  if (invalidWordTimingRatio > TRANSCRIPT_MAX_INVALID_WORD_TIMING_RATIO) {
+    issues.push('invalid_word_timing_ratio')
+  }
+  if (nonMonotonicWordTimingRatio > TRANSCRIPT_MAX_NON_MONOTONIC_WORD_TIMING_RATIO) {
+    issues.push('non_monotonic_word_timings')
+  }
+  if (largeInterWordGapCount > Math.max(3, timedWordCount * 0.02)) {
+    issues.push('frequent_large_inter_word_gaps')
+  }
+
+  const hardFailureIssues = new Set([
+    'missing_word_timestamps',
+    'low_word_timing_coverage',
+    'invalid_word_timing_ratio',
+    'non_monotonic_word_timings'
+  ])
+  const status = issues.some((issue) => hardFailureIssues.has(issue))
+    ? 'fail'
+    : issues.length > 0 || longWordDurationCount > Math.max(3, timedWordCount * 0.02)
+      ? 'warn'
+      : 'pass'
+
+  return {
+    status,
+    timedWordCount,
+    estimatedWordCount,
+    wordTimingCoverage,
+    segmentCount: transcription.segments.length,
+    segmentsWithWordTimings: transcription.segments.filter((segment) => Array.isArray(segment.words) && segment.words.length > 0).length,
+    invalidWordTimingCount,
+    nonMonotonicWordTimingCount,
+    longWordDurationCount,
+    largeInterWordGapCount,
+    maxInterWordGapSeconds: Number(maxInterWordGapSeconds.toFixed(3)),
+    issues
   }
 }
 
@@ -542,6 +662,23 @@ function normalizeTranscriptIntoThoughtUnits(
   }))
 }
 
+function buildCanonicalEditorialTimelineSegments(
+  transcription: PipelineWorkerTranscription,
+  segments: PipelineWorkerTranscription['segments']
+): PipelineWorkerTranscription['segments'] {
+  return canonicalTimelineService.buildFromTranscription({
+    ...transcription,
+    text: segments.map((segment) => String(segment.text ?? '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
+    segments
+  }).segments.map((segment, index) => ({
+    id: Number.isFinite(Number(segment.id)) ? Number(segment.id) : index,
+    start: segment.start,
+    end: segment.end,
+    text: segment.text,
+    words: segment.words
+  }))
+}
+
 function buildSegmentsFromThoughtUnits(
   transcription: PipelineWorkerTranscription,
   units: SemanticTranscriptUnit[]
@@ -596,1160 +733,188 @@ function endsWithTerminalPunctuation(text: string) {
   return /[.!?]["']?\s*$/.test(text.trim())
 }
 
-function getLastOverlappingSegmentIndex(
-  segments: PipelineWorkerTranscription['segments'],
-  endTime: number
-) {
-  let index = -1
-
-  for (let i = 0; i < segments.length; i++) {
-    if (segments[i].start < endTime) {
-      index = i
-    } else {
-      break
-    }
-  }
-
-  return index
-}
-
-function findRefinedSegmentEndTime(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip,
-  mediaDuration: number
-) {
-  const segments = transcription.segments
-  const lastSegmentIndex = getLastOverlappingSegmentIndex(segments, clip.endTime)
-
-  if (lastSegmentIndex < 0) {
-    return clip.endTime
-  }
-
-  let refinedEnd = clip.endTime
-  let cleanEnd: number | null = null
-  let cursor = lastSegmentIndex
-
-  while (cursor < segments.length) {
-    const current = segments[cursor]
-    const next = segments[cursor + 1]
-    const extension = current.end - clip.endTime
-    const projectedDuration = current.end - clip.startTime
-
-    refinedEnd = Math.max(refinedEnd, current.end)
-
-    if (endsWithTerminalPunctuation(current.text)) {
-      cleanEnd = refinedEnd
-      break
-    }
-
-    if (isCleanClipEnd(current.text)) {
-      cleanEnd = refinedEnd
-      break
-    }
-
-    if (!next) {
-      break
-    }
-
-    const gapToNext = next.start - current.end
-    const continuesThought = shouldContinueThoughtAcrossBoundary(current.text, next.text, gapToNext)
-
-    if (gapToNext >= 0.35) {
-      break
-    }
-
-    if (projectedDuration >= 90) {
-      break
-    }
-
-    if (continuesThought) {
-      if (extension >= CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS) {
-        break
-      }
-
-      cursor += 1
-      continue
-    }
-
-    if (extension >= CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS) {
-      break
-    }
-
-    cursor += 1
-  }
-
-  return Math.min(cleanEnd ?? clip.endTime, mediaDuration)
-}
-
-function getWordsWithinWindow(
-  transcription: PipelineWorkerTranscription,
-  startTime: number,
-  endTime: number
-) {
-  return transcription.segments
-    .flatMap((segment) => segment.words ?? [])
-    .filter((word) =>
-      Number.isFinite(word.start) &&
-      Number.isFinite(word.end) &&
-      word.end > word.start &&
-      word.end > startTime &&
-      word.start < endTime
-    )
-    .sort((left, right) => left.start - right.start)
-}
-
-function refineClipBoundaryToWords(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip,
-  mediaDuration: number
-): {
-  clip: PipelineWorkerPotentialClip
-  changed: boolean
-  originalStartTime: number
-  originalEndTime: number
-  refinedStartTime: number
-  refinedEndTime: number
-} {
-  const refinedSegmentEnd = findRefinedSegmentEndTime(transcription, clip, mediaDuration)
-  const words = getWordsWithinWindow(
-    transcription,
-    Math.max(0, clip.startTime - 0.25),
-    Math.min(mediaDuration, refinedSegmentEnd + CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS)
-  )
-
-  if (words.length === 0) {
-    const refinedClip = refinedSegmentEnd === clip.endTime
-      ? clip
-      : {
-          ...clip,
-          endTime: refinedSegmentEnd,
-          duration: Number((refinedSegmentEnd - clip.startTime).toFixed(3))
-        }
-
-    return {
-      clip: refinedClip,
-      changed: refinedClip.startTime !== clip.startTime || refinedClip.endTime !== clip.endTime,
-      originalStartTime: clip.startTime,
-      originalEndTime: clip.endTime,
-      refinedStartTime: refinedClip.startTime,
-      refinedEndTime: refinedClip.endTime
-    }
-  }
-
-  const overlappingWords = words.filter((word) => word.end > clip.startTime && word.start < refinedSegmentEnd)
-  const firstWord = overlappingWords[0]
-  const lastWord = overlappingWords[overlappingWords.length - 1]
-
-  if (!firstWord || !lastWord) {
-    return {
-      clip,
-      changed: false,
-      originalStartTime: clip.startTime,
-      originalEndTime: clip.endTime,
-      refinedStartTime: clip.startTime,
-      refinedEndTime: clip.endTime
-    }
-  }
-
-  const lastWordIndex = words.findIndex(
-    (word) => word.start === lastWord.start && word.end === lastWord.end && word.word === lastWord.word
-  )
-  const nextWord = lastWordIndex >= 0 ? words[lastWordIndex + 1] : undefined
-  const gapToNextWord = nextWord ? nextWord.start - lastWord.end : Number.POSITIVE_INFINITY
-  const trailingPad = Math.min(
-    CLIP_REFINEMENT_MAX_TRAILING_PAD_SECONDS,
-    gapToNextWord >= CLIP_REFINEMENT_TRAILING_PAD_SECONDS
-      ? Math.max(CLIP_REFINEMENT_TRAILING_PAD_SECONDS, gapToNextWord * 0.6)
-      : CLIP_REFINEMENT_TRAILING_PAD_SECONDS
-  )
-
-  let refinedStart = clip.startTime
-  let refinedEnd = Math.min(mediaDuration, lastWord.end + trailingPad)
-
-  if (nextWord) {
-    refinedEnd = Math.min(refinedEnd, Math.max(lastWord.end, nextWord.start - CLIP_REFINEMENT_WORD_GUARD_SECONDS))
-  }
-
-  refinedStart = Math.min(refinedStart, firstWord.start)
-  refinedStart = Math.max(0, refinedStart)
-
-  if (refinedEnd <= refinedStart) {
-    return {
-      clip,
-      changed: false,
-      originalStartTime: clip.startTime,
-      originalEndTime: clip.endTime,
-      refinedStartTime: clip.startTime,
-      refinedEndTime: clip.endTime
-    }
-  }
-
-  const refinedClip = {
-    ...clip,
-    startTime: refinedStart,
-    endTime: refinedEnd,
-    duration: Number((refinedEnd - refinedStart).toFixed(3))
-  }
-
+function buildClipFromCandidateArc(
+  arc: CandidateArc,
+  index: number,
+  selectionDecisionId: string,
+  reason: string
+): PipelineWorkerPotentialClip {
   return {
-    clip: refinedClip,
-    changed: refinedClip.startTime !== clip.startTime || refinedClip.endTime !== clip.endTime,
-    originalStartTime: clip.startTime,
-    originalEndTime: clip.endTime,
-    refinedStartTime: refinedClip.startTime,
-    refinedEndTime: refinedClip.endTime
-  }
-}
-
-function refinePotentialClips(
-  transcription: PipelineWorkerTranscription,
-  clips: PipelineWorkerPotentialClip[],
-  mediaDuration: number
-) {
-  const refinements = clips.map((clip) => refineClipBoundaryToWords(transcription, clip, mediaDuration))
-
-  return {
-    clips: refinements.map((refinement) => refinement.clip),
-    adjustments: refinements.map((refinement) => ({
-      clipId: refinement.clip.id,
-      changed: refinement.changed,
-      originalStartTime: refinement.originalStartTime,
-      originalEndTime: refinement.originalEndTime,
-      refinedStartTime: refinement.refinedStartTime,
-      refinedEndTime: refinement.refinedEndTime
-    }))
-  }
-}
-
-function buildClipWindowTextFromWords(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip
-) {
-  const words = getWordsWithinWindow(transcription, clip.startTime, clip.endTime)
-  if (words.length > 0) {
-    return words.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-  }
-
-  return extractClipText(transcription, clip)
-}
-
-function getClipEndExtensionLimit(clip: PipelineWorkerPotentialClip, mediaDuration: number) {
-  return Math.min(
-    mediaDuration,
-    clip.startTime + SEMANTIC_CLIP_MAX_DURATION_SECONDS,
-    clip.endTime + CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS
-  )
-}
-
-function resolveClipEndWithTrailingPad(
-  words: Array<{ start: number; end: number; word: string }>,
-  wordIndex: number,
-  mediaDuration: number
-) {
-  const word = words[wordIndex]
-  const nextWord = words[wordIndex + 1]
-  const gapToNextWord = nextWord ? nextWord.start - word.end : Number.POSITIVE_INFINITY
-  const trailingPad = Math.min(
-    CLIP_REFINEMENT_MAX_TRAILING_PAD_SECONDS,
-    gapToNextWord >= CLIP_REFINEMENT_TRAILING_PAD_SECONDS
-      ? Math.max(CLIP_REFINEMENT_TRAILING_PAD_SECONDS, gapToNextWord * 0.6)
-      : CLIP_REFINEMENT_TRAILING_PAD_SECONDS
-  )
-
-  let endTime = Math.min(mediaDuration, word.end + trailingPad)
-  if (nextWord) {
-    endTime = Math.min(endTime, Math.max(word.end, nextWord.start - CLIP_REFINEMENT_WORD_GUARD_SECONDS))
-  }
-
-  return endTime
-}
-
-function buildAdjustedClipEnd(clip: PipelineWorkerPotentialClip, endTime: number): PipelineWorkerPotentialClip {
-  return {
-    ...clip,
-    endTime,
-    duration: Number((endTime - clip.startTime).toFixed(3))
-  }
-}
-
-function buildAdjustedClipStart(clip: PipelineWorkerPotentialClip, startTime: number): PipelineWorkerPotentialClip {
-  return {
-    ...clip,
-    startTime,
-    duration: Number((clip.endTime - startTime).toFixed(3))
-  }
-}
-
-function getClipStartExtensionLimit(clip: PipelineWorkerPotentialClip) {
-  return Math.max(0, clip.startTime - CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS)
-}
-
-function getClipLeadingWords(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip,
-  wordCount = 8
-) {
-  return getWordsWithinWindow(
-    transcription,
-    Math.max(0, clip.startTime - 0.05),
-    Math.min(clip.endTime, clip.startTime + 6)
-  ).slice(0, wordCount)
-}
-
-function clipStartsCleanly(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip
-) {
-  const clipText = buildClipWindowTextFromWords(transcription, clip)
-  const leadingWords = getClipLeadingWords(transcription, clip)
-  const firstWord = leadingWords[0]
-  if (firstWord && firstWord.start < clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS) {
-    return false
-  }
-
-  const leadingText = leadingWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-  const textToCheck = stripLeadingBoundaryFiller(leadingText || clipText)
-  return Boolean(textToCheck) && isCleanClipStart(textToCheck)
-}
-
-function getClipOpeningPreview(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip,
-  wordCount = 12
-) {
-  return getClipLeadingWords(transcription, clip, wordCount)
-    .map((word) => word.word)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function getClipStartBoundaryIssue(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip
-) {
-  const openingPreview = getClipOpeningPreview(transcription, clip)
-  return getLeadingBoundaryIssue(openingPreview)
-}
-
-function getClipStartLookbackIssue(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip
-) {
-  const words = getWordsWithinWindow(
-    transcription,
-    Math.max(0, clip.startTime - BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS),
-    Math.min(clip.endTime, clip.startTime + 4)
-  )
-  const previousWords = words.filter((word) => word.end <= clip.startTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(-8)
-  const nextWords = words.filter((word) => word.start >= clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(0, 8)
-
-  if (previousWords.length === 0 || nextWords.length === 0) {
-    return null
-  }
-
-  const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
-  if (gap >= BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS) {
-    return null
-  }
-
-  const previousText = previousWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-  const nextText = nextWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-
-  if (shouldContinueThoughtAcrossBoundary(previousText, nextText, gap)) {
-    return 'leading_continues_previous_thought'
-  }
-
-  return null
-}
-
-function findCleanExtendedClipStart(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip
-) {
-  const minStart = getClipStartExtensionLimit(clip)
-  const words = getWordsWithinWindow(transcription, minStart, clip.endTime)
-
-  if (words.length === 0) {
-    return null
-  }
-
-  const currentFirstWordIndex = words.findIndex((word) => word.end > clip.startTime)
-  if (currentFirstWordIndex <= 0) {
-    return null
-  }
-
-  for (let index = currentFirstWordIndex - 1; index >= 0; index -= 1) {
-    const word = words[index]
-    const candidateStart = Math.max(0, word.start)
-    const candidateDuration = clip.endTime - candidateStart
-    if (candidateDuration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
-      break
-    }
-
-    const previousWord = words[index - 1]
-    const gapFromPrevious = previousWord ? word.start - previousWord.end : Number.POSITIVE_INFINITY
-    const candidateClip = buildAdjustedClipStart(clip, candidateStart)
-    const leadingWords = getClipLeadingWords(transcription, candidateClip)
-    const leadingText = leadingWords.map((item) => item.word).join(' ').replace(/\s+/g, ' ').trim()
-
-    if (!leadingText || startsLikeContinuation(leadingText)) {
-      continue
-    }
-
-    if (gapFromPrevious >= 0.35 || index === 0 || isCleanClipStart(leadingText)) {
-      return {
-        clip: candidateClip,
-        openingPreview: leadingText,
-        reason: 'Extended start backward to the nearest deterministic clean opening boundary.'
-      }
-    }
-  }
-
-  return null
-}
-
-function findCleanExtendedClipEnd(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip,
-  mediaDuration: number
-) {
-  const maxEnd = getClipEndExtensionLimit(clip, mediaDuration)
-  const words = getWordsWithinWindow(transcription, clip.startTime, maxEnd)
-
-  if (words.length === 0) {
-    return null
-  }
-
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index]
-    if (word.end <= clip.endTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS) {
-      continue
-    }
-
-    const candidateEnd = resolveClipEndWithTrailingPad(words, index, mediaDuration)
-    if (candidateEnd <= clip.endTime || candidateEnd - clip.startTime > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
-      continue
-    }
-
-    const candidateClip = buildAdjustedClipEnd(clip, candidateEnd)
-    const candidateText = buildClipWindowTextFromWords(transcription, candidateClip)
-    const localEndingText = candidateText.split(/\s+/).slice(-12).join(' ')
-    const lookaheadIssue = getClipEndLookaheadIssue(transcription, candidateClip)
-    if (!lookaheadIssue && isCleanClipEnd(candidateText) && isCleanLocalClipEnd(localEndingText)) {
-      return {
-        clip: candidateClip,
-        endingPreview: candidateText.split(/\s+/).slice(-18).join(' '),
-        reason: 'Extended to the next deterministic clean thought boundary.'
-      }
-    }
-  }
-
-  return null
-}
-
-function getClipEndLookaheadIssue(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip
-) {
-  const words = getWordsWithinWindow(
-    transcription,
-    Math.max(0, clip.endTime - 3),
-    Math.min(clip.endTime + 6, clip.endTime + CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS)
-  )
-  const previousWords = words.filter((word) => word.end <= clip.endTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(-6)
-  const nextWords = words.filter((word) => word.start > clip.endTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(0, 6)
-
-  if (previousWords.length === 0 || nextWords.length === 0) {
-    return null
-  }
-
-  const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
-  if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
-    return null
-  }
-
-  const joined = [...previousWords, ...nextWords].map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim().toLowerCase()
-  const previousText = previousWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-  const nextText = nextWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-
-  if (
-    /\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w+\s+\w+/.test(joined) ||
-    shouldContinueThoughtAcrossBoundary(previousText, nextText, gap)
-  ) {
-    return 'lookahead_continues_current_ending'
-  }
-
-  return null
-}
-
-function uniqueSortedTimes(times: number[]) {
-  return [...new Set(times.map((time) => Number(time.toFixed(3))))]
-    .filter((time) => Number.isFinite(time))
-    .sort((left, right) => left - right)
-}
-
-function buildBoundaryStartAnchors(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip,
-  mediaDuration: number
-) {
-  const minStart = Math.max(0, clip.startTime - 24)
-  const maxStart = Math.min(clip.endTime - RESOLVED_CLIP_MIN_DURATION_SECONDS, clip.startTime + 8)
-  const words = getWordsWithinWindow(transcription, minStart, Math.min(mediaDuration, clip.startTime + 10))
-  const segmentStarts = transcription.segments
-    .filter((segment) => segment.start >= minStart && segment.start <= maxStart)
-    .map((segment) => segment.start)
-  const wordStarts = words
-    .filter((word, index) => {
-      if (word.start < minStart || word.start > maxStart) return false
-      const previous = words[index - 1]
-      const gap = previous ? word.start - previous.end : Number.POSITIVE_INFINITY
-      const leadingText = words.slice(index, index + 8).map((item) => item.word).join(' ')
-      return gap >= 0.22 || isCleanClipStart(leadingText)
-    })
-    .map((word) => word.start)
-
-  return uniqueSortedTimes([clip.startTime, ...segmentStarts, ...wordStarts])
-}
-
-function buildBoundaryEndAnchors(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip,
-  mediaDuration: number
-) {
-  const minEnd = Math.max(clip.startTime + RESOLVED_CLIP_MIN_DURATION_SECONDS, clip.endTime - 10)
-  const maxEnd = Math.min(mediaDuration, clip.startTime + SEMANTIC_CLIP_MAX_DURATION_SECONDS, clip.endTime + 36)
-  const words = getWordsWithinWindow(transcription, Math.max(0, minEnd - 8), maxEnd)
-  const segmentEnds = transcription.segments
-    .filter((segment) => segment.end >= minEnd && segment.end <= maxEnd)
-    .map((segment) => segment.end)
-  const wordEnds = words
-    .map((word, index) => resolveClipEndWithTrailingPad(words, index, mediaDuration))
-    .filter((endTime) => endTime >= minEnd && endTime <= maxEnd)
-
-  return uniqueSortedTimes([clip.endTime, ...segmentEnds, ...wordEnds])
-}
-
-function scoreOptimizedBoundaryPair(
-  transcription: PipelineWorkerTranscription,
-  originalClip: PipelineWorkerPotentialClip,
-  startTime: number,
-  endTime: number
-) {
-  const candidateClip = {
-    ...originalClip,
-    startTime,
-    endTime,
-    duration: Number((endTime - startTime).toFixed(3))
-  }
-  const duration = candidateClip.duration
-  if (duration < RESOLVED_CLIP_MIN_DURATION_SECONDS || duration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
-    return null
-  }
-
-  const text = buildClipWindowTextFromWords(transcription, candidateClip)
-  if (!text) return null
-
-  const localEndingText = text.split(/\s+/).slice(-12).join(' ')
-  const hardEndIssue = getTrailingBoundaryIssue(localEndingText) ?? getTrailingBoundaryIssue(text)
-  const lookaheadIssue = getClipEndLookaheadIssue(transcription, candidateClip)
-  const startBoundaryIssue = getClipStartBoundaryIssue(transcription, candidateClip)
-  const startLookbackIssue = getClipStartLookbackIssue(transcription, candidateClip)
-  const cleanStart = !startBoundaryIssue && clipStartsCleanly(transcription, candidateClip)
-  const cleanEnd = isCleanClipEnd(text) && isCleanLocalClipEnd(localEndingText)
-  const localEndClean = isCleanLocalClipEnd(localEndingText)
-
-  if (startBoundaryIssue || hardEndIssue || !localEndClean) {
-    return {
-      clip: candidateClip,
-      score: -1000,
-      cleanStart,
-      cleanEnd,
-      localEndClean,
-      hardEndIssue,
-      startBoundaryIssue,
-      startLookbackIssue,
-      lookaheadIssue,
-      endingPreview: text.split(/\s+/).slice(-18).join(' '),
-      openingPreview: getClipOpeningPreview(transcription, candidateClip),
-      movementSeconds: Number((Math.abs(startTime - originalClip.startTime) + Math.abs(endTime - originalClip.endTime)).toFixed(3))
-    }
-  }
-
-  const movementPenalty = Math.abs(startTime - originalClip.startTime) * 0.35 + Math.abs(endTime - originalClip.endTime) * 0.25
-  const durationPenalty = duration > 90 ? (duration - 90) * 0.4 : duration < 35 ? (35 - duration) * 0.5 : 0
-
-  let score = 0
-  if (cleanStart) score += 24
-  if (cleanEnd) score += 38
-  if (localEndClean) score += 14
-  if (!hardEndIssue) score += 12
-  if (!lookaheadIssue) score += 8
-  else score -= 8
-  if (startLookbackIssue) score -= 10
-  score -= movementPenalty + durationPenalty
-
-  return {
-    clip: candidateClip,
-    score: Number(score.toFixed(3)),
-    cleanStart,
-    cleanEnd,
-    localEndClean,
-    hardEndIssue,
-    startBoundaryIssue,
-    startLookbackIssue,
-    lookaheadIssue,
-    endingPreview: text.split(/\s+/).slice(-18).join(' '),
-    openingPreview: getClipOpeningPreview(transcription, candidateClip),
-    movementSeconds: Number((Math.abs(startTime - originalClip.startTime) + Math.abs(endTime - originalClip.endTime)).toFixed(3))
-  }
-}
-
-function optimizeClipBoundary(
-  transcription: PipelineWorkerTranscription,
-  clip: PipelineWorkerPotentialClip,
-  mediaDuration: number
-) {
-  const startAnchors = buildBoundaryStartAnchors(transcription, clip, mediaDuration)
-  const endAnchors = buildBoundaryEndAnchors(transcription, clip, mediaDuration)
-  const scored: NonNullable<ReturnType<typeof scoreOptimizedBoundaryPair>>[] = []
-
-  for (const startTime of startAnchors) {
-    for (const endTime of endAnchors) {
-      if (endTime <= startTime) continue
-      const result = scoreOptimizedBoundaryPair(transcription, clip, startTime, endTime)
-      if (result) {
-        scored.push(result)
-      }
-    }
-  }
-
-  scored.sort((left, right) => right.score - left.score)
-  const best = scored[0] ?? null
-  return {
-    best,
-    alternativesConsidered: scored.length,
-    topAlternatives: scored.slice(0, 3).map((item) => ({
-      startTime: item.clip.startTime,
-      endTime: item.clip.endTime,
-      duration: item.clip.duration,
-      score: item.score,
-      cleanStart: item.cleanStart,
-      cleanEnd: item.cleanEnd,
-      hardEndIssue: item.hardEndIssue,
-      startBoundaryIssue: item.startBoundaryIssue,
-      startLookbackIssue: item.startLookbackIssue,
-      lookaheadIssue: item.lookaheadIssue,
-      openingPreview: item.openingPreview,
-      endingPreview: item.endingPreview
-    }))
-  }
-}
-
-function optimizeClipBoundaries(
-  transcription: PipelineWorkerTranscription,
-  clips: PipelineWorkerPotentialClip[],
-  mediaDuration: number
-) {
-  const accepted: PipelineWorkerPotentialClip[] = []
-  const decisions: Array<{
-    clipId: string
-    status: 'optimized' | 'rejected'
-    originalStartTime: number
-    originalEndTime: number
-    optimizedStartTime: number | null
-    optimizedEndTime: number | null
-    score: number
-    alternativesConsidered: number
-    openingPreview: string
-    endingPreview: string
-    reason: string
-    topAlternatives: Array<Record<string, unknown>>
-  }> = []
-  const rejected: Array<{ clipId: string; reason: string; endingPreview: string; topAlternatives: Array<Record<string, unknown>> }> = []
-
-  for (const clip of clips) {
-    const optimization = optimizeClipBoundary(transcription, clip, mediaDuration)
-    if (optimization.best && optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE) {
-      accepted.push(optimization.best.clip)
-      decisions.push({
-        clipId: clip.id,
-        status: 'optimized',
-        originalStartTime: clip.startTime,
-        originalEndTime: clip.endTime,
-        optimizedStartTime: optimization.best.clip.startTime,
-        optimizedEndTime: optimization.best.clip.endTime,
-        score: optimization.best.score,
-        alternativesConsidered: optimization.alternativesConsidered,
-        openingPreview: optimization.best.openingPreview,
-        endingPreview: optimization.best.endingPreview,
-        reason: 'Selected highest-scoring nearby start/end boundary pair.',
-        topAlternatives: optimization.topAlternatives
-      })
-      continue
-    }
-
-    const endingPreview = optimization.topAlternatives[0]?.endingPreview
-    const rejectedClip = {
-      clipId: clip.id,
-      reason: 'No nearby boundary pair met the optimizer score threshold.',
-      endingPreview: typeof endingPreview === 'string' ? endingPreview : '',
-      topAlternatives: optimization.topAlternatives
-    }
-    rejected.push(rejectedClip)
-    decisions.push({
-      clipId: clip.id,
-      status: 'rejected',
-      originalStartTime: clip.startTime,
-      originalEndTime: clip.endTime,
-      optimizedStartTime: null,
-      optimizedEndTime: null,
-      score: optimization.best?.score ?? 0,
-      alternativesConsidered: optimization.alternativesConsidered,
-      openingPreview: '',
-      endingPreview: rejectedClip.endingPreview,
-      reason: rejectedClip.reason,
-      topAlternatives: optimization.topAlternatives
-    })
-  }
-
-  return { accepted, rejected, decisions }
-}
-
-function enforceCleanClipEnds(
-  transcription: PipelineWorkerTranscription,
-  clips: PipelineWorkerPotentialClip[],
-  mediaDuration: number
-) {
-  const accepted: PipelineWorkerPotentialClip[] = []
-  const decisions: Array<{
-    clipId: string
-    status: 'accepted' | 'extended' | 'rejected'
-    originalEndTime: number
-    finalEndTime: number | null
-    extensionSeconds: number
-    endingPreview: string
-    reason: string
-    trailingBoundaryIssue: string | null
-  }> = []
-  const rejected: Array<{ clipId: string; endTime: number; endingPreview: string; reason: string; trailingBoundaryIssue: string | null }> = []
-
-  for (const clip of clips) {
-    const clipText = buildClipWindowTextFromWords(transcription, clip)
-    const endingPreview = clipText.split(/\s+/).slice(-18).join(' ')
-    const localEndingText = clipText.split(/\s+/).slice(-12).join(' ')
-    const trailingBoundaryIssue =
-      getTrailingBoundaryIssue(localEndingText) ??
-      getTrailingBoundaryIssue(clipText) ??
-      getClipEndLookaheadIssue(transcription, clip)
-
-    if (!trailingBoundaryIssue && isCleanClipEnd(clipText) && isCleanLocalClipEnd(localEndingText)) {
-      accepted.push(clip)
-      decisions.push({
-        clipId: clip.id,
-        status: 'accepted',
-        originalEndTime: clip.endTime,
-        finalEndTime: clip.endTime,
-        extensionSeconds: 0,
-        endingPreview,
-        reason: 'Clip already ends on a deterministic clean thought boundary.',
-        trailingBoundaryIssue
-      })
-      continue
-    }
-
-    const extension = findCleanExtendedClipEnd(transcription, clip, mediaDuration)
-    if (extension) {
-      accepted.push(extension.clip)
-      decisions.push({
-        clipId: clip.id,
-        status: 'extended',
-        originalEndTime: clip.endTime,
-        finalEndTime: extension.clip.endTime,
-        extensionSeconds: Number((extension.clip.endTime - clip.endTime).toFixed(3)),
-        endingPreview: extension.endingPreview,
-        reason: extension.reason,
-        trailingBoundaryIssue
-      })
-      continue
-    }
-
-    const rejectedClip = {
-      clipId: clip.id,
-      endTime: clip.endTime,
-      endingPreview,
-      reason: 'Final clip window could not be extended to a deterministic clean thought boundary within duration limits.',
-      trailingBoundaryIssue
-    }
-    rejected.push(rejectedClip)
-    decisions.push({
-      clipId: clip.id,
-      status: 'rejected',
-      originalEndTime: clip.endTime,
-      finalEndTime: null,
-      extensionSeconds: 0,
-      endingPreview,
-      reason: rejectedClip.reason,
-      trailingBoundaryIssue
-    })
-  }
-
-  return { accepted, rejected, decisions }
-}
-
-function enforceCleanClipStarts(
-  transcription: PipelineWorkerTranscription,
-  clips: PipelineWorkerPotentialClip[]
-) {
-  const accepted: PipelineWorkerPotentialClip[] = []
-  const decisions: Array<{
-    clipId: string
-    status: 'accepted' | 'extended' | 'rejected'
-    originalStartTime: number
-    finalStartTime: number | null
-    extensionSeconds: number
-    openingPreview: string
-    reason: string
-  }> = []
-  const rejected: Array<{ clipId: string; startTime: number; openingPreview: string; reason: string }> = []
-
-  for (const clip of clips) {
-    const openingPreview = getClipLeadingWords(transcription, clip).map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-
-    if (clipStartsCleanly(transcription, clip)) {
-      accepted.push(clip)
-      decisions.push({
-        clipId: clip.id,
-        status: 'accepted',
-        originalStartTime: clip.startTime,
-        finalStartTime: clip.startTime,
-        extensionSeconds: 0,
-        openingPreview,
-        reason: 'Clip already starts on a deterministic clean opening boundary.'
-      })
-      continue
-    }
-
-    const extension = findCleanExtendedClipStart(transcription, clip)
-    if (extension) {
-      accepted.push(extension.clip)
-      decisions.push({
-        clipId: clip.id,
-        status: 'extended',
-        originalStartTime: clip.startTime,
-        finalStartTime: extension.clip.startTime,
-        extensionSeconds: Number((clip.startTime - extension.clip.startTime).toFixed(3)),
-        openingPreview: extension.openingPreview,
-        reason: extension.reason
-      })
-      continue
-    }
-
-    const rejectedClip = {
-      clipId: clip.id,
-      startTime: clip.startTime,
-      openingPreview,
-      reason: 'Final clip window could not be moved to a deterministic clean opening boundary within duration limits.'
-    }
-    rejected.push(rejectedClip)
-    decisions.push({
-      clipId: clip.id,
-      status: 'rejected',
-      originalStartTime: clip.startTime,
-      finalStartTime: null,
-      extensionSeconds: 0,
-      openingPreview,
-      reason: rejectedClip.reason
-    })
-  }
-
-  return { accepted, rejected, decisions }
-}
-
-function buildFallbackClipsFromCandidates(
-  candidates: PipelineWorkerCandidate[],
-  limit = 12
-): PipelineWorkerPotentialClip[] {
-  return candidates
-    .slice(0, limit)
-    .map((candidate, index) => ({
-      id: `boundary_fallback_${index + 1}`,
-      startTime: candidate.startTime,
-      endTime: candidate.endTime,
-      duration: candidate.duration,
-      contentType: 'insight' as const,
-      shareabilityScore: Number(Math.max(1, Math.min(9.2, candidate.heuristicScore * 1.4)).toFixed(1)),
-      keyQuote: candidate.openingLine || candidate.text.slice(0, 120),
-      reason: 'Recovered from deterministic transcript candidate after all AI-selected clips failed final boundary validation.',
-      contextNeeded: 'low' as const
-    }))
-}
-
-function buildPotentialClipsFromRankedArcs(
-  arcs: CandidateArc[],
-  selections: RankedCandidateArcSelection[]
-): PipelineWorkerPotentialClip[] {
-  const arcById = new Map(arcs.map((arc) => [arc.id, arc]))
-
-  return selections
-    .map((selection, index) => {
-      const arc = arcById.get(selection.arcId)
-      if (!arc) return null
-
-      return {
-        id: `arc_${index + 1}_${selection.arcId}`,
-        startTime: arc.startTime,
-        endTime: arc.endTime,
-        duration: arc.duration,
-        contentType: selection.contentType,
-        shareabilityScore: selection.shareabilityScore,
-        keyQuote: selection.keyQuote || arc.keyQuote,
-        reason: selection.reason || `Selected from editorial candidate arc ${selection.arcId}.`,
-        contextNeeded: selection.contextNeeded
-      }
-    })
-    .filter((clip): clip is PipelineWorkerPotentialClip => Boolean(clip))
-}
-
-function buildDeterministicClipsFromTopArcs(
-  arcs: CandidateArc[],
-  limit = 8
-): PipelineWorkerPotentialClip[] {
-  return arcs.slice(0, limit).map((arc, index) => ({
-    id: `deterministic_arc_${index + 1}`,
+    id: `boundary_arc_fallback_${index + 1}_${arc.id}`,
+    selectionDecisionId,
+    sourceArcId: arc.id,
     startTime: arc.startTime,
     endTime: arc.endTime,
     duration: arc.duration,
     contentType: arc.scores.emotionalEnergy >= 0.65 ? 'hot_take' : 'insight',
     shareabilityScore: Number(Math.max(1, Math.min(9.2, arc.scores.overall * 10)).toFixed(1)),
     keyQuote: arc.keyQuote,
-    reason: `Selected from deterministic editorial arc scoring. Hook=${arc.scores.hookStrength}, flow=${arc.scores.narrativeFlow}, payoff=${arc.scores.payoffStrength}.`,
+    reason,
     contextNeeded: arc.scores.contextIndependence >= 0.7 ? 'low' : arc.scores.contextIndependence >= 0.45 ? 'medium' : 'high'
-  }))
-}
-
-async function finalizeClipBoundaries(
-  transcription: PipelineWorkerTranscription,
-  clips: PipelineWorkerPotentialClip[],
-  aiService: AIService | null,
-  mediaDuration: number,
-  preferredTranscriptLines?: TranscriptBoundaryLine[]
-) {
-  const semanticReview = await applySemanticBoundaryReview(transcription, clips, aiService, mediaDuration, preferredTranscriptLines)
-  const wordRefinement = refinePotentialClips(transcription, semanticReview.clips, mediaDuration)
-  const optimizedClosure = optimizeClipBoundaries(transcription, wordRefinement.clips, mediaDuration)
-
-  return {
-    clips: optimizedClosure.accepted,
-    semanticReview,
-    wordAdjustments: wordRefinement.adjustments,
-    boundaryOptimizationDecisions: optimizedClosure.decisions,
-    rejectedOptimizedClips: optimizedClosure.rejected,
-    startBoundaryDecisions: [],
-    rejectedStartBoundaryClips: [],
-    endBoundaryDecisions: [],
-    rejectedFinalClips: optimizedClosure.rejected.map((rejection) => ({
-      clipId: rejection.clipId,
-      endTime: 0,
-      endingPreview: rejection.endingPreview,
-      reason: rejection.reason,
-      trailingBoundaryIssue: null
-    }))
   }
 }
 
-function mapClipsToTranscriptLines(
-  transcription: PipelineWorkerTranscription,
-  clips: PipelineWorkerPotentialClip[],
-  preferredTranscriptLines?: TranscriptBoundaryLine[]
-) {
-  const transcriptLines: TranscriptBoundaryLine[] = preferredTranscriptLines && preferredTranscriptLines.length > 0
-    ? preferredTranscriptLines
-    : buildTranscriptLinesFromSegments(transcription.segments).map((line) => ({
-        lineIndex: line.lineIndex,
-        start: line.start,
-        end: line.end,
-        text: line.text
-      }))
-
-  const findContainingLineIndex = (time: number, prefer: 'start' | 'end') => {
-    const exact = transcriptLines.findIndex((line) =>
-      prefer === 'start'
-        ? time >= line.start && time < line.end + 0.01
-        : time > line.start - 0.01 && time <= line.end + 0.01
-    )
-
-    if (exact >= 0) {
-      return exact
-    }
-
-    let closestIndex = 0
-    let closestDistance = Number.POSITIVE_INFINITY
-    transcriptLines.forEach((line, index) => {
-      const distance = Math.min(Math.abs(time - line.start), Math.abs(time - line.end))
-      if (distance < closestDistance) {
-        closestDistance = distance
-        closestIndex = index
-      }
-    })
-    return closestIndex
-  }
-
-  const mappedClips = clips.map((clip) => {
-    const startLineIndex = findContainingLineIndex(clip.startTime, 'start')
-    const endLineIndex = findContainingLineIndex(clip.endTime, 'end')
-    return {
-      clip,
-      startLineIndex,
-      endLineIndex: Math.max(startLineIndex, endLineIndex)
-    }
-  })
-
-  return { transcriptLines, mappedClips }
-}
-
-function lineTextLooksIncomplete(text: string) {
-  const normalized = text.trim().toLowerCase()
-  if (!normalized) {
-    return false
-  }
-
-  return (
-    /\b(and|but|or|so|because|then|which|that|if|when|while|where|to|for|with|of|in|on|at|from|as|than)\s*$/.test(normalized) ||
-    /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any)\s*$/.test(normalized) ||
-    /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
-    /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized)
+function buildFallbackArcRecoverySelection(
+  candidateArcs: CandidateArc[],
+  selectionDecisions: PipelineWorkerSelectionDecision[],
+  limit = 4
+): {
+  clips: PipelineWorkerPotentialClip[]
+  decisions: PipelineWorkerSelectionDecision[]
+} {
+  const alreadySelectedArcIds = new Set(
+    selectionDecisions
+      .filter((decision) => decision.decision === 'selected' || decision.decision === 'fallback_selected')
+      .map((decision) => decision.candidateArcId)
+      .filter((arcId): arcId is string => Boolean(arcId))
   )
-}
+  const existingDecisionByArcId = new Map(
+    selectionDecisions
+      .filter((decision) => Boolean(decision.candidateArcId))
+      .map((decision) => [decision.candidateArcId as string, decision])
+  )
+  const recoveryArcs = candidateArcs
+    .filter((arc) => !alreadySelectedArcIds.has(arc.id))
+    .filter((arc) => arc.scores.contextIndependence >= 0.45 && arc.scores.narrativeFlow >= 0.45)
+    .slice(0, limit)
 
-function buildHeuristicBoundaryReviews(
-  transcriptLines: TranscriptBoundaryLine[],
-  mappedClips: Array<{ clip: PipelineWorkerPotentialClip; startLineIndex: number; endLineIndex: number }>
-): ClipBoundaryReview[] {
-  return mappedClips.map(({ clip, startLineIndex, endLineIndex }) => {
-    let reviewedStart = startLineIndex
-    let reviewedEnd = endLineIndex
+  const clips: PipelineWorkerPotentialClip[] = []
+  const fallbackDecisionByArcId = new Map<string, PipelineWorkerSelectionDecision>()
 
-    while (reviewedStart > 0 && startsLikeContinuation(transcriptLines[reviewedStart].text)) {
-      const previous = transcriptLines[reviewedStart - 1]
-      if (clip.endTime - previous.start > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
-        break
-      }
-      reviewedStart -= 1
-    }
-
-    while (reviewedEnd < transcriptLines.length - 1) {
-      const current = transcriptLines[reviewedEnd]
-      const next = transcriptLines[reviewedEnd + 1]
-      const projectedDuration = next.end - transcriptLines[reviewedStart].start
-
-      if (projectedDuration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
-        break
-      }
-
-      if (!lineTextLooksIncomplete(current.text) && !startsLikeContinuation(next.text)) {
-        break
-      }
-
-      reviewedEnd += 1
-    }
-
-    return {
-      clipId: clip.id,
-      startLineIndex: reviewedStart,
-      endLineIndex: reviewedEnd,
-      reason: 'Heuristically adjusted to the nearest coherent transcript-line boundary.'
-    }
+  recoveryArcs.forEach((arc, index) => {
+    const decisionId = randomUUID()
+    const reason = 'Recovered from an alternate candidate arc after all selected arcs failed final boundary validation.'
+    clips.push(buildClipFromCandidateArc(arc, index, decisionId, reason))
+    fallbackDecisionByArcId.set(arc.id, {
+      id: decisionId,
+      candidateArcId: arc.id,
+      decision: 'fallback_selected',
+      rankOrder: index + 1,
+      modelScore: existingDecisionByArcId.get(arc.id)?.modelScore ?? Number((arc.scores.overall * 10).toFixed(1)),
+      finalScore: Number((arc.scores.overall * 10).toFixed(1)),
+      reason,
+      validatorResultJson: '{}'
+    })
   })
+
+  const selectedRecoveryArcIds = new Set(fallbackDecisionByArcId.keys())
+  const decisions = selectionDecisions.map((decision) => {
+    if (!decision.candidateArcId || !selectedRecoveryArcIds.has(decision.candidateArcId)) {
+      return decision
+    }
+    return fallbackDecisionByArcId.get(decision.candidateArcId) ?? decision
+  })
+
+  for (const [arcId, decision] of fallbackDecisionByArcId.entries()) {
+    if (!selectionDecisions.some((existingDecision) => existingDecision.candidateArcId === arcId)) {
+      decisions.push(decision)
+    }
+  }
+
+  return { clips, decisions }
 }
 
-async function applySemanticBoundaryReview(
-  transcription: PipelineWorkerTranscription,
-  clips: PipelineWorkerPotentialClip[],
-  aiService: AIService | null,
-  mediaDuration: number,
-  preferredTranscriptLines?: TranscriptBoundaryLine[]
-) {
-  const { transcriptLines, mappedClips } = mapClipsToTranscriptLines(transcription, clips, preferredTranscriptLines)
-  if (transcriptLines.length === 0 || mappedClips.length === 0) {
-    return {
-      clips,
-      reviews: [] as ClipBoundaryReview[],
-      usedAI: false,
-      fallbackReason: 'No transcript lines available for semantic boundary review.',
-      transcriptLineCount: 0
-    }
+function applyFinalClipValidationToSelectionDecisions(
+  selectionDecisions: PipelineWorkerSelectionDecision[],
+  selectedClips: PipelineWorkerPotentialClip[],
+  validationResult: FinalClipValidationResult,
+  recoveredFromFallback: boolean
+): PipelineWorkerSelectionDecision[] {
+  if (selectionDecisions.length === 0 || selectedClips.length === 0) {
+    return selectionDecisions
   }
 
-  let reviews = buildHeuristicBoundaryReviews(transcriptLines, mappedClips)
-  let usedAI = false
-  let fallbackReason: string | null = aiService
-    ? 'Semantic boundary review fell back to heuristic transcript-line adjustment.'
-    : 'AI service unavailable; used heuristic transcript-line adjustment.'
+  const selectedDecisionSlots = selectionDecisions
+    .map((decision, index) => ({ decision, index }))
+    .filter(({ decision }) => decision.decision === 'selected' || decision.decision === 'fallback_selected')
+    .sort((left, right) => (left.decision.rankOrder ?? Number.MAX_SAFE_INTEGER) - (right.decision.rankOrder ?? Number.MAX_SAFE_INTEGER))
 
-  if (aiService) {
-    try {
-      const aiReviews = await aiService.reviewClipBoundaries(
-        transcriptLines,
-        mappedClips.map(({ clip }) => ({
-          id: clip.id,
-          startTime: clip.startTime,
-          endTime: clip.endTime,
-          duration: clip.duration,
-          keyQuote: clip.keyQuote,
-          reason: clip.reason
-        })),
-        mediaDuration
-      )
+  if (selectedDecisionSlots.length === 0) {
+    return selectionDecisions
+  }
 
-      if (aiReviews.length > 0) {
-        const reviewMap = new Map(aiReviews.map((review) => [review.clipId, review]))
-        reviews = reviews.map((review) => reviewMap.get(review.clipId) ?? review)
-        usedAI = true
-        fallbackReason = null
+  const validatorDecisionByClipId = new Map(validationResult.validatorDecisions.map((decision) => [decision.clipId, decision]))
+  const rejectedClipByClipId = new Map(validationResult.rejectedClips.map((clip) => [clip.clipId, clip]))
+  const wordAdjustmentByClipId = new Map(validationResult.wordAdjustments.map((adjustment) => [adjustment.clipId, adjustment]))
+  const selectedDecisionIndexByClipId = new Map<string, number>()
+
+  selectedClips.forEach((clip, index) => {
+    if (clip.selectionDecisionId) {
+      const selectedDecisionIndex = selectionDecisions.findIndex((decision) => decision.id === clip.selectionDecisionId)
+      if (selectedDecisionIndex >= 0) {
+        selectedDecisionIndexByClipId.set(clip.id, selectedDecisionIndex)
+        return
       }
-    } catch (error) {
-      fallbackReason = error instanceof Error
-        ? error.message
-        : 'Unknown semantic boundary review error'
-      console.warn('Semantic boundary review failed, using heuristic transcript-line adjustment', error)
-    }
-  }
-
-  const reviewMap = new Map(reviews.map((review) => [review.clipId, review]))
-  const adjustedClips = mappedClips.map(({ clip, startLineIndex, endLineIndex }) => {
-    const review = reviewMap.get(clip.id)
-    const finalStartLineIndex = review?.startLineIndex ?? startLineIndex
-    const finalEndLineIndex = review?.endLineIndex ?? endLineIndex
-    const startLine = transcriptLines[finalStartLineIndex]
-    const endLine = transcriptLines[finalEndLineIndex]
-
-    if (!startLine || !endLine || endLine.end <= startLine.start) {
-      return clip
     }
 
-    const nextDuration = endLine.end - startLine.start
-    if (nextDuration < 25 || nextDuration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
-      return clip
+    if (clip.sourceArcId) {
+      const selectedDecisionIndex = selectionDecisions.findIndex((decision) => decision.candidateArcId === clip.sourceArcId)
+      if (selectedDecisionIndex >= 0) {
+        selectedDecisionIndexByClipId.set(clip.id, selectedDecisionIndex)
+        return
+      }
     }
 
-    return {
-      ...clip,
-      startTime: startLine.start,
-      endTime: Math.min(mediaDuration, endLine.end),
-      duration: Number((Math.min(mediaDuration, endLine.end) - startLine.start).toFixed(3)),
-      reason: review?.reason || clip.reason
+    const selectedDecision = selectedDecisionSlots[index]
+    if (selectedDecision) {
+      selectedDecisionIndexByClipId.set(clip.id, selectedDecision.index)
     }
   })
 
-  return {
-    clips: adjustedClips,
-    reviews,
-    usedAI,
-    fallbackReason,
-    transcriptLineCount: transcriptLines.length
-  }
+  return selectionDecisions.map((decision, decisionIndex) => {
+    const clipId = [...selectedDecisionIndexByClipId.entries()].find(([, index]) => index === decisionIndex)?.[0]
+    if (!clipId) {
+      return decision
+    }
+
+    const validatorDecision = validatorDecisionByClipId.get(clipId)
+    const rejectedClip = rejectedClipByClipId.get(clipId)
+    const wordAdjustment = wordAdjustmentByClipId.get(clipId) ?? null
+
+    const validatorResult = validatorDecision
+      ? {
+          stage: 'final_clip_validator_v1',
+          status: validatorDecision.status,
+          clipId,
+          originalStartTime: validatorDecision.originalStartTime,
+          originalEndTime: validatorDecision.originalEndTime,
+          validatedStartTime: validatorDecision.validatedStartTime,
+          validatedEndTime: validatorDecision.validatedEndTime,
+          score: validatorDecision.score,
+          alternativesConsidered: validatorDecision.alternativesConsidered,
+          openingPreview: validatorDecision.openingPreview,
+          endingPreview: validatorDecision.endingPreview,
+          reason: validatorDecision.reason,
+          topAlternatives: validatorDecision.topAlternatives,
+          recoveredFromFallbackBoundaryPass: recoveredFromFallback,
+          wordAdjustment
+        }
+      : rejectedClip
+        ? {
+            stage: 'final_clip_validator_v1',
+            status: 'rejected',
+            clipId,
+            rejectionCode: rejectedClip.rejectionCode,
+            openingPreview: rejectedClip.openingPreview,
+            endingPreview: rejectedClip.endingPreview,
+            reason: rejectedClip.reason,
+            topAlternatives: rejectedClip.topAlternatives,
+            recoveredFromFallbackBoundaryPass: recoveredFromFallback,
+            wordAdjustment
+          }
+        : {
+            stage: 'final_clip_validator_v1',
+            status: 'unknown',
+            clipId,
+            recoveredFromFallbackBoundaryPass: recoveredFromFallback,
+            wordAdjustment
+          }
+
+    return {
+      ...decision,
+      validatorResultJson: JSON.stringify(validatorResult)
+    }
+  })
 }
 
 async function generateContentPackages(
@@ -1819,14 +984,31 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   let analysis = command.resumeData?.analysis
   let aiAnalysisSucceeded = command.resumeData?.aiAnalysisSucceeded ?? false
   let contentPackages = command.resumeData?.contentPackages ?? []
-  let semanticTranscriptSegments: PipelineWorkerTranscription['segments'] | null = null
-  let editorialUnits = transcription
-    ? buildEditorialUnits(transcription.segments)
+  let transcriptTimingQuality: TranscriptTimingQuality | null = transcription
+    ? assessTranscriptTimingQuality(transcription)
+    : null
+  let selectionDecisions: PipelineWorkerSelectionDecision[] = command.resumeData?.selectionDecisions ?? []
+  let semanticTranscriptSegments: PipelineWorkerTranscription['segments'] | null = transcription
+    ? buildCanonicalEditorialTimelineSegments(transcription, transcription.segments)
+    : null
+  let editorialUnits = semanticTranscriptSegments
+    ? buildEditorialUnits(semanticTranscriptSegments)
     : []
   let candidateArcs = editorialUnits.length > 0
     ? generateCandidateArcs(editorialUnits)
     : []
   let clipSelectionSourceMetadata: Record<string, unknown> = {}
+  const useLegacySelectorStack = command.runConfigSnapshot.productionSelectorMode === 'legacy'
+  const allowLegacyResolvedClipProposal =
+    useLegacySelectorStack || command.runConfigSnapshot.enableLegacyResolvedClipProposal
+  const allowLegacyTranscriptLineAgent =
+    useLegacySelectorStack || command.runConfigSnapshot.enableLegacyTranscriptLineAgent
+  const allowLegacyBoundaryProposal =
+    useLegacySelectorStack || command.runConfigSnapshot.enableLegacyBoundaryProposal
+  const allowLegacyCandidateRanking =
+    useLegacySelectorStack || command.runConfigSnapshot.enableLegacyCandidateRanking
+  const allowHeuristicSupplementation =
+    useLegacySelectorStack || command.runConfigSnapshot.enableHeuristicSupplementation
 
   if (startStageIndex <= stageOrder.indexOf('transcription')) {
     currentStage = 'transcription'
@@ -1901,6 +1083,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       )
     }
 
+    transcriptTimingQuality = assessTranscriptTimingQuality(transcription)
+
     postStageCompleted(command.workflowJobId, currentStage, {
       segmentCount: transcription.segments.length,
       transcriptLength: transcription.text.length,
@@ -1910,7 +1094,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         implementationVersion: 'local_whisper_service_v1',
         model: command.runConfigSnapshot.localWhisperModel,
         wordTimestamps: true,
-        chunked: audioStats.size > maxSize
+        chunked: audioStats.size > maxSize,
+        transcriptTimingQuality
       },
       transcription
     })
@@ -1920,8 +1105,19 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     throw new Error('Missing transcription data for pipeline resume')
   }
 
+  if (!transcriptTimingQuality) {
+    transcriptTimingQuality = assessTranscriptTimingQuality(transcription)
+  }
+
+  if (command.runConfigSnapshot.productionSelectorMode === 'arc_v1' && transcriptTimingQuality.status === 'fail') {
+    throw new Error(`Transcript timing quality failed arc_v1 requirements: ${transcriptTimingQuality.issues.join(', ')}`)
+  }
+
+  if (!semanticTranscriptSegments) {
+    semanticTranscriptSegments = buildCanonicalEditorialTimelineSegments(transcription, transcription.segments)
+  }
   if (editorialUnits.length === 0) {
-    editorialUnits = buildEditorialUnits(transcription.segments)
+    editorialUnits = buildEditorialUnits(semanticTranscriptSegments)
   }
   if (candidateArcs.length === 0) {
     candidateArcs = generateCandidateArcs(editorialUnits)
@@ -1937,6 +1133,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       : 'Generating heuristic clip candidates...')
 
     let normalizedSegments = normalizeTranscriptIntoThoughtUnits(transcription)
+    let editorialTimelineSegments = buildCanonicalEditorialTimelineSegments(transcription, normalizedSegments)
+    semanticTranscriptSegments = editorialTimelineSegments
     let transcriptNormalizationVersion = 'word_thought_lines_v1'
     let transcriptCleanupMetadata: Record<string, unknown> | null = null
 
@@ -1951,7 +1149,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         const cleanedSegments = buildSegmentsFromCleanedUnits(transcription, cleanedUnits)
         if (cleanedSegments.length > 0) {
           normalizedSegments = cleanedSegments
-          semanticTranscriptSegments = cleanedSegments
+          editorialTimelineSegments = buildCanonicalEditorialTimelineSegments(transcription, cleanedSegments)
+          semanticTranscriptSegments = editorialTimelineSegments
           transcriptNormalizationVersion = 'cleaned_editorial_units_v1'
           transcriptCleanupMetadata = {
             executor: 'ai_transcript_cleanup',
@@ -1975,7 +1174,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           const aiNormalizedSegments = buildSegmentsFromThoughtUnits(transcription, thoughtUnits)
           if (aiNormalizedSegments.length > 0) {
             normalizedSegments = aiNormalizedSegments
-            semanticTranscriptSegments = aiNormalizedSegments
+            editorialTimelineSegments = buildCanonicalEditorialTimelineSegments(transcription, aiNormalizedSegments)
+            semanticTranscriptSegments = editorialTimelineSegments
             transcriptNormalizationVersion = 'semantic_thought_units_v1'
             transcriptCleanupMetadata = {
               executor: 'semantic_thought_segmentation_fallback',
@@ -1994,7 +1194,10 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       }
     }
 
-    candidates = clipCandidateService.generateCandidates(normalizedSegments).slice(0, 36)
+    editorialUnits = buildEditorialUnits(editorialTimelineSegments)
+    candidateArcs = generateCandidateArcs(editorialUnits)
+
+    candidates = clipCandidateService.generateCandidates(editorialTimelineSegments).slice(0, 36)
 
     postStageCompleted(command.workflowJobId, currentStage, {
       candidateCount: candidates.length,
@@ -2003,6 +1206,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         endTime: candidate.endTime,
         heuristicScore: candidate.heuristicScore
       })),
+      editorialUnits,
+      candidateArcs,
       metadata: {
         executor: 'clip_candidate_service',
         implementationVersion: command.runConfigSnapshot.candidateGeneratorVersion,
@@ -2011,7 +1216,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         candidateLimit: 36,
         clipSelectionPlatform: command.runConfigSnapshot.clipSelectionPlatform,
         rawSegmentCount: transcription.segments.length,
-        normalizedSegmentCount: normalizedSegments.length,
+        normalizedSegmentCount: editorialTimelineSegments.length,
+        transcriptTimingQuality,
         transcriptNormalizationVersion,
         transcriptCleanup: transcriptCleanupMetadata,
         editorialUnitBuilderVersion: 'editorial_units_v1',
@@ -2034,15 +1240,27 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       : 'Ranking heuristic clip suggestions...')
 
     if (!aiService) {
-      analysis = buildHeuristicAnalysis(candidates)
-      const semanticReview = await applySemanticBoundaryReview(transcription, analysis.potentialClips, null, command.mediaDuration)
-      analysis = { potentialClips: semanticReview.clips }
-      aiAnalysisSucceeded = false
-      postProgress(command.workflowJobId, currentStage, 100, 'AI unavailable. Using heuristic clip suggestions.')
+      if (candidateArcs.length > 0) {
+        const arcSelection = await arcSelectionService.selectCandidateArcs(
+          candidateArcs,
+          command.mediaDuration,
+          Math.max(6, command.runConfigSnapshot.maxClipsPerEpisode),
+          null
+        )
+        analysis = { potentialClips: arcSelection.clips }
+        aiAnalysisSucceeded = false
+        selectionDecisions = arcSelection.decisions
+        clipSelectionSourceMetadata = {
+          selectionSource: arcSelection.mode,
+          selectedArcIds: arcSelection.selectedArcIds,
+          candidateArcRankerFailureReason: arcSelection.fallbackReason ?? 'AI unavailable'
+        }
+        postProgress(command.workflowJobId, currentStage, 100, 'AI unavailable. Using deterministic candidate arcs.')
         postStageCompleted(command.workflowJobId, currentStage, {
           clipCount: analysis.potentialClips.length,
-          mode: 'heuristic',
+          mode: arcSelection.mode,
           aiAnalysisSucceeded,
+          selectionDecisions,
           selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
             id: clip.id,
             startTime: clip.startTime,
@@ -2050,17 +1268,48 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             shareabilityScore: clip.shareabilityScore
           })),
           metadata: {
-            executor: 'heuristic_ranker',
+            executor: 'deterministic_candidate_arcs',
             ...getRankingModelMetadata(command),
-            boundaryRefinementVersion: 'semantic_line_boundary_v1',
-            reviewedClipCount: semanticReview.reviews.length,
-            semanticBoundaryReviewUsedAI: semanticReview.usedAI,
-            transcriptLineCount: semanticReview.transcriptLineCount,
-            semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
-            reviewPreview: semanticReview.reviews.slice(0, 5)
+            candidateArcRankerVersion: 'candidate_arc_ranker_v1',
+            candidateArcRankerFailureReason: arcSelection.fallbackReason ?? 'AI unavailable',
+            editorialUnitBuilderVersion: 'editorial_units_v1',
+            candidateArcGeneratorVersion: 'candidate_arcs_v1',
+            editorialUnits: summarizeEditorialUnits(editorialUnits),
+            candidateArcs: summarizeCandidateArcs(candidateArcs),
+            selectedArcIds: arcSelection.selectedArcIds,
+            selectedArcCount: arcSelection.selectedArcIds.length
           },
           analysis
         })
+      } else {
+        analysis = buildHeuristicAnalysis(candidates)
+        const semanticReview = await finalClipValidationService.applySemanticBoundaryReview(transcription, analysis.potentialClips, null, command.mediaDuration)
+        analysis = { potentialClips: semanticReview.clips }
+        aiAnalysisSucceeded = false
+        postProgress(command.workflowJobId, currentStage, 100, 'AI unavailable. Using heuristic clip suggestions.')
+          postStageCompleted(command.workflowJobId, currentStage, {
+            clipCount: analysis.potentialClips.length,
+            mode: 'heuristic',
+            aiAnalysisSucceeded,
+            selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+              id: clip.id,
+              startTime: clip.startTime,
+              endTime: clip.endTime,
+              shareabilityScore: clip.shareabilityScore
+            })),
+            metadata: {
+              executor: 'heuristic_ranker',
+              ...getRankingModelMetadata(command),
+              boundaryRefinementVersion: 'semantic_line_boundary_v1',
+              reviewedClipCount: semanticReview.reviews.length,
+              semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+              transcriptLineCount: semanticReview.transcriptLineCount,
+              semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
+              reviewPreview: semanticReview.reviews.slice(0, 5)
+            },
+            analysis
+          })
+      }
     } else {
       let agentFailureMetadata: Record<string, unknown> | null = null
 
@@ -2068,24 +1317,27 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         try {
           postProgress(command.workflowJobId, currentStage, 8, 'Ranking editorial candidate arcs...')
 
-          const rankedArcSelections = await aiService.rankCandidateArcs(
+          const arcSelection = await arcSelectionService.selectCandidateArcs(
             candidateArcs,
             command.mediaDuration,
             Math.max(6, command.runConfigSnapshot.maxClipsPerEpisode),
+            aiService,
             (progress) => {
               postProgress(command.workflowJobId, currentStage, Math.min(8 + progress * 0.32, 40), 'Ranking editorial candidate arcs...')
             }
           )
-          const arcClips = buildPotentialClipsFromRankedArcs(candidateArcs, rankedArcSelections)
+          const arcClips = arcSelection.clips
 
           if (arcClips.length >= 1) {
             analysis = { potentialClips: arcClips }
-            aiAnalysisSucceeded = true
+            aiAnalysisSucceeded = arcSelection.aiAnalysisSucceeded
+            selectionDecisions = arcSelection.decisions
 
             postStageCompleted(command.workflowJobId, currentStage, {
               clipCount: analysis.potentialClips.length,
-              mode: 'candidate_arc_ranking',
+              mode: arcSelection.mode,
               aiAnalysisSucceeded,
+              selectionDecisions,
               selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
                 id: clip.id,
                 startTime: clip.startTime,
@@ -2100,50 +1352,39 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
                 candidateArcGeneratorVersion: 'candidate_arcs_v1',
                 editorialUnits: summarizeEditorialUnits(editorialUnits),
                 candidateArcs: summarizeCandidateArcs(candidateArcs),
-                selectedArcIds: rankedArcSelections.map((selection) => selection.arcId),
-                selectedArcCount: rankedArcSelections.length
+                selectedArcIds: arcSelection.selectedArcIds,
+                selectedArcCount: arcSelection.selectedArcIds.length,
+                candidateArcRankerFailureReason: arcSelection.fallbackReason ?? null
               },
               analysis
             })
             clipSelectionSourceMetadata = {
-              selectionSource: 'candidate_arc_ranker',
-              selectedArcIds: rankedArcSelections.map((selection) => selection.arcId)
+              selectionSource: arcSelection.mode === 'candidate_arc_ranking'
+                ? 'candidate_arc_ranker'
+                : 'deterministic_candidate_arcs',
+              selectedArcIds: arcSelection.selectedArcIds,
+              candidateArcRankerFailureReason: arcSelection.fallbackReason ?? null
             }
-          } else {
-            throw new Error('Candidate arc ranker returned no usable arc selections')
+            if (arcSelection.mode === 'deterministic_candidate_arcs') {
+              agentFailureMetadata = {
+                candidateArcRankerAttempted: true,
+                candidateArcRankerFailureReason: arcSelection.fallbackReason ?? 'Unknown candidate arc ranking error',
+                deterministicArcFallbackUsed: true
+              }
+            }
           }
         } catch (arcRankingError) {
           console.warn('Candidate arc ranking failed, falling back to legacy selection paths:', arcRankingError)
-          const deterministicArcClips = buildDeterministicClipsFromTopArcs(candidateArcs)
-          if (deterministicArcClips.length > 0) {
-            analysis = { potentialClips: deterministicArcClips }
-            aiAnalysisSucceeded = false
-            clipSelectionSourceMetadata = {
-              selectionSource: 'deterministic_candidate_arcs',
-              candidateArcRankerFailureReason: arcRankingError instanceof Error
-                ? arcRankingError.message
-                : 'Unknown candidate arc ranking error',
-              selectedArcIds: candidateArcs.slice(0, deterministicArcClips.length).map((arc) => arc.id)
-            }
-            agentFailureMetadata = {
-              candidateArcRankerAttempted: true,
-              candidateArcRankerFailureReason: arcRankingError instanceof Error
-                ? arcRankingError.message
-                : 'Unknown candidate arc ranking error',
-              deterministicArcFallbackUsed: true
-            }
-          } else {
-            agentFailureMetadata = {
-              candidateArcRankerAttempted: true,
-              candidateArcRankerFailureReason: arcRankingError instanceof Error
-                ? arcRankingError.message
-                : 'Unknown candidate arc ranking error'
-            }
+          agentFailureMetadata = {
+            candidateArcRankerAttempted: true,
+            candidateArcRankerFailureReason: arcRankingError instanceof Error
+              ? arcRankingError.message
+              : 'Unknown candidate arc ranking error'
           }
         }
       }
 
-      if (!analysis) {
+      if (!analysis && allowLegacyResolvedClipProposal) {
         try {
           postProgress(command.workflowJobId, currentStage, 10, 'Proposing resolved clip arcs...')
 
@@ -2188,8 +1429,9 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             throw new Error(`Resolved clip proposal returned only ${resolvedClips.clips.length} usable clips`)
           }
         } catch (resolvedProposalError) {
-          console.warn('Resolved clip proposal failed, falling back to clip selection agent:', resolvedProposalError)
+          console.warn('Resolved clip proposal failed:', resolvedProposalError)
           agentFailureMetadata = {
+            ...agentFailureMetadata,
             agentAttempted: true,
             resolvedProposalFailureReason: resolvedProposalError instanceof Error
               ? resolvedProposalError.message
@@ -2198,155 +1440,156 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         }
       }
 
-      if (!analysis) {
-      try {
-        postProgress(command.workflowJobId, currentStage, 48, 'Selecting clips with clip selection agent...')
+      if (!analysis && allowLegacyTranscriptLineAgent) {
+        try {
+          postProgress(command.workflowJobId, currentStage, 48, 'Selecting clips with clip selection agent...')
 
-        const transcriptLines = semanticTranscriptSegments
-          ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments)
-          : buildTranscriptLinesFromSegments(
-              transcription.segments.map((segment) => ({
-                id: segment.id,
-                start: Number(segment.start ?? 0),
-                end: Number(segment.end ?? 0),
-                text: String(segment.text ?? ''),
-                words: Array.isArray(segment.words)
-                  ? segment.words.map((word) => ({
-                      word: String(word.word ?? '').trim(),
-                      start: Number(word.start ?? 0),
-                      end: Number(word.end ?? 0)
-                    }))
-                  : undefined
+          const transcriptLines = semanticTranscriptSegments
+            ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments)
+            : buildTranscriptLinesFromSegments(
+                transcription.segments.map((segment) => ({
+                  id: segment.id,
+                  start: Number(segment.start ?? 0),
+                  end: Number(segment.end ?? 0),
+                  text: String(segment.text ?? ''),
+                  words: Array.isArray(segment.words)
+                    ? segment.words.map((word) => ({
+                        word: String(word.word ?? '').trim(),
+                        start: Number(word.start ?? 0),
+                        end: Number(word.end ?? 0)
+                      }))
+                    : undefined
+                }))
+              )
+
+          const agentSelection = await clipSelectionAgent!.selectClips({
+            transcriptLines: transcriptLines.map((line) => ({
+              lineIndex: line.lineIndex,
+              start: line.start,
+              end: line.end,
+              text: line.text,
+              boundaryQuality: line.boundaryQuality
+            })),
+            mediaDuration: command.mediaDuration,
+            targetClipCount: Math.max(12, command.runConfigSnapshot.maxClipsPerEpisode)
+          })
+
+          if (agentSelection.clips.length >= 1) {
+            analysis = { potentialClips: agentSelection.clips }
+            aiAnalysisSucceeded = true
+
+            postStageCompleted(command.workflowJobId, currentStage, {
+              clipCount: analysis.potentialClips.length,
+              mode: 'clip_selection_agent',
+              aiAnalysisSucceeded,
+              selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+                id: clip.id,
+                startTime: clip.startTime,
+                endTime: clip.endTime,
+                shareabilityScore: clip.shareabilityScore
+              })),
+              metadata: {
+                ...agentSelection.metadata,
+                agentAttempted: true,
+                agentSelected: true,
+                clipSelectionPlatform: command.runConfigSnapshot.clipSelectionPlatform,
+                boundaryRefinementVersion: 'clip_selection_agent_v1'
+              },
+              analysis
+            })
+          } else {
+            throw new Error(`Clip selection agent returned only ${agentSelection.clips.length} usable clips`)
+          }
+        } catch (agentError) {
+          console.warn('Clip selection agent failed:', agentError)
+          const clipSelectionFailureMetadata = agentError instanceof ClipSelectionAgentError
+            ? {
+                agentAttempted: true,
+                agentFailureReason: agentError.message,
+                agentFailureDetails: agentError.details
+              }
+            : {
+                agentAttempted: true,
+                agentFailureReason: agentError instanceof Error ? agentError.message : 'Unknown clip selection agent error'
+              }
+          agentFailureMetadata = {
+            ...agentFailureMetadata,
+            ...clipSelectionFailureMetadata
+          }
+        }
+      }
+
+      if (!analysis && allowLegacyBoundaryProposal) {
+        try {
+          postProgress(command.workflowJobId, currentStage, 10, 'AI proposing clip boundaries...')
+
+          const proposedClips = await aiService.proposeBoundaries(
+            transcription,
+            command.mediaDuration,
+            (progress) => {
+              postProgress(command.workflowJobId, currentStage, progress * 0.5, 'AI proposing clip boundaries...')
+            }
+          )
+
+          const validatedClips = proposedClips.filter((clip) => clip.validated)
+
+          if (validatedClips.length >= 5) {
+            analysis = {
+              potentialClips: validatedClips.map((clip, index) => ({
+                id: `ai_proposed_${index + 1}`,
+                startTime: clip.startTime,
+                endTime: clip.endTime,
+                duration: clip.duration,
+                contentType: clip.contentType,
+                shareabilityScore: clip.shareabilityScore,
+                keyQuote: clip.keyQuote,
+                reason: clip.reason,
+                contextNeeded: 'low' as const
               }))
-            )
-
-        const agentSelection = await clipSelectionAgent!.selectClips({
-          transcriptLines: transcriptLines.map((line) => ({
-            lineIndex: line.lineIndex,
-            start: line.start,
-            end: line.end,
-            text: line.text,
-            boundaryQuality: line.boundaryQuality
-          })),
-          mediaDuration: command.mediaDuration,
-          targetClipCount: Math.max(12, command.runConfigSnapshot.maxClipsPerEpisode)
-        })
-
-        if (agentSelection.clips.length >= 1) {
-          analysis = { potentialClips: agentSelection.clips }
-          aiAnalysisSucceeded = true
-
-          postStageCompleted(command.workflowJobId, currentStage, {
-            clipCount: analysis.potentialClips.length,
-            mode: 'clip_selection_agent',
-            aiAnalysisSucceeded,
-            selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
-              id: clip.id,
-              startTime: clip.startTime,
-              endTime: clip.endTime,
-              shareabilityScore: clip.shareabilityScore
-            })),
-            metadata: {
-              ...agentSelection.metadata,
-              agentAttempted: true,
-              agentSelected: true,
-              clipSelectionPlatform: command.runConfigSnapshot.clipSelectionPlatform,
-              boundaryRefinementVersion: 'clip_selection_agent_v1'
-            },
-            analysis
-          })
-        } else {
-          throw new Error(`Clip selection agent returned only ${agentSelection.clips.length} usable clips`)
-        }
-      } catch (agentError) {
-        console.warn('Clip selection agent failed, falling back to boundary proposal / candidate ranking:', agentError)
-        const clipSelectionFailureMetadata = agentError instanceof ClipSelectionAgentError
-          ? {
-              agentAttempted: true,
-              agentFailureReason: agentError.message,
-              agentFailureDetails: agentError.details
             }
-          : {
-              agentAttempted: true,
-              agentFailureReason: agentError instanceof Error ? agentError.message : 'Unknown clip selection agent error'
-            }
-        agentFailureMetadata = {
-          ...agentFailureMetadata,
-          ...clipSelectionFailureMetadata
-        }
 
-      // Try AI boundary proposal first (gives AI freedom to propose timestamps)
-      let usedBoundaryProposal = false
-      try {
-        postProgress(command.workflowJobId, currentStage, 10, 'AI proposing clip boundaries...')
+            const semanticReview = await finalClipValidationService.applySemanticBoundaryReview(transcription, analysis.potentialClips, aiService, command.mediaDuration)
+            analysis = { potentialClips: semanticReview.clips }
+            aiAnalysisSucceeded = true
 
-        const proposedClips = await aiService.proposeBoundaries(
-          transcription,
-          command.mediaDuration,
-          (progress) => {
-            postProgress(command.workflowJobId, currentStage, progress * 0.5, 'AI proposing clip boundaries...')
+            postStageCompleted(command.workflowJobId, currentStage, {
+              clipCount: analysis.potentialClips.length,
+              mode: 'ai_boundary_proposal',
+              aiAnalysisSucceeded,
+              selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+                id: clip.id,
+                startTime: clip.startTime,
+                endTime: clip.endTime,
+                shareabilityScore: clip.shareabilityScore
+              })),
+              metadata: {
+                executor: 'ai_boundary_proposal',
+                ...getRankingModelMetadata(command),
+                ...agentFailureMetadata,
+                boundaryRefinementVersion: 'semantic_line_boundary_v1',
+                proposedClipCount: proposedClips.length,
+                validatedClipCount: validatedClips.length,
+                reviewedClipCount: semanticReview.reviews.length,
+                semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+                transcriptLineCount: semanticReview.transcriptLineCount,
+                semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
+                reviewPreview: semanticReview.reviews.slice(0, 5)
+              },
+              analysis
+            })
+          } else {
+            throw new Error(`Insufficient validated clips from boundary proposal: ${validatedClips.length}`)
           }
-        )
-
-        // Filter to only validated clips
-        const validatedClips = proposedClips.filter(clip => clip.validated)
-
-        if (validatedClips.length >= 5) {
-          // Boundary proposal succeeded
-          console.log(`AI Boundary Proposal succeeded: ${validatedClips.length} validated clips`)
-
-          analysis = {
-            potentialClips: validatedClips.map((clip, index) => ({
-              id: `ai_proposed_${index + 1}`,
-              startTime: clip.startTime,
-              endTime: clip.endTime,
-              duration: clip.duration,
-              contentType: clip.contentType,
-              shareabilityScore: clip.shareabilityScore,
-              keyQuote: clip.keyQuote,
-              reason: clip.reason,
-              contextNeeded: 'low' as const
-            }))
+        } catch (boundaryError) {
+          console.warn('AI boundary proposal failed or was insufficient:', boundaryError)
+          agentFailureMetadata = {
+            ...agentFailureMetadata,
+            boundaryProposalFailureReason: boundaryError instanceof Error ? boundaryError.message : 'Unknown boundary proposal error'
           }
-
-          const semanticReview = await applySemanticBoundaryReview(transcription, analysis.potentialClips, aiService, command.mediaDuration)
-          analysis = { potentialClips: semanticReview.clips }
-          aiAnalysisSucceeded = true
-          usedBoundaryProposal = true
-
-          postStageCompleted(command.workflowJobId, currentStage, {
-            clipCount: analysis.potentialClips.length,
-            mode: 'ai_boundary_proposal',
-            aiAnalysisSucceeded,
-            selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
-              id: clip.id,
-              startTime: clip.startTime,
-              endTime: clip.endTime,
-              shareabilityScore: clip.shareabilityScore
-            })),
-            metadata: {
-              executor: 'ai_boundary_proposal',
-              ...getRankingModelMetadata(command),
-              ...agentFailureMetadata,
-              boundaryRefinementVersion: 'semantic_line_boundary_v1',
-              proposedClipCount: proposedClips.length,
-              validatedClipCount: validatedClips.length,
-              reviewedClipCount: semanticReview.reviews.length,
-              semanticBoundaryReviewUsedAI: semanticReview.usedAI,
-              transcriptLineCount: semanticReview.transcriptLineCount,
-              semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
-              reviewPreview: semanticReview.reviews.slice(0, 5)
-            },
-            analysis
-          })
-        } else {
-          console.log(`AI Boundary Proposal insufficient: ${validatedClips.length} validated clips, falling back to ranking`)
-          throw new Error('Insufficient validated clips from boundary proposal')
         }
-      } catch (boundaryError) {
-        console.warn('AI boundary proposal failed or insufficient, falling back to candidate ranking:', boundaryError)
+      }
 
-        // Fall back to traditional candidate ranking
+      if (!analysis && allowLegacyCandidateRanking) {
         try {
           postProgress(command.workflowJobId, currentStage, 55, 'Falling back to candidate ranking...')
 
@@ -2358,7 +1601,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
               postProgress(command.workflowJobId, currentStage, 55 + progress * 0.4, 'AI ranking candidates...')
             }
           )
-          const semanticReview = await applySemanticBoundaryReview(transcription, analysis.potentialClips, aiService, command.mediaDuration)
+          const semanticReview = await finalClipValidationService.applySemanticBoundaryReview(transcription, analysis.potentialClips, aiService, command.mediaDuration)
           analysis = { potentialClips: semanticReview.clips }
           aiAnalysisSucceeded = true
 
@@ -2387,39 +1630,44 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             analysis
           })
         } catch (rankingError) {
-          // Both AI methods failed, use heuristic fallback
-          analysis = buildHeuristicAnalysis(candidates)
-          const semanticReview = await applySemanticBoundaryReview(transcription, analysis.potentialClips, null, command.mediaDuration)
-          analysis = { potentialClips: semanticReview.clips }
-          aiAnalysisSucceeded = false
-          postProgress(command.workflowJobId, currentStage, 100, 'AI analysis failed. Using heuristic clip suggestions.')
-          postStageCompleted(command.workflowJobId, currentStage, {
-            clipCount: analysis.potentialClips.length,
-            mode: 'heuristic_fallback',
-            aiAnalysisSucceeded,
-            selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
-              id: clip.id,
-              startTime: clip.startTime,
-              endTime: clip.endTime,
-              shareabilityScore: clip.shareabilityScore
-            })),
-            metadata: {
-              executor: 'heuristic_fallback',
-              ...getRankingModelMetadata(command),
-              ...agentFailureMetadata,
-              boundaryRefinementVersion: 'semantic_line_boundary_v1',
-              reviewedClipCount: semanticReview.reviews.length,
-              semanticBoundaryReviewUsedAI: semanticReview.usedAI,
-              transcriptLineCount: semanticReview.transcriptLineCount,
-              semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
-              reviewPreview: semanticReview.reviews.slice(0, 5)
-            },
-            analysis,
-            aiError: rankingError instanceof Error ? rankingError.message : 'Unknown error'
-          })
+          console.warn('AI candidate ranking failed:', rankingError)
+          agentFailureMetadata = {
+            ...agentFailureMetadata,
+            aiCandidateRankingFailureReason: rankingError instanceof Error ? rankingError.message : 'Unknown candidate ranking error'
+          }
         }
       }
-      }
+
+      if (!analysis && allowHeuristicSupplementation) {
+        analysis = buildHeuristicAnalysis(candidates)
+        const semanticReview = await finalClipValidationService.applySemanticBoundaryReview(transcription, analysis.potentialClips, null, command.mediaDuration)
+        analysis = { potentialClips: semanticReview.clips }
+        aiAnalysisSucceeded = false
+        postProgress(command.workflowJobId, currentStage, 100, 'Legacy selector flags enabled. Using heuristic clip suggestions.')
+        postStageCompleted(command.workflowJobId, currentStage, {
+          clipCount: analysis.potentialClips.length,
+          mode: 'heuristic_fallback',
+          aiAnalysisSucceeded,
+          selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+            id: clip.id,
+            startTime: clip.startTime,
+            endTime: clip.endTime,
+            shareabilityScore: clip.shareabilityScore
+          })),
+          metadata: {
+            executor: 'heuristic_fallback',
+            ...getRankingModelMetadata(command),
+            ...agentFailureMetadata,
+            boundaryRefinementVersion: 'semantic_line_boundary_v1',
+            reviewedClipCount: semanticReview.reviews.length,
+            semanticBoundaryReviewUsedAI: semanticReview.usedAI,
+            transcriptLineCount: semanticReview.transcriptLineCount,
+            semanticBoundaryReviewFallbackReason: semanticReview.fallbackReason,
+            reviewPreview: semanticReview.reviews.slice(0, 5)
+          },
+          analysis,
+          aiError: 'Legacy heuristic supplementation enabled'
+        })
       }
     }
   }
@@ -2430,7 +1678,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
   if (analysis.potentialClips.length > 0) {
     postProgress(command.workflowJobId, currentStage, 98, 'Finalizing clip boundaries...')
-    let boundaryFinalization = await finalizeClipBoundaries(
+    const selectedClipsBeforeBoundaryValidation = [...analysis.potentialClips]
+    let boundaryFinalization = await finalClipValidationService.finalizeClipBoundaries(
       transcription,
       analysis.potentialClips,
       aiService,
@@ -2438,13 +1687,14 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       semanticTranscriptSegments ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments) : undefined
     )
     const initialBoundaryFinalization = boundaryFinalization
-    let fallbackBoundaryFinalization: Awaited<ReturnType<typeof finalizeClipBoundaries>> | null = null
+    let fallbackBoundaryFinalization: Awaited<ReturnType<typeof finalClipValidationService.finalizeClipBoundaries>> | null = null
+    let fallbackRecoverySelection: ReturnType<typeof buildFallbackArcRecoverySelection> | null = null
 
-    if (boundaryFinalization.clips.length === 0 && candidates.length > 0) {
-      const fallbackClips = buildFallbackClipsFromCandidates(candidates)
-      fallbackBoundaryFinalization = await finalizeClipBoundaries(
+    if (boundaryFinalization.clips.length === 0 && candidateArcs.length > 0) {
+      fallbackRecoverySelection = buildFallbackArcRecoverySelection(candidateArcs, selectionDecisions)
+      fallbackBoundaryFinalization = await finalClipValidationService.finalizeClipBoundaries(
         transcription,
-        fallbackClips,
+        fallbackRecoverySelection.clips,
         null,
         command.mediaDuration,
         semanticTranscriptSegments ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments) : undefined
@@ -2452,15 +1702,27 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
       if (fallbackBoundaryFinalization.clips.length > 0) {
         boundaryFinalization = fallbackBoundaryFinalization
+        selectionDecisions = fallbackRecoverySelection.decisions
       }
     }
 
+    selectionDecisions = applyFinalClipValidationToSelectionDecisions(
+      selectionDecisions,
+      fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0 && fallbackRecoverySelection
+        ? fallbackRecoverySelection.clips
+        : selectedClipsBeforeBoundaryValidation,
+      fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0
+        ? fallbackBoundaryFinalization
+        : initialBoundaryFinalization,
+      Boolean(fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0)
+    )
     analysis = { potentialClips: boundaryFinalization.clips }
 
     postStageCompleted(command.workflowJobId, 'clip_ranking', {
       clipCount: analysis.potentialClips.length,
       mode: 'final_boundary_refinement',
       aiAnalysisSucceeded,
+      selectionDecisions,
       selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
         id: clip.id,
         startTime: clip.startTime,
@@ -2469,7 +1731,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       })),
       metadata: {
         executor: 'final_boundary_refiner',
-        boundaryRefinementVersion: 'boundary_optimizer_v2',
+        boundaryRefinementVersion: 'final_clip_validator_v1',
         ...clipSelectionSourceMetadata,
         editorialUnitBuilderVersion: 'editorial_units_v1',
         candidateArcGeneratorVersion: 'candidate_arcs_v1',
@@ -2480,23 +1742,18 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         transcriptLineCount: boundaryFinalization.semanticReview.transcriptLineCount,
         semanticBoundaryReviewFallbackReason: boundaryFinalization.semanticReview.fallbackReason,
         wordBoundaryAdjustmentCount: boundaryFinalization.wordAdjustments.filter((adjustment) => adjustment.changed).length,
-        startBoundaryExtendedCount: 0,
-        startBoundaryRejectedCount: boundaryFinalization.rejectedStartBoundaryClips.length,
-        endBoundaryExtendedCount: 0,
-        finalClosureRejectedCount: boundaryFinalization.rejectedFinalClips.length,
-        boundaryOptimizerAcceptedCount: boundaryFinalization.boundaryOptimizationDecisions.filter((decision) => decision.status === 'optimized').length,
-        boundaryOptimizerRejectedCount: boundaryFinalization.rejectedOptimizedClips.length,
+        finalBoundaryValidatorAcceptedCount: boundaryFinalization.validatorDecisions.filter((decision) => decision.status === 'accepted').length,
+        finalBoundaryValidatorRejectedCount: boundaryFinalization.rejectedClips.length,
         fallbackBoundaryRecoveryAttempted: Boolean(fallbackBoundaryFinalization),
         fallbackBoundaryRecoverySucceeded: Boolean(fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0),
-        initialFinalClosureRejectedCount: fallbackBoundaryFinalization ? initialBoundaryFinalization.rejectedFinalClips.length : undefined,
+        fallbackBoundaryRecoveredArcIds: fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0
+          ? fallbackBoundaryFinalization.clips.map((clip) => clip.sourceArcId).filter(Boolean)
+          : undefined,
+        initialFinalBoundaryRejectedCount: fallbackBoundaryFinalization ? initialBoundaryFinalization.rejectedClips.length : undefined,
         reviewPreview: boundaryFinalization.semanticReview.reviews.slice(0, 5),
         wordAdjustmentPreview: boundaryFinalization.wordAdjustments.slice(0, 5),
-        boundaryOptimizationPreview: boundaryFinalization.boundaryOptimizationDecisions.slice(0, 5),
-        boundaryOptimizationRejectedPreview: boundaryFinalization.rejectedOptimizedClips.slice(0, 5),
-        startBoundaryDecisionPreview: boundaryFinalization.startBoundaryDecisions.slice(0, 5),
-        startBoundaryRejectedPreview: boundaryFinalization.rejectedStartBoundaryClips.slice(0, 5),
-        endBoundaryDecisionPreview: boundaryFinalization.endBoundaryDecisions.slice(0, 5),
-        finalClosureRejectedPreview: boundaryFinalization.rejectedFinalClips.slice(0, 5)
+        finalBoundaryValidatorPreview: boundaryFinalization.validatorDecisions.slice(0, 5),
+        finalBoundaryRejectedPreview: boundaryFinalization.rejectedClips.slice(0, 5)
       },
       analysis
     })
@@ -2549,6 +1806,9 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     type: 'pipeline_completed',
     workflowJobId: command.workflowJobId,
     transcription,
+    editorialUnits,
+    candidateArcs,
+    selectionDecisions,
     analysis,
     aiAnalysisSucceeded,
     contentPackages

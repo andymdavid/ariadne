@@ -1,6 +1,5 @@
-import { randomUUID } from 'crypto'
 import { database } from '../database/database'
-import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
+import { canonicalTimelineService } from './canonicalTimelineService'
 
 class TranscriptLineService {
   ensureEpisodeTranscriptLines(episodeId: string) {
@@ -21,24 +20,8 @@ class TranscriptLineService {
       return []
     }
 
-    const builtLines = buildTranscriptLinesFromSegments(
-      segments.map((segment, index) => ({
-        id: segment.id ?? index,
-        start: Number(segment.start_time ?? 0),
-        end: Number(segment.end_time ?? 0),
-        text: String(segment.text ?? ''),
-        words: Array.isArray(segment.words) ? segment.words : undefined
-      }))
-    ).map((line) => ({
-      id: randomUUID(),
-      episodeId,
-      lineIndex: line.lineIndex,
-      startTime: line.start,
-      endTime: line.end,
-      text: line.text,
-      words: line.words,
-      sourceStrategy: line.sourceStrategy
-    }))
+    const canonicalTimeline = canonicalTimelineService.buildFromStoredSegments(segments)
+    const builtLines = canonicalTimelineService.toTranscriptLineRows(episodeId, canonicalTimeline)
 
     database.replaceTranscriptLinesForEpisode(episodeId, builtLines)
     return database.getTranscriptLines(episodeId)

@@ -1,4 +1,5 @@
 import type { APIConfig, ClipMetadataAnalysisDraft } from '@shared/types'
+import type { CandidateArc, EditorialUnit } from '../editorialUnits'
 
 export type PipelineWorkerStageKey =
   | 'transcription'
@@ -11,7 +12,12 @@ export interface PipelineRunConfigSnapshot {
   apiModelId: string | null
   clipSelectionPlatform: APIConfig['clipSelectionPlatform']
   openRouterConfigured: boolean
-  autoApproveThreshold: number
+  productionSelectorMode: 'legacy' | 'arc_v1'
+  enableLegacyResolvedClipProposal: boolean
+  enableLegacyTranscriptLineAgent: boolean
+  enableLegacyBoundaryProposal: boolean
+  enableLegacyCandidateRanking: boolean
+  enableHeuristicSupplementation: boolean
   maxClipsPerEpisode: number
   brandVoiceExampleCount: number
   brandVoicePreferences: {
@@ -47,6 +53,8 @@ export interface PipelineWorkerTranscription {
 
 export interface PipelineWorkerPotentialClip {
   id: string
+  selectionDecisionId?: string | null
+  sourceArcId?: string | null
   startTime: number
   endTime: number
   duration: number
@@ -79,6 +87,18 @@ export interface PipelineWorkerContentPackage {
   metadataAnalysis: ClipMetadataAnalysisDraft | null
 }
 
+export interface PipelineWorkerSelectionDecision {
+  id: string
+  candidateArcId?: string | null
+  decision: 'selected' | 'rejected' | 'fallback_selected'
+  rankOrder?: number | null
+  modelScore?: number | null
+  finalScore?: number | null
+  rejectionCode?: string | null
+  reason?: string | null
+  validatorResultJson?: string | null
+}
+
 export interface StartPipelineWorkerCommand {
   type: 'start_pipeline'
   workflowJobId: string
@@ -91,6 +111,9 @@ export interface StartPipelineWorkerCommand {
   resumeData?: {
     transcription?: PipelineWorkerTranscription
     candidates?: PipelineWorkerCandidate[]
+    editorialUnits?: EditorialUnit[]
+    candidateArcs?: CandidateArc[]
+    selectionDecisions?: PipelineWorkerSelectionDecision[]
     analysis?: {
       potentialClips: PipelineWorkerPotentialClip[]
     }
@@ -128,6 +151,9 @@ export interface PipelineWorkerCompletedEvent {
   type: 'pipeline_completed'
   workflowJobId: string
   transcription: PipelineWorkerTranscription
+  editorialUnits?: EditorialUnit[]
+  candidateArcs?: CandidateArc[]
+  selectionDecisions?: PipelineWorkerSelectionDecision[]
   analysis: {
     potentialClips: PipelineWorkerPotentialClip[]
   }

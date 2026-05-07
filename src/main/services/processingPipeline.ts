@@ -7,12 +7,13 @@ import { configService } from './configService'
 import { mediaWorkerSupervisor } from './mediaWorkerSupervisor'
 import { pipelineWorkerSupervisor } from './pipelineWorkerSupervisor'
 import { workflowReadModel } from './workflowReadModel'
+import { canonicalTimelineService } from './canonicalTimelineService'
+import { clipProjectionService } from './clipProjectionService'
 import type {
   ProcessingErrorPayload,
   ProcessingProgress,
   ProcessingResultPayload
 } from '@shared/types'
-import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 import type {
   PipelineWorkerCandidate,
   PipelineWorkerCompletedEvent,
@@ -20,6 +21,7 @@ import type {
   PipelineWorkerContentPackage,
   PipelineWorkerPotentialClip
 } from '@shared/types/pipelineWorker'
+import type { CandidateArc, EditorialUnit } from '../../shared/editorialUnits'
 import type {
   GetActivePipelineJobResponseDTO,
   PipelineJobViewDTO
@@ -50,6 +52,11 @@ const PIPELINE_STEP_ORDER: PipelineStepKey[] = [
   'clip_ranking',
   'content_package_generation'
 ]
+
+const LEGACY_SELECTION_RUN_VERSION = 'legacy_pipeline_v1'
+const LEGACY_SELECTION_SOURCE = 'legacy_pipeline'
+const ARC_SELECTION_RUN_VERSION = 'candidate_arc_ranker_v1'
+const ARC_SELECTION_SOURCE = 'candidate_arc_ranker'
 
 class ProcessingPipeline {
   private readonly mediaTranscriptFingerprintVersion = 'media_transcript_cache_v1'
@@ -124,6 +131,7 @@ class ProcessingPipeline {
     const startTime = Date.now()
     let projectId: string | undefined
     let episodeId: string | undefined
+    let selectionRunId: string | undefined
     let currentStep: PipelineStepKey | null = null
     
     try {
@@ -144,6 +152,8 @@ class ProcessingPipeline {
       projectId = await this.createProject(projectName || basename(filePath))
       episodeId = await this.createEpisode(projectId, filePath)
       this.updateWorkflowJobContext(workflowJobId, projectId, episodeId)
+      const runConfigSnapshot = this.buildPipelineRunConfigSnapshot()
+      selectionRunId = this.startPipelineSelectionRun(workflowJobId, episodeId, runConfigSnapshot)
       this.createPipelineArtifact(workflowJobId, projectId, episodeId, null, filePath, 'source_media', {
         imported: filePath.includes(`${join(require('os').homedir(), '')}`) ? false : undefined,
         originalFileName: basename(filePath)
@@ -151,7 +161,8 @@ class ProcessingPipeline {
       this.completePipelineStep(workflowJobId, currentStep, {
         filePath,
         projectId,
-        episodeId
+        episodeId,
+        selectionRunId
       })
       
       // Step 2: Extract audio and get media info
@@ -298,6 +309,7 @@ class ProcessingPipeline {
         workflowJobId,
         projectId,
         episodeId,
+        selectionRunId,
         filePath,
         projectName || basename(filePath),
         mediaInfo.resolution,
@@ -314,6 +326,15 @@ class ProcessingPipeline {
       // Update episode status to error if we got that far
       if (episodeId!) {
         database.updateEpisodeStatus(episodeId, 'error')
+      }
+      if (selectionRunId) {
+        this.failPipelineSelectionRun(
+          workflowJobId,
+          selectionRunId,
+          episodeId,
+          currentStep,
+          error instanceof Error ? error.message : 'Unknown processing error'
+        )
       }
       if (currentStep && !alreadyFailed) {
         this.failPipelineStep(
@@ -351,6 +372,9 @@ class ProcessingPipeline {
     resumeData: {
       transcription?: PipelineWorkerCompletedEvent['transcription']
       candidates?: PipelineWorkerCandidate[]
+      editorialUnits?: NonNullable<PipelineWorkerCompletedEvent['editorialUnits']>
+      candidateArcs?: NonNullable<PipelineWorkerCompletedEvent['candidateArcs']>
+      selectionDecisions?: NonNullable<PipelineWorkerCompletedEvent['selectionDecisions']>
       analysis?: PipelineWorkerCompletedEvent['analysis']
       aiAnalysisSucceeded?: boolean
       contentPackages?: PipelineWorkerContentPackage[]
@@ -393,6 +417,7 @@ class ProcessingPipeline {
     workflowJobId: string,
     projectId: string,
     episodeId: string,
+    selectionRunId: string,
     filePath: string,
     projectName: string,
     sourceResolution: { width: number; height: number } | undefined,
@@ -401,12 +426,16 @@ class ProcessingPipeline {
     window?: BrowserWindow
   ) {
     await this.storeTranscript(episodeId, workerResult.transcription)
+    this.storeSelectionArtifacts(selectionRunId, episodeId, workerResult)
     const storedClips = await this.storeClips(
       episodeId,
-      workerResult.analysis.potentialClips,
-      sourceResolution
+      workerResult,
+      sourceResolution,
+      workflowJobId,
+      selectionRunId
     )
     await this.storeGeneratedContentPackages(storedClips, workerResult.contentPackages)
+    this.completePipelineSelectionRun(workflowJobId, selectionRunId, episodeId, workerResult)
 
     database.updateEpisodeStatus(episodeId, 'completed')
     this.completeWorkflowJob(workflowJobId, projectId, episodeId, workerResult.analysis.potentialClips.length)
@@ -562,17 +591,28 @@ class ProcessingPipeline {
       return
     }
 
+    const selectionRun = database.getPipelineSelectionRunByWorkflowJob(workflowJobId)
+    if (!selectionRun) {
+      return
+    }
+    const selectionRunId = selectionRun.id
+
     const transcriptionOutput = this.parseStepOutput<{ transcription?: PipelineWorkerCompletedEvent['transcription'] }>(
       workflowJobId,
       'transcription'
     )
-    const clipGenerationOutput = this.parseStepOutput<{ candidates?: PipelineWorkerCandidate[] }>(
+    const clipGenerationOutput = this.parseStepOutput<{
+      candidates?: PipelineWorkerCandidate[]
+      editorialUnits?: EditorialUnit[]
+      candidateArcs?: CandidateArc[]
+    }>(
       workflowJobId,
       'clip_generation'
     )
     const clipRankingOutput = this.parseStepOutput<{
       analysis?: PipelineWorkerCompletedEvent['analysis']
       aiAnalysisSucceeded?: boolean
+      selectionDecisions?: NonNullable<PipelineWorkerCompletedEvent['selectionDecisions']>
     }>(workflowJobId, 'clip_ranking')
     const contentPackagesOutput = this.parseStepOutput<{
       contentPackages?: PipelineWorkerContentPackage[]
@@ -607,6 +647,7 @@ class ProcessingPipeline {
         workflowJobId,
         workflowJob.projectId,
         workflowJob.episodeId,
+        selectionRunId,
         sourceMediaPath,
         parsedInput.projectName || basename(sourceMediaPath),
         mediaProbeOutput.resolution ?? undefined,
@@ -614,6 +655,9 @@ class ProcessingPipeline {
           type: 'pipeline_completed',
           workflowJobId,
           transcription: transcriptionOutput!.transcription!,
+          editorialUnits: clipGenerationOutput?.editorialUnits,
+          candidateArcs: clipGenerationOutput?.candidateArcs,
+          selectionDecisions: clipRankingOutput?.selectionDecisions,
           analysis: clipRankingOutput!.analysis!,
           aiAnalysisSucceeded: clipRankingOutput?.aiAnalysisSucceeded ?? false,
           contentPackages: contentPackagesOutput?.contentPackages ?? []
@@ -638,6 +682,9 @@ class ProcessingPipeline {
       {
         transcription: transcriptionOutput?.transcription,
         candidates: clipGenerationOutput?.candidates,
+        editorialUnits: clipGenerationOutput?.editorialUnits,
+        candidateArcs: clipGenerationOutput?.candidateArcs,
+        selectionDecisions: clipRankingOutput?.selectionDecisions,
         analysis: clipRankingOutput?.analysis,
         aiAnalysisSucceeded: clipRankingOutput?.aiAnalysisSucceeded,
         contentPackages: contentPackagesOutput?.contentPackages
@@ -649,6 +696,7 @@ class ProcessingPipeline {
       workflowJobId,
       workflowJob.projectId,
       workflowJob.episodeId,
+      selectionRunId,
       sourceMediaPath,
       parsedInput.projectName || basename(sourceMediaPath),
       mediaProbeOutput.resolution ?? undefined,
@@ -710,46 +758,16 @@ class ProcessingPipeline {
       return
     }
 
-    const segments = transcription.segments.map((segment: any) => ({
-      id: randomUUID(),
-      episodeId,
-      startTime: segment.start,
-      endTime: segment.end,
-      text: segment.text,
-      confidence: 1.0, // Whisper doesn't provide confidence scores
-      speaker: undefined, // TODO: Add speaker detection
-      words: segment.words // Store word-level timestamps if available
-    }))
+    const canonicalTimeline = canonicalTimelineService.buildFromTranscription(transcription)
 
     if (existingSegments.length === 0) {
-      database.insertTranscriptSegments(segments)
+      database.insertTranscriptSegments(
+        canonicalTimelineService.toTranscriptSegmentRows(episodeId, canonicalTimeline)
+      )
     }
 
     if (existingLines.length === 0) {
-      const lineSourceSegments = transcription.segments.map((segment: any) => ({
-        id: segment.id,
-        start: Number(segment.start ?? 0),
-        end: Number(segment.end ?? 0),
-        text: String(segment.text ?? ''),
-        words: Array.isArray(segment.words)
-          ? segment.words.map((word: any) => ({
-              word: String(word.word ?? '').trim(),
-              start: Number(word.start ?? 0),
-              end: Number(word.end ?? 0)
-            }))
-          : undefined
-      }))
-
-      const lines = buildTranscriptLinesFromSegments(lineSourceSegments).map((line) => ({
-        id: randomUUID(),
-        episodeId,
-        lineIndex: line.lineIndex,
-        startTime: line.start,
-        endTime: line.end,
-        text: line.text,
-        words: line.words,
-        sourceStrategy: line.sourceStrategy
-      }))
+      const lines = canonicalTimelineService.toTranscriptLineRows(episodeId, canonicalTimeline)
 
       if (lines.length > 0) {
         database.insertTranscriptLines(lines)
@@ -805,19 +823,7 @@ class ProcessingPipeline {
       resolution?: { width: number; height: number } | null
     }
   ) {
-    const lineSourceSegments = transcription.segments.map((segment: any) => ({
-      id: segment.id,
-      start: Number(segment.start ?? 0),
-      end: Number(segment.end ?? 0),
-      text: String(segment.text ?? ''),
-      words: Array.isArray(segment.words)
-        ? segment.words.map((word: any) => ({
-            word: String(word.word ?? '').trim(),
-            start: Number(word.start ?? 0),
-            end: Number(word.end ?? 0)
-          }))
-        : undefined
-    }))
+    const canonicalTimeline = canonicalTimelineService.buildFromTranscription(transcription)
 
     database.upsertMediaTranscriptCache({
       mediaFingerprint: fingerprint.mediaFingerprint,
@@ -832,7 +838,7 @@ class ProcessingPipeline {
       resolutionHeight: mediaInfo.resolution?.height ?? null,
       language: transcription.language ?? null,
       transcription,
-      transcriptLines: buildTranscriptLinesFromSegments(lineSourceSegments),
+      transcriptLines: canonicalTimeline.lines,
       transcriptionModel: this.buildPipelineRunConfigSnapshot().localWhisperModel,
       sourceStrategy: 'local_whisper_service_v1'
     })
@@ -840,43 +846,25 @@ class ProcessingPipeline {
   
   private async storeClips(
     episodeId: string,
-    clips: PipelineWorkerPotentialClip[],
-    sourceResolution?: { width: number; height: number }
+    workerResult: Pick<PipelineWorkerCompletedEvent, 'analysis' | 'candidateArcs' | 'selectionDecisions'>,
+    sourceResolution?: { width: number; height: number },
+    workflowJobId?: string,
+    selectionRunId?: string
   ): Promise<Array<{ id: string } & PipelineWorkerPotentialClip>> {
-    const existingClips = database.getClips(episodeId) as Array<any>
-    if (existingClips.length > 0) {
-      return existingClips.map((clip) => ({
-        id: clip.id,
-        startTime: Number(clip.start_time ?? clip.startTime) || 0,
-        endTime: Number(clip.end_time ?? clip.endTime) || 0,
-        duration: Number(clip.duration) || 0,
-        contentType: clip.content_type ?? clip.contentType,
-        shareabilityScore: Number(clip.shareability_score ?? clip.shareabilityScore) || 0,
-        keyQuote: clip.key_quote ?? clip.keyQuote ?? '',
-        reason: clip.reason ?? '',
-        contextNeeded: clip.context_needed ?? clip.contextNeeded ?? 'low'
-      }))
-    }
-
+    const clips = workerResult.analysis.potentialClips
     console.log(`Storing ${clips.length} clips for episode ${episodeId}`)
 
-    const clipsWithIds = clips.map(clip => ({
-      id: randomUUID(),
+    const clipsWithIds = clipProjectionService.projectClips({
       episodeId,
-      startTime: clip.startTime,
-      endTime: clip.endTime,
-      duration: clip.duration,
-      contentType: clip.contentType,
-      shareabilityScore: clip.shareabilityScore,
-      keyQuote: clip.keyQuote,
-      reason: clip.reason,
-      contextNeeded: clip.contextNeeded,
-      status: clip.shareabilityScore >= configService.getAutoApproveThreshold() ? 'approved' : 'pending',
-      videoWidth: sourceResolution?.width ?? null,
-      videoHeight: sourceResolution?.height ?? null
-    }))
+      workflowJobId,
+      selectionRunId,
+      sourceResolution,
+      finalClips: clips,
+      candidateArcs: workerResult.candidateArcs,
+      selectionDecisions: workerResult.selectionDecisions
+    })
 
-    database.insertClips(clipsWithIds)
+    database.replaceActiveClipSetForEpisode(episodeId, clipsWithIds)
     console.log(`Successfully stored ${clipsWithIds.length} clips in database`)
 
     return clipsWithIds
@@ -903,6 +891,81 @@ class ProcessingPipeline {
       if (contentPackage.description) {
         database.insertClipDescription(clip.id, contentPackage.description, 'general')
       }
+    }
+  }
+
+  private storeSelectionArtifacts(
+    selectionRunId: string,
+    episodeId: string,
+    workerResult: Pick<PipelineWorkerCompletedEvent, 'editorialUnits' | 'candidateArcs' | 'selectionDecisions'>
+  ) {
+    if (Array.isArray(workerResult.editorialUnits)) {
+      database.replaceEditorialUnitsForSelectionRun(
+        selectionRunId,
+        workerResult.editorialUnits.map((unit) => ({
+          id: unit.id,
+          selectionRunId,
+          episodeId,
+          startWordIndex: unit.startWordIndex,
+          endWordIndex: unit.endWordIndex,
+          startTime: unit.startTime,
+          endTime: unit.endTime,
+          text: unit.text,
+          role: unit.role,
+          startsCleanly: unit.startsCleanly,
+          endsCleanly: unit.endsCleanly,
+          continuesPrevious: unit.continuesPrevious,
+          continuesNext: unit.continuesNext,
+          pauseBeforeSeconds: unit.pauseBeforeSeconds,
+          pauseAfterSeconds: unit.pauseAfterSeconds,
+          speechRate: unit.speechRate,
+          confidence: unit.confidence,
+          source: unit.source,
+          diagnosticsJson: JSON.stringify(unit.diagnostics ?? {})
+        }))
+      )
+    }
+
+    if (Array.isArray(workerResult.candidateArcs)) {
+      database.replaceCandidateArcsForSelectionRun(
+        selectionRunId,
+        workerResult.candidateArcs.map((arc) => ({
+          id: arc.id,
+          selectionRunId,
+          episodeId,
+          startWordIndex: arc.startWordIndex,
+          endWordIndex: arc.endWordIndex,
+          startTime: arc.startTime,
+          endTime: arc.endTime,
+          duration: arc.duration,
+          unitIdsJson: JSON.stringify(arc.unitIds ?? []),
+          topic: arc.topic,
+          summary: arc.summary,
+          hookText: arc.hookText,
+          payoffText: arc.payoffText,
+          keyQuote: arc.keyQuote,
+          scoresJson: JSON.stringify(arc.scores ?? {}),
+          diagnosticsJson: JSON.stringify(arc.diagnostics ?? {})
+        }))
+      )
+    }
+
+    if (Array.isArray(workerResult.selectionDecisions)) {
+      database.replaceSelectionDecisionsForSelectionRun(
+        selectionRunId,
+        workerResult.selectionDecisions.map((decision) => ({
+          id: decision.id,
+          selectionRunId,
+          candidateArcId: decision.candidateArcId ?? null,
+          decision: decision.decision,
+          rankOrder: decision.rankOrder ?? null,
+          modelScore: decision.modelScore ?? null,
+          finalScore: decision.finalScore ?? null,
+          rejectionCode: decision.rejectionCode ?? null,
+          reason: decision.reason ?? null,
+          validatorResultJson: decision.validatorResultJson ?? '{}'
+        }))
+      )
     }
   }
   
@@ -966,7 +1029,12 @@ class ProcessingPipeline {
       apiModelId: apiConfig.openRouterKey ? this.getResolvedModelId(apiConfig.model) : null,
       clipSelectionPlatform: apiConfig.clipSelectionPlatform,
       openRouterConfigured: Boolean(apiConfig.openRouterKey),
-      autoApproveThreshold: userPreferences.autoApproveThreshold,
+      productionSelectorMode: userPreferences.productionSelectorMode,
+      enableLegacyResolvedClipProposal: userPreferences.enableLegacyResolvedClipProposal,
+      enableLegacyTranscriptLineAgent: userPreferences.enableLegacyTranscriptLineAgent,
+      enableLegacyBoundaryProposal: userPreferences.enableLegacyBoundaryProposal,
+      enableLegacyCandidateRanking: userPreferences.enableLegacyCandidateRanking,
+      enableHeuristicSupplementation: userPreferences.enableHeuristicSupplementation,
       maxClipsPerEpisode: userPreferences.maxClipsPerEpisode,
       brandVoiceExampleCount: brandVoice.examples.length,
       brandVoicePreferences: brandVoice.preferences,
@@ -1203,6 +1271,149 @@ class ProcessingPipeline {
       projectId: projectId ?? null,
       episodeId: episodeId ?? null
     }, now)
+  }
+
+  private startPipelineSelectionRun(
+    workflowJobId: string,
+    episodeId: string,
+    runConfigSnapshot: PipelineRunConfigSnapshot
+  ) {
+    const selectionRunId = randomUUID()
+    const now = new Date().toISOString()
+    const selectorVersion = this.resolveSelectionRunVersion(runConfigSnapshot.productionSelectorMode)
+    const selectionSource = this.resolveSelectionSourceFromProductionMode(runConfigSnapshot.productionSelectorMode)
+    database.createPipelineSelectionRun({
+      id: selectionRunId,
+      workflowJobId,
+      episodeId,
+      selectorVersion,
+      status: 'running',
+      productionMode: runConfigSnapshot.productionSelectorMode,
+      summaryJson: JSON.stringify({
+        selectionSource,
+        selectorVersion,
+        workflowJobId,
+        episodeId,
+        productionMode: runConfigSnapshot.productionSelectorMode,
+        status: 'running'
+      })
+    })
+    this.recordEvent(workflowJobId, null, 'selection_run', 'selection_run_started', 'Started clip selection run', {
+      selectionRunId,
+      selectorVersion,
+      productionMode: runConfigSnapshot.productionSelectorMode,
+      episodeId
+    }, now)
+    return selectionRunId
+  }
+
+  private completePipelineSelectionRun(
+    workflowJobId: string,
+    selectionRunId: string,
+    episodeId: string,
+    workerResult: PipelineWorkerCompletedEvent
+  ) {
+    const now = new Date().toISOString()
+    const clipCount = workerResult.analysis.potentialClips.length
+    const productionMode = this.resolveProductionModeFromSelectionDecisions(workerResult)
+    const selectionSource = this.resolveSelectionSourceFromWorkerResult(workerResult)
+    const selectorVersion = selectionSource === LEGACY_SELECTION_SOURCE
+      ? LEGACY_SELECTION_RUN_VERSION
+      : ARC_SELECTION_RUN_VERSION
+    database.updatePipelineSelectionRun(selectionRunId, {
+      status: 'completed',
+      productionMode,
+      selectorVersion,
+      summaryJson: JSON.stringify({
+        selectionSource,
+        selectorVersion,
+        productionMode,
+        workflowJobId,
+        episodeId,
+        clipCount,
+        contentPackageCount: workerResult.contentPackages.length,
+        aiAnalysisSucceeded: workerResult.aiAnalysisSucceeded,
+        status: 'completed'
+      }),
+      completedAt: now
+    })
+    this.recordEvent(workflowJobId, null, 'selection_run', 'selection_run_completed', 'Completed clip selection run', {
+      selectionRunId,
+      episodeId,
+      selectionSource,
+      selectorVersion,
+      productionMode,
+      clipCount,
+      aiAnalysisSucceeded: workerResult.aiAnalysisSucceeded
+    }, now)
+  }
+
+  private failPipelineSelectionRun(
+    workflowJobId: string,
+    selectionRunId: string,
+    episodeId: string | undefined,
+    failedStage: PipelineStepKey | null,
+    message: string
+  ) {
+    const existingRun = database.getPipelineSelectionRun(selectionRunId)
+    if (!existingRun || existingRun.status === 'completed' || existingRun.status === 'failed') {
+      return
+    }
+
+    const now = new Date().toISOString()
+    const productionMode = existingRun.productionMode || 'legacy'
+    const selectorVersion = this.resolveSelectionRunVersion(productionMode === 'arc_v1' ? 'arc_v1' : 'legacy')
+    const selectionSource = this.resolveSelectionSourceFromProductionMode(productionMode === 'arc_v1' ? 'arc_v1' : 'legacy')
+    database.updatePipelineSelectionRun(selectionRunId, {
+      status: 'failed',
+      productionMode,
+      selectorVersion,
+      summaryJson: JSON.stringify({
+        selectionSource,
+        selectorVersion,
+        productionMode,
+        workflowJobId,
+        episodeId: episodeId ?? null,
+        failedStage,
+        errorMessage: message,
+        status: 'failed'
+      }),
+      completedAt: now
+    })
+    this.recordEvent(workflowJobId, null, 'selection_run', 'selection_run_failed', 'Clip selection run failed', {
+      selectionRunId,
+      episodeId: episodeId ?? null,
+      selectionSource,
+      selectorVersion,
+      productionMode,
+      failedStage,
+      errorMessage: message
+    }, now)
+  }
+
+  private resolveSelectionRunVersion(productionMode: PipelineRunConfigSnapshot['productionSelectorMode']) {
+    return productionMode === 'arc_v1' ? ARC_SELECTION_RUN_VERSION : LEGACY_SELECTION_RUN_VERSION
+  }
+
+  private resolveSelectionSourceFromProductionMode(productionMode: PipelineRunConfigSnapshot['productionSelectorMode']) {
+    return productionMode === 'arc_v1' ? ARC_SELECTION_SOURCE : LEGACY_SELECTION_SOURCE
+  }
+
+  private resolveSelectionSourceFromWorkerResult(workerResult: PipelineWorkerCompletedEvent) {
+    const decisions = workerResult.selectionDecisions ?? []
+    if (decisions.some((decision) => decision.decision === 'selected')) {
+      return ARC_SELECTION_SOURCE
+    }
+    if (decisions.some((decision) => decision.decision === 'fallback_selected')) {
+      return 'deterministic_candidate_arcs'
+    }
+    return LEGACY_SELECTION_SOURCE
+  }
+
+  private resolveProductionModeFromSelectionDecisions(workerResult: PipelineWorkerCompletedEvent) {
+    return (workerResult.selectionDecisions ?? []).some((decision) => Boolean(decision.candidateArcId))
+      ? 'arc_v1'
+      : 'legacy'
   }
 
   private createPipelineArtifact(
