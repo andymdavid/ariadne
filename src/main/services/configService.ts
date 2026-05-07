@@ -121,6 +121,21 @@ interface ConfigSchema {
   activeBrandTemplatePresetId: string
 }
 
+function createDefaultUserPreferences(): ConfigSchema['userPreferences'] {
+  return {
+    theme: 'dark',
+    defaultExportFormat: '9:16',
+    autoApproveThreshold: 8.0,
+    maxClipsPerEpisode: 25,
+    productionSelectorMode: 'arc_v1',
+    enableLegacyResolvedClipProposal: false,
+    enableLegacyTranscriptLineAgent: false,
+    enableLegacyBoundaryProposal: false,
+    enableLegacyCandidateRanking: false,
+    enableHeuristicSupplementation: false
+  }
+}
+
 class ConfigService {
   private store: Store<ConfigSchema>
   
@@ -134,18 +149,7 @@ class ConfigService {
           model: 'google-gemini-2.5-flash',
           clipSelectionPlatform: 'youtube_shorts'
         },
-        userPreferences: {
-          theme: 'dark',
-          defaultExportFormat: '9:16',
-          autoApproveThreshold: 8.0,
-          maxClipsPerEpisode: 25,
-          productionSelectorMode: 'arc_v1',
-          enableLegacyResolvedClipProposal: false,
-          enableLegacyTranscriptLineAgent: false,
-          enableLegacyBoundaryProposal: false,
-          enableLegacyCandidateRanking: false,
-          enableHeuristicSupplementation: false
-        },
+        userPreferences: createDefaultUserPreferences(),
         recentProjects: [],
         brandVoice: {
           examples: [],
@@ -199,8 +203,25 @@ class ConfigService {
   }
   
   // User Preferences
-  getUserPreferences() {
-    return this.store.get('userPreferences')
+  getUserPreferences(): ConfigSchema['userPreferences'] {
+    const defaults = createDefaultUserPreferences()
+    const stored = this.store.get('userPreferences') ?? defaults
+    const merged: ConfigSchema['userPreferences'] = {
+      ...defaults,
+      ...stored,
+      productionSelectorMode: stored.productionSelectorMode === 'legacy' ? 'legacy' : 'arc_v1',
+      enableLegacyResolvedClipProposal: Boolean(stored.enableLegacyResolvedClipProposal),
+      enableLegacyTranscriptLineAgent: Boolean(stored.enableLegacyTranscriptLineAgent),
+      enableLegacyBoundaryProposal: Boolean(stored.enableLegacyBoundaryProposal),
+      enableLegacyCandidateRanking: Boolean(stored.enableLegacyCandidateRanking),
+      enableHeuristicSupplementation: Boolean(stored.enableHeuristicSupplementation)
+    }
+
+    if (JSON.stringify(stored) !== JSON.stringify(merged)) {
+      this.store.set('userPreferences', merged)
+    }
+
+    return merged
   }
   
   updateUserPreferences(preferences: Partial<ConfigSchema['userPreferences']>): void {

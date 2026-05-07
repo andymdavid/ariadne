@@ -1023,19 +1023,20 @@ class ProcessingPipeline {
     const apiConfig = configService.getApiConfig()
     const userPreferences = configService.getUserPreferences()
     const brandVoice = configService.getBrandVoice()
+    const productionSelectorMode = userPreferences.productionSelectorMode === 'legacy' ? 'legacy' : 'arc_v1'
 
     return {
       apiModelAlias: apiConfig.openRouterKey ? apiConfig.model : null,
       apiModelId: apiConfig.openRouterKey ? this.getResolvedModelId(apiConfig.model) : null,
       clipSelectionPlatform: apiConfig.clipSelectionPlatform,
       openRouterConfigured: Boolean(apiConfig.openRouterKey),
-      productionSelectorMode: userPreferences.productionSelectorMode,
-      enableLegacyResolvedClipProposal: userPreferences.enableLegacyResolvedClipProposal,
-      enableLegacyTranscriptLineAgent: userPreferences.enableLegacyTranscriptLineAgent,
-      enableLegacyBoundaryProposal: userPreferences.enableLegacyBoundaryProposal,
-      enableLegacyCandidateRanking: userPreferences.enableLegacyCandidateRanking,
-      enableHeuristicSupplementation: userPreferences.enableHeuristicSupplementation,
-      maxClipsPerEpisode: userPreferences.maxClipsPerEpisode,
+      productionSelectorMode,
+      enableLegacyResolvedClipProposal: Boolean(userPreferences.enableLegacyResolvedClipProposal),
+      enableLegacyTranscriptLineAgent: Boolean(userPreferences.enableLegacyTranscriptLineAgent),
+      enableLegacyBoundaryProposal: Boolean(userPreferences.enableLegacyBoundaryProposal),
+      enableLegacyCandidateRanking: Boolean(userPreferences.enableLegacyCandidateRanking),
+      enableHeuristicSupplementation: Boolean(userPreferences.enableHeuristicSupplementation),
+      maxClipsPerEpisode: Number.isFinite(userPreferences.maxClipsPerEpisode) ? userPreferences.maxClipsPerEpisode : 25,
       brandVoiceExampleCount: brandVoice.examples.length,
       brandVoicePreferences: brandVoice.preferences,
       localWhisperModel: 'medium',
