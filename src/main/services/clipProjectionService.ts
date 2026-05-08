@@ -120,6 +120,14 @@ class ClipProjectionService {
       return 'deterministic_candidate_arcs'
     }
 
+    if (selectionDecisions.some((decision) =>
+      decision.decision === 'selected' &&
+      !decision.candidateArcId &&
+      /word-span clip selector/i.test(decision.reason ?? '')
+    )) {
+      return 'word_span_clip_selector'
+    }
+
     if (selectionDecisions.some((decision) => decision.decision === 'selected')) {
       return 'candidate_arc_ranker'
     }

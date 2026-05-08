@@ -990,6 +990,25 @@ function buildResolvedClipRecoverySelection(
   }
 }
 
+function buildWordSpanSelectionDecisions(
+  clips: PipelineWorkerPotentialClip[]
+): PipelineWorkerSelectionDecision[] {
+  return clips.map((clip, index) => {
+    const decisionId = clip.selectionDecisionId ?? randomUUID()
+    clip.selectionDecisionId = decisionId
+    return {
+      id: decisionId,
+      candidateArcId: null,
+      decision: 'selected',
+      rankOrder: index + 1,
+      modelScore: clip.shareabilityScore,
+      finalScore: clip.shareabilityScore,
+      reason: `Selected by word-span clip selector. ${clip.reason}`,
+      validatorResultJson: '{}'
+    }
+  })
+}
+
 function applyFinalClipValidationToSelectionDecisions(
   selectionDecisions: PipelineWorkerSelectionDecision[],
   selectedClips: PipelineWorkerPotentialClip[],
@@ -1575,7 +1594,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         if (wordSpanClips.clips.length >= 1) {
           analysis = { potentialClips: wordSpanClips.clips }
           aiAnalysisSucceeded = true
-          selectionDecisions = []
+          selectionDecisions = buildWordSpanSelectionDecisions(wordSpanClips.clips)
           clipSelectionSourceMetadata = {
             ...clipSelectionSourceMetadata,
             selectionSource: 'word_span_clip_selector',

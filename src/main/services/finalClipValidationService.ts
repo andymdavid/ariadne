@@ -223,6 +223,24 @@ class FinalClipValidationService {
     return !looksLikeCompleteThought(currentText)
   }
 
+  private endsWithConversationalAcknowledgementBeforeContinuation(
+    currentText: string,
+    nextText: string,
+    gap: number
+  ) {
+    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
+      return false
+    }
+
+    const current = currentText.trim().toLowerCase()
+    const next = stripLeadingBoundaryFiller(nextText).trim()
+    if (!current || !next) {
+      return false
+    }
+
+    return /\b(yeah|yep|yes|right|okay|ok)\s*$/i.test(current)
+  }
+
   private getLastOverlappingSegmentIndex(
     segments: PipelineWorkerTranscription['segments'],
     endTime: number
@@ -577,6 +595,7 @@ class FinalClipValidationService {
 
     if (
       /\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w+\s+\w+/.test(joined) ||
+      this.endsWithConversationalAcknowledgementBeforeContinuation(previousText, nextText, gap) ||
       this.shouldContinueThoughtAcrossBoundary(previousText, nextText, gap)
     ) {
       return 'lookahead_continues_current_ending'
@@ -816,15 +835,23 @@ class FinalClipValidationService {
 
     for (const clip of clips) {
       const optimization = this.optimizeClipBoundary(transcription, clip, mediaDuration)
-      const softAccepted = Boolean(
+      const contextClean = Boolean(
         optimization.best &&
-        optimization.best.score >= BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE &&
         !optimization.best.startBoundaryIssue &&
         !optimization.best.hardEndIssue &&
         !optimization.best.startLookbackIssue &&
         !optimization.best.lookaheadIssue
       )
-      if (optimization.best && (optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE || softAccepted)) {
+      const meetsPreferredThreshold = Boolean(
+        optimization.best &&
+        optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE
+      )
+      const softAccepted = Boolean(
+        contextClean &&
+        optimization.best &&
+        optimization.best.score >= BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE
+      )
+      if (optimization.best && contextClean && (meetsPreferredThreshold || softAccepted)) {
         accepted.push(optimization.best.clip)
         decisions.push({
           clipId: clip.id,
