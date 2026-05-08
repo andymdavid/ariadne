@@ -762,6 +762,68 @@ function buildClipFromCandidateArc(
   }
 }
 
+async function preflightCandidateArcsForSelection(
+  transcription: PipelineWorkerTranscription,
+  arcs: CandidateArc[],
+  mediaDuration: number,
+  preferredTranscriptLines?: TranscriptBoundaryLine[]
+) {
+  if (arcs.length === 0) {
+    return {
+      arcs,
+      validation: null,
+      rejectedArcIds: []
+    }
+  }
+
+  const preflightClips = arcs.map((arc, index) =>
+    buildClipFromCandidateArc(
+      arc,
+      index,
+      `boundary_preflight_${arc.id}`,
+      `Boundary preflight for editorial candidate arc ${arc.id}.`
+    )
+  )
+  const validation = await finalClipValidationService.finalizeClipBoundaries(
+    transcription,
+    preflightClips,
+    null,
+    mediaDuration,
+    preferredTranscriptLines
+  )
+  const acceptedClipByArcId = new Map(
+    validation.clips
+      .map((clip) => [clip.sourceArcId, clip] as const)
+      .filter((entry): entry is [string, PipelineWorkerPotentialClip] => Boolean(entry[0]))
+  )
+  const rejectedArcIds = validation.validatorDecisions
+    .filter((decision) => decision.status === 'rejected')
+    .map((decision) => preflightClips.find((clip) => clip.id === decision.clipId)?.sourceArcId)
+    .filter((arcId): arcId is string => Boolean(arcId))
+
+  return {
+    arcs: arcs
+      .filter((arc) => acceptedClipByArcId.has(arc.id))
+      .map((arc) => {
+        const acceptedClip = acceptedClipByArcId.get(arc.id)!
+        return {
+          ...arc,
+          startTime: acceptedClip.startTime,
+          endTime: acceptedClip.endTime,
+          duration: acceptedClip.duration,
+          diagnostics: {
+            ...arc.diagnostics,
+            boundaryPreflightAccepted: true,
+            originalStartTime: arc.startTime,
+            originalEndTime: arc.endTime
+          }
+        }
+      }),
+    validation,
+    rejectedArcIds
+  }
+}
+
 function buildFallbackArcRecoverySelection(
   candidateArcs: CandidateArc[],
   selectionDecisions: PipelineWorkerSelectionDecision[],
@@ -1081,6 +1143,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   let candidateArcs = editorialUnits.length > 0
     ? generateCandidateArcs(editorialUnits)
     : []
+  let boundaryViableCandidateArcs: CandidateArc[] = candidateArcs
+  let boundaryPreflightRejectedArcIds: string[] = []
   let clipSelectionSourceMetadata: Record<string, unknown> = {}
   const useLegacySelectorStack = command.runConfigSnapshot.productionSelectorMode === 'legacy'
   const allowLegacyResolvedClipProposal =
@@ -1280,6 +1344,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
     editorialUnits = buildEditorialUnits(editorialTimelineSegments)
     candidateArcs = generateCandidateArcs(editorialUnits)
+    boundaryViableCandidateArcs = candidateArcs
+    boundaryPreflightRejectedArcIds = []
 
     candidates = clipCandidateService.generateCandidates(editorialTimelineSegments).slice(0, 36)
 
@@ -1322,11 +1388,32 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     postStageStarted(command.workflowJobId, currentStage, aiService
       ? 'Ranking clip suggestions...'
       : 'Ranking heuristic clip suggestions...')
+    const boundaryPreflight = candidateArcs.length > 0
+      ? await preflightCandidateArcsForSelection(
+          transcription,
+          candidateArcs,
+          command.mediaDuration,
+          semanticTranscriptSegments ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments) : undefined
+        )
+      : null
+    const selectionCandidateArcs = boundaryPreflight?.arcs ?? candidateArcs
+    boundaryViableCandidateArcs = selectionCandidateArcs
+    boundaryPreflightRejectedArcIds = boundaryPreflight?.rejectedArcIds ?? []
+    if (boundaryPreflight) {
+      clipSelectionSourceMetadata = {
+        ...clipSelectionSourceMetadata,
+        boundaryPreflightAttempted: true,
+        boundaryPreflightCandidateArcCount: candidateArcs.length,
+        boundaryPreflightAcceptedArcCount: selectionCandidateArcs.length,
+        boundaryPreflightRejectedArcCount: boundaryPreflight.rejectedArcIds.length,
+        boundaryPreflightRejectedArcIds: boundaryPreflight.rejectedArcIds
+      }
+    }
 
     if (!aiService) {
-      if (candidateArcs.length > 0) {
+      if (selectionCandidateArcs.length > 0) {
         const arcSelection = await arcSelectionService.selectCandidateArcs(
-          candidateArcs,
+          selectionCandidateArcs,
           command.mediaDuration,
           resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
           null
@@ -1335,6 +1422,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         aiAnalysisSucceeded = false
         selectionDecisions = arcSelection.decisions
         clipSelectionSourceMetadata = {
+          ...clipSelectionSourceMetadata,
           selectionSource: arcSelection.mode,
           selectedArcIds: arcSelection.selectedArcIds,
           candidateArcRankerFailureReason: arcSelection.fallbackReason ?? 'AI unavailable'
@@ -1360,6 +1448,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             candidateArcGeneratorVersion: 'candidate_arcs_v1',
             editorialUnits: summarizeEditorialUnits(editorialUnits),
             candidateArcs: summarizeCandidateArcs(candidateArcs),
+            boundaryViableCandidateArcs: summarizeCandidateArcs(selectionCandidateArcs),
+            ...clipSelectionSourceMetadata,
             selectedArcIds: arcSelection.selectedArcIds,
             selectedArcCount: arcSelection.selectedArcIds.length
           },
@@ -1397,12 +1487,12 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     } else {
       let agentFailureMetadata: Record<string, unknown> | null = null
 
-      if (candidateArcs.length > 0) {
+      if (selectionCandidateArcs.length > 0) {
         try {
           postProgress(command.workflowJobId, currentStage, 8, 'Ranking editorial candidate arcs...')
 
           const arcSelection = await arcSelectionService.selectCandidateArcs(
-            candidateArcs,
+            selectionCandidateArcs,
             command.mediaDuration,
             resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
             aiService,
@@ -1436,6 +1526,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
                 candidateArcGeneratorVersion: 'candidate_arcs_v1',
                 editorialUnits: summarizeEditorialUnits(editorialUnits),
                 candidateArcs: summarizeCandidateArcs(candidateArcs),
+                boundaryViableCandidateArcs: summarizeCandidateArcs(selectionCandidateArcs),
+                ...clipSelectionSourceMetadata,
                 selectedArcIds: arcSelection.selectedArcIds,
                 selectedArcCount: arcSelection.selectedArcIds.length,
                 candidateArcRankerFailureReason: arcSelection.fallbackReason ?? null
@@ -1443,6 +1535,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
               analysis
             })
             clipSelectionSourceMetadata = {
+              ...clipSelectionSourceMetadata,
               selectionSource: arcSelection.mode === 'candidate_arc_ranking'
                 ? 'candidate_arc_ranker'
                 : 'deterministic_candidate_arcs',
@@ -1756,6 +1849,62 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     }
   }
 
+  if (!analysis && candidateArcs.length > 0 && boundaryViableCandidateArcs.length === 0) {
+    if (aiService) {
+      try {
+        postProgress(command.workflowJobId, currentStage, 55, 'Finding boundary-viable clips from transcript...')
+        const resolvedProposals = await aiService.proposeResolvedClips(
+          transcription,
+          command.mediaDuration,
+          (progress) => {
+            postProgress(command.workflowJobId, currentStage, 55 + progress * 0.35, 'Finding boundary-viable clips from transcript...')
+          }
+        )
+        const resolvedClips = buildResolvedClipsFromProposals(
+          transcription,
+          resolvedProposals,
+          command.mediaDuration
+        )
+        const resolvedRecoverySelection = buildResolvedClipRecoverySelection(
+          resolvedClips.clips.slice(0, resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration)),
+          selectionDecisions
+        )
+        analysis = { potentialClips: resolvedRecoverySelection.clips }
+        selectionDecisions = resolvedRecoverySelection.decisions
+        aiAnalysisSucceeded = resolvedRecoverySelection.clips.length > 0
+        clipSelectionSourceMetadata = {
+          ...clipSelectionSourceMetadata,
+          selectionSource: 'resolved_clip_recovery',
+          selectedArcIds: [],
+          boundaryPreflightRejectedArcIds,
+          resolvedClipRecoveryAttempted: true,
+          resolvedClipRecoveryProposedCount: resolvedProposals.length,
+          resolvedClipRecoveryUsableCount: resolvedClips.clips.length,
+          resolvedClipRecoveryRejectedCount: resolvedClips.rejected.length,
+          resolvedClipRecoveryRejectedPreview: resolvedClips.rejected.slice(0, 5)
+        }
+      } catch (resolvedSelectionError) {
+        analysis = { potentialClips: [] }
+        aiAnalysisSucceeded = false
+        clipSelectionSourceMetadata = {
+          ...clipSelectionSourceMetadata,
+          selectedArcIds: [],
+          boundaryPreflightRejectedArcIds,
+          resolvedClipRecoveryAttempted: true,
+          resolvedClipRecoveryFailureReason: resolvedSelectionError instanceof Error ? resolvedSelectionError.message : 'Unknown resolved clip recovery error'
+        }
+      }
+    } else {
+      analysis = { potentialClips: [] }
+      aiAnalysisSucceeded = false
+      clipSelectionSourceMetadata = {
+        ...clipSelectionSourceMetadata,
+        selectedArcIds: [],
+        boundaryPreflightRejectedArcIds
+      }
+    }
+  }
+
   if (!analysis) {
     throw new Error('Missing ranked clip analysis for pipeline resume')
   }
@@ -1779,8 +1928,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     let decisionValidationResult = initialBoundaryFinalization
     let recoveredFromBoundaryFallback = false
 
-    if (boundaryFinalization.clips.length === 0 && candidateArcs.length > 0) {
-      fallbackRecoverySelection = buildFallbackArcRecoverySelection(candidateArcs, selectionDecisions)
+    if (boundaryFinalization.clips.length === 0 && boundaryViableCandidateArcs.length > 0) {
+      fallbackRecoverySelection = buildFallbackArcRecoverySelection(boundaryViableCandidateArcs, selectionDecisions)
       fallbackBoundaryFinalization = await finalClipValidationService.finalizeClipBoundaries(
         transcription,
         fallbackRecoverySelection.clips,
