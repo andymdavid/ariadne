@@ -88,6 +88,18 @@ export interface RankedCandidateArcSelection {
   reason: string
 }
 
+export interface WordSpanClipSelection {
+  startWordIndex: number
+  endWordIndex: number
+  hookWordIndex: number
+  payoffWordIndex: number
+  shareabilityScore: number
+  contentType: 'insight' | 'story' | 'advice' | 'hot_take' | 'humor' | 'technical'
+  contextNeeded: 'low' | 'medium' | 'high'
+  keyQuote: string
+  reason: string
+}
+
 export interface TranscriptDataWithWords {
   text: string
   segments: Array<{
@@ -374,6 +386,45 @@ class AIService {
 
     onProgress?.(75)
     const selections = this.parseCandidateArcRankingResponse(response.content, rankedArcs)
+    onProgress?.(100)
+    return selections
+  }
+
+  async selectWordSpanClips(
+    transcriptData: TranscriptDataWithWords,
+    duration: number,
+    targetClipCount: number,
+    onProgress?: (progress: number) => void
+  ): Promise<WordSpanClipSelection[]> {
+    onProgress?.(10)
+    const words = this.buildIndexedTranscriptWords(transcriptData)
+    if (words.length === 0) {
+      return []
+    }
+
+    const prompt = this.buildWordSpanClipSelectionPrompt(words, duration, targetClipCount)
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are a senior short-form podcast editor.',
+            'Choose exact transcript word ranges that can be clipped directly.',
+            'Never invent words or timestamps. Return valid JSON only.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 4500,
+      temperature: 0.15
+    })
+
+    onProgress?.(80)
+    const selections = this.parseWordSpanClipSelectionResponse(response.content, words)
     onProgress?.(100)
     return selections
   }
@@ -1486,6 +1537,78 @@ Allowed context_needed values: low, medium, high.
 
 CANDIDATE_ARCS:
 ${arcText}
+
+Return JSON only. Do not add commentary.
+    `.trim()
+  }
+
+  private buildIndexedTranscriptWords(transcriptData: TranscriptDataWithWords) {
+    return transcriptData.segments
+      .flatMap((segment) => segment.words ?? [])
+      .map((word, index) => ({
+        index,
+        word: String(word.word ?? '').replace(/\s+/g, ' ').trim(),
+        start: Number(word.start),
+        end: Number(word.end)
+      }))
+      .filter((word) => word.word && Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start)
+  }
+
+  private buildWordSpanClipSelectionPrompt(
+    words: Array<{ index: number; word: string; start: number; end: number }>,
+    duration: number,
+    targetClipCount: number
+  ) {
+    const wordRows: string[] = []
+    for (let index = 0; index < words.length; index += 40) {
+      const chunk = words.slice(index, index + 40)
+      wordRows.push(
+        `[${chunk[0].index}-${chunk[chunk.length - 1].index}] ` +
+        chunk.map((word) => `${word.index}:${word.word}`).join(' ')
+      )
+    }
+
+    return `
+TRANSCRIPT_DURATION: ${duration.toFixed(2)}s
+TARGET_PLATFORM: youtube_shorts
+TARGET_CLIP_COUNT: ${targetClipCount}
+
+TASK:
+Select exact word-index ranges for publishable short-form clips.
+
+You are choosing editable clip spans, not ranking prebuilt blocks. A valid span must:
+- start at the first word needed for a clean standalone setup
+- include small lead-ins like "and I think" or "you know" when needed
+- end after the idea resolves, not before the next necessary clause
+- contain one dominant idea with hook, development, and payoff
+- be roughly 25-120 seconds after word indexes are mapped to timestamps
+
+Prefer fewer strong clips over weak filler. If there is only one good clip, return one.
+Avoid overlapping or near-duplicate spans.
+Use ONLY word indexes that appear below.
+
+OUTPUT JSON ONLY:
+{
+  "word_span_clips": [
+    {
+      "start_word_index": 120,
+      "end_word_index": 310,
+      "hook_word_index": 132,
+      "payoff_word_index": 298,
+      "shareability_score": 8.6,
+      "content_type": "insight",
+      "context_needed": "low",
+      "key_quote": "Exact quote from inside the selected words.",
+      "reason": "Why this exact word span works as a standalone clip."
+    }
+  ]
+}
+
+Allowed content_type values: insight, story, advice, hot_take, humor, technical.
+Allowed context_needed values: low, medium, high.
+
+INDEXED_WORDS:
+${wordRows.join('\n')}
 
 Return JSON only. Do not add commentary.
     `.trim()
@@ -3143,6 +3266,98 @@ Return JSON only.
     }
 
     return selections.length > 0 ? selections : null
+  }
+
+  private parseWordSpanClipSelectionResponse(
+    content: string,
+    words: Array<{ index: number; start: number; end: number }>
+  ): WordSpanClipSelection[] {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error('No JSON found in word span clip selection response')
+    }
+
+    const parsed = JSON.parse(jsonString)
+    const rawSelections = Array.isArray(parsed.word_span_clips) ? parsed.word_span_clips : null
+    if (!rawSelections) {
+      throw new Error('Invalid word span clip selection response: missing word_span_clips')
+    }
+
+    const wordIndexes = new Set(words.map((word) => word.index))
+    const wordByIndex = new Map(words.map((word) => [word.index, word]))
+    const validContentTypes = new Set(['insight', 'story', 'advice', 'hot_take', 'humor', 'technical'])
+    const validContextNeeded = new Set(['low', 'medium', 'high'])
+    const seenRanges = new Set<string>()
+
+    return rawSelections
+      .map((selection: any) => {
+        const startWordIndex = Number(selection.start_word_index ?? selection.startWordIndex)
+        const endWordIndex = Number(selection.end_word_index ?? selection.endWordIndex)
+        const hookWordIndex = Number(selection.hook_word_index ?? selection.hookWordIndex ?? startWordIndex)
+        const payoffWordIndex = Number(selection.payoff_word_index ?? selection.payoffWordIndex ?? endWordIndex)
+
+        if (
+          !Number.isInteger(startWordIndex) ||
+          !Number.isInteger(endWordIndex) ||
+          !Number.isInteger(hookWordIndex) ||
+          !Number.isInteger(payoffWordIndex) ||
+          !wordIndexes.has(startWordIndex) ||
+          !wordIndexes.has(endWordIndex) ||
+          !wordIndexes.has(hookWordIndex) ||
+          !wordIndexes.has(payoffWordIndex) ||
+          endWordIndex <= startWordIndex ||
+          hookWordIndex < startWordIndex ||
+          hookWordIndex > endWordIndex ||
+          payoffWordIndex < startWordIndex ||
+          payoffWordIndex > endWordIndex
+        ) {
+          return null
+        }
+
+        const startWord = wordByIndex.get(startWordIndex)
+        const endWord = wordByIndex.get(endWordIndex)
+        if (!startWord || !endWord) {
+          return null
+        }
+
+        const duration = endWord.end - startWord.start
+        if (duration < 25 || duration > 120) {
+          return null
+        }
+
+        const rangeKey = `${startWordIndex}-${endWordIndex}`
+        if (seenRanges.has(rangeKey)) {
+          return null
+        }
+        seenRanges.add(rangeKey)
+
+        const rawScore = Number(selection.shareability_score ?? selection.shareabilityScore ?? selection.score ?? 7)
+        const contentType = String(selection.content_type ?? selection.contentType ?? 'insight').toLowerCase()
+        const contextNeeded = String(selection.context_needed ?? selection.contextNeeded ?? 'low').toLowerCase()
+
+        return {
+          startWordIndex,
+          endWordIndex,
+          hookWordIndex,
+          payoffWordIndex,
+          shareabilityScore: Number(Math.max(1, Math.min(10, rawScore <= 10 ? rawScore : rawScore / 10)).toFixed(1)),
+          contentType: validContentTypes.has(contentType)
+            ? contentType as WordSpanClipSelection['contentType']
+            : 'insight',
+          contextNeeded: validContextNeeded.has(contextNeeded)
+            ? contextNeeded as WordSpanClipSelection['contextNeeded']
+            : 'low',
+          keyQuote: String(selection.key_quote ?? selection.keyQuote ?? '').replace(/\s+/g, ' ').trim().slice(0, 220),
+          reason: String(selection.reason ?? 'Selected as an exact word-level clip span.').replace(/\s+/g, ' ').trim()
+        }
+      })
+      .filter((selection: WordSpanClipSelection | null): selection is WordSpanClipSelection => Boolean(selection))
+      .sort((left: WordSpanClipSelection, right: WordSpanClipSelection) => {
+        if (right.shareabilityScore !== left.shareabilityScore) {
+          return right.shareabilityScore - left.shareabilityScore
+        }
+        return left.startWordIndex - right.startWordIndex
+      })
   }
   
   updateConfig(config: APIConfig) {

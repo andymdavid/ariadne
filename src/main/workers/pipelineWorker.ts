@@ -2,7 +2,7 @@ import { promises as fs, existsSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
-import AIService, { CleanedTranscriptUnit, ResolvedClipProposal, SemanticTranscriptUnit, TranscriptBoundaryLine } from '../services/aiService'
+import AIService, { CleanedTranscriptUnit, ResolvedClipProposal, SemanticTranscriptUnit, TranscriptBoundaryLine, WordSpanClipSelection } from '../services/aiService'
 import { arcSelectionService } from '../services/arcSelectionService'
 import ClipSelectionAgentService, { ClipSelectionAgentError } from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
@@ -386,6 +386,75 @@ function buildResolvedClipsFromProposals(
         proposal.endResolutionReason ? `Endpoint: ${proposal.endResolutionReason}` : ''
       ].filter(Boolean).join(' '),
       contextNeeded: 'low'
+    })
+  })
+
+  return { clips, rejected }
+}
+
+function buildWordSpanClipsFromSelections(
+  transcription: PipelineWorkerTranscription,
+  selections: WordSpanClipSelection[],
+  mediaDuration: number
+): {
+  clips: PipelineWorkerPotentialClip[]
+  rejected: Array<{ startWordIndex: number; endWordIndex: number; reason: string }>
+} {
+  const words = transcription.segments
+    .flatMap((segment) => segment.words ?? [])
+    .map((word, index) => ({
+      index,
+      word: String(word.word ?? '').trim(),
+      start: Number(word.start),
+      end: Number(word.end)
+    }))
+    .filter((word) => word.word && Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start)
+    .sort((left, right) => left.start - right.start)
+  const wordByIndex = new Map(words.map((word) => [word.index, word]))
+  const clips: PipelineWorkerPotentialClip[] = []
+  const rejected: Array<{ startWordIndex: number; endWordIndex: number; reason: string }> = []
+
+  selections.forEach((selection, index) => {
+    const startWord = wordByIndex.get(selection.startWordIndex)
+    const endWord = wordByIndex.get(selection.endWordIndex)
+    if (!startWord || !endWord) {
+      rejected.push({
+        startWordIndex: selection.startWordIndex,
+        endWordIndex: selection.endWordIndex,
+        reason: 'Unknown start or end word index.'
+      })
+      return
+    }
+
+    const startTime = Math.max(0, startWord.start)
+    const endTime = Math.min(mediaDuration, endWord.end)
+    const duration = Number((endTime - startTime).toFixed(3))
+    if (duration < RESOLVED_CLIP_MIN_DURATION_SECONDS || duration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+      rejected.push({
+        startWordIndex: selection.startWordIndex,
+        endWordIndex: selection.endWordIndex,
+        reason: `Duration ${duration.toFixed(1)}s is outside resolved clip bounds.`
+      })
+      return
+    }
+
+    const selectedWords = words
+      .filter((word) => word.index >= selection.startWordIndex && word.index <= selection.endWordIndex)
+      .map((word) => word.word)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    clips.push({
+      id: `word_span_${index + 1}`,
+      startTime,
+      endTime,
+      duration,
+      contentType: selection.contentType,
+      shareabilityScore: selection.shareabilityScore,
+      keyQuote: selection.keyQuote || selectedWords.slice(0, 180),
+      reason: `${selection.reason} Selected from exact transcript word indexes ${selection.startWordIndex}-${selection.endWordIndex}.`,
+      contextNeeded: selection.contextNeeded
     })
   })
 
@@ -1487,7 +1556,69 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     } else {
       let agentFailureMetadata: Record<string, unknown> | null = null
 
-      if (selectionCandidateArcs.length > 0) {
+      try {
+        postProgress(command.workflowJobId, currentStage, 6, 'Selecting exact transcript word spans...')
+        const wordSpanSelections = await aiService.selectWordSpanClips(
+          transcription,
+          command.mediaDuration,
+          resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
+          (progress) => {
+            postProgress(command.workflowJobId, currentStage, Math.min(6 + progress * 0.34, 40), 'Selecting exact transcript word spans...')
+          }
+        )
+        const wordSpanClips = buildWordSpanClipsFromSelections(
+          transcription,
+          wordSpanSelections,
+          command.mediaDuration
+        )
+
+        if (wordSpanClips.clips.length >= 1) {
+          analysis = { potentialClips: wordSpanClips.clips }
+          aiAnalysisSucceeded = true
+          selectionDecisions = []
+          clipSelectionSourceMetadata = {
+            ...clipSelectionSourceMetadata,
+            selectionSource: 'word_span_clip_selector',
+            wordSpanSelectorAttempted: true,
+            wordSpanSelectedCount: wordSpanSelections.length,
+            wordSpanAcceptedCount: wordSpanClips.clips.length,
+            wordSpanRejectedCount: wordSpanClips.rejected.length,
+            wordSpanRejectedPreview: wordSpanClips.rejected.slice(0, 5)
+          }
+
+          postStageCompleted(command.workflowJobId, currentStage, {
+            clipCount: analysis.potentialClips.length,
+            mode: 'word_span_clip_selector',
+            aiAnalysisSucceeded,
+            selectionDecisions,
+            selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+              id: clip.id,
+              startTime: clip.startTime,
+              endTime: clip.endTime,
+              shareabilityScore: clip.shareabilityScore
+            })),
+            metadata: {
+              executor: 'word_span_clip_selector',
+              ...getRankingModelMetadata(command),
+              ...clipSelectionSourceMetadata
+            },
+            analysis
+          })
+        } else {
+          throw new Error(`Word span selector returned only ${wordSpanClips.clips.length} usable clips`)
+        }
+      } catch (wordSpanError) {
+        agentFailureMetadata = {
+          wordSpanSelectorAttempted: true,
+          wordSpanSelectorFailureReason: wordSpanError instanceof Error ? wordSpanError.message : 'Unknown word span selector error'
+        }
+        clipSelectionSourceMetadata = {
+          ...clipSelectionSourceMetadata,
+          ...agentFailureMetadata
+        }
+      }
+
+      if (!analysis && selectionCandidateArcs.length > 0) {
         try {
           postProgress(command.workflowJobId, currentStage, 8, 'Ranking editorial candidate arcs...')
 

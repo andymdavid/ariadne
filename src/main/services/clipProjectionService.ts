@@ -52,7 +52,7 @@ class ClipProjectionService {
   private readonly minimumDecisionMatchScore = 1.5
 
   projectClips(input: ProjectClipsInput): ProjectedClipRecord[] {
-    const selectionSource = this.resolveSelectionSource(input.selectionDecisions)
+    const selectionSource = this.resolveSelectionSource(input.selectionDecisions, input.finalClips)
     const decisionMatches = this.matchSelectedDecisionsToClips(
       input.finalClips,
       input.candidateArcs ?? [],
@@ -97,8 +97,13 @@ class ClipProjectionService {
   }
 
   private resolveSelectionSource(
-    selectionDecisions: PipelineWorkerSelectionDecision[] | undefined
+    selectionDecisions: PipelineWorkerSelectionDecision[] | undefined,
+    finalClips: PipelineWorkerPotentialClip[] = []
   ): string {
+    if (finalClips.some((clip) => clip.id.startsWith('word_span_'))) {
+      return 'word_span_clip_selector'
+    }
+
     if (!Array.isArray(selectionDecisions) || selectionDecisions.length === 0) {
       return 'legacy_pipeline'
     }
