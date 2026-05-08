@@ -822,6 +822,43 @@ function buildFallbackArcRecoverySelection(
   return { clips, decisions }
 }
 
+function buildResolvedClipRecoverySelection(
+  clips: PipelineWorkerPotentialClip[],
+  selectionDecisions: PipelineWorkerSelectionDecision[]
+): {
+  clips: PipelineWorkerPotentialClip[]
+  decisions: PipelineWorkerSelectionDecision[]
+} {
+  const recoveredClips: PipelineWorkerPotentialClip[] = []
+  const recoveryDecisions: PipelineWorkerSelectionDecision[] = []
+
+  clips.forEach((clip, index) => {
+    const decisionId = randomUUID()
+    const reason = 'Recovered from resolved transcript segment proposal after selected candidate arcs failed final boundary validation.'
+    recoveredClips.push({
+      ...clip,
+      selectionDecisionId: decisionId,
+      sourceArcId: null,
+      reason: `${clip.reason} ${reason}`
+    })
+    recoveryDecisions.push({
+      id: decisionId,
+      candidateArcId: null,
+      decision: 'fallback_selected',
+      rankOrder: index + 1,
+      modelScore: clip.shareabilityScore,
+      finalScore: clip.shareabilityScore,
+      reason,
+      validatorResultJson: '{}'
+    })
+  })
+
+  return {
+    clips: recoveredClips,
+    decisions: [...selectionDecisions, ...recoveryDecisions]
+  }
+}
+
 function applyFinalClipValidationToSelectionDecisions(
   selectionDecisions: PipelineWorkerSelectionDecision[],
   selectedClips: PipelineWorkerPotentialClip[],
@@ -1079,7 +1116,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         transcription = await whisperService.transcribeInChunks(
           chunks,
           {
-            model: 'medium',
+            model: command.runConfigSnapshot.localWhisperModel,
             wordTimestamps: true
           },
           (chunkIndex, _chunkProgress, totalProgress, partialText) => {
@@ -1107,7 +1144,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       transcription = await whisperService.transcribe(
         command.audioPath,
         {
-          model: 'medium',
+          model: command.runConfigSnapshot.localWhisperModel,
           wordTimestamps: true
         },
         (progress, partialText) => {
@@ -1736,6 +1773,11 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     const initialBoundaryFinalization = boundaryFinalization
     let fallbackBoundaryFinalization: Awaited<ReturnType<typeof finalClipValidationService.finalizeClipBoundaries>> | null = null
     let fallbackRecoverySelection: ReturnType<typeof buildFallbackArcRecoverySelection> | null = null
+    let resolvedRecoveryFinalization: Awaited<ReturnType<typeof finalClipValidationService.finalizeClipBoundaries>> | null = null
+    let resolvedRecoverySelection: ReturnType<typeof buildResolvedClipRecoverySelection> | null = null
+    let decisionValidationSourceClips = selectedClipsBeforeBoundaryValidation
+    let decisionValidationResult = initialBoundaryFinalization
+    let recoveredFromBoundaryFallback = false
 
     if (boundaryFinalization.clips.length === 0 && candidateArcs.length > 0) {
       fallbackRecoverySelection = buildFallbackArcRecoverySelection(candidateArcs, selectionDecisions)
@@ -1750,18 +1792,78 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       if (fallbackBoundaryFinalization.clips.length > 0) {
         boundaryFinalization = fallbackBoundaryFinalization
         selectionDecisions = fallbackRecoverySelection.decisions
+        decisionValidationSourceClips = fallbackRecoverySelection.clips
+        decisionValidationResult = fallbackBoundaryFinalization
+        recoveredFromBoundaryFallback = true
+      }
+    }
+
+    if (boundaryFinalization.clips.length === 0 && aiService) {
+      try {
+        postProgress(command.workflowJobId, currentStage, 98, 'Recovering complete clip arcs from transcript...')
+        const resolvedProposals = await aiService.proposeResolvedClips(
+          transcription,
+          command.mediaDuration,
+          (progress) => {
+            postProgress(command.workflowJobId, currentStage, Math.min(98 + progress * 0.01, 99), 'Recovering complete clip arcs from transcript...')
+          }
+        )
+        const resolvedClips = buildResolvedClipsFromProposals(
+          transcription,
+          resolvedProposals,
+          command.mediaDuration
+        )
+        resolvedRecoverySelection = buildResolvedClipRecoverySelection(
+          resolvedClips.clips.slice(0, resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration)),
+          selectionDecisions
+        )
+        resolvedRecoveryFinalization = await finalClipValidationService.finalizeClipBoundaries(
+          transcription,
+          resolvedRecoverySelection.clips,
+          aiService,
+          command.mediaDuration,
+          semanticTranscriptSegments ? buildTranscriptBoundaryLinesFromSegments(semanticTranscriptSegments) : undefined
+        )
+
+        if (resolvedRecoveryFinalization.clips.length > 0) {
+          boundaryFinalization = resolvedRecoveryFinalization
+          selectionDecisions = resolvedRecoverySelection.decisions
+          decisionValidationSourceClips = resolvedRecoverySelection.clips
+          decisionValidationResult = resolvedRecoveryFinalization
+          recoveredFromBoundaryFallback = true
+          clipSelectionSourceMetadata = {
+            ...clipSelectionSourceMetadata,
+            selectionSource: 'resolved_clip_recovery',
+            resolvedClipRecoveryAttempted: true,
+            resolvedClipRecoveryProposedCount: resolvedProposals.length,
+            resolvedClipRecoveryUsableCount: resolvedClips.clips.length,
+            resolvedClipRecoveryRejectedCount: resolvedClips.rejected.length,
+            resolvedClipRecoveryRejectedPreview: resolvedClips.rejected.slice(0, 5)
+          }
+        } else {
+          clipSelectionSourceMetadata = {
+            ...clipSelectionSourceMetadata,
+            resolvedClipRecoveryAttempted: true,
+            resolvedClipRecoveryProposedCount: resolvedProposals.length,
+            resolvedClipRecoveryUsableCount: resolvedClips.clips.length,
+            resolvedClipRecoveryRejectedCount: resolvedClips.rejected.length,
+            resolvedClipRecoveryRejectedPreview: resolvedClips.rejected.slice(0, 5)
+          }
+        }
+      } catch (resolvedRecoveryError) {
+        clipSelectionSourceMetadata = {
+          ...clipSelectionSourceMetadata,
+          resolvedClipRecoveryAttempted: true,
+          resolvedClipRecoveryFailureReason: resolvedRecoveryError instanceof Error ? resolvedRecoveryError.message : 'Unknown resolved clip recovery error'
+        }
       }
     }
 
     selectionDecisions = applyFinalClipValidationToSelectionDecisions(
       selectionDecisions,
-      fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0 && fallbackRecoverySelection
-        ? fallbackRecoverySelection.clips
-        : selectedClipsBeforeBoundaryValidation,
-      fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0
-        ? fallbackBoundaryFinalization
-        : initialBoundaryFinalization,
-      Boolean(fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0)
+      decisionValidationSourceClips,
+      decisionValidationResult,
+      recoveredFromBoundaryFallback
     )
     const overlapSuppression = suppressOverlappingFinalClips(boundaryFinalization.clips)
     analysis = { potentialClips: overlapSuppression.clips }
@@ -1797,6 +1899,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         fallbackBoundaryRecoveredArcIds: fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0
           ? fallbackBoundaryFinalization.clips.map((clip) => clip.sourceArcId).filter(Boolean)
           : undefined,
+        resolvedClipRecoveryAttempted: Boolean(resolvedRecoveryFinalization || clipSelectionSourceMetadata.resolvedClipRecoveryAttempted),
+        resolvedClipRecoverySucceeded: Boolean(resolvedRecoveryFinalization && resolvedRecoveryFinalization.clips.length > 0),
         overlapSuppressedClipCount: overlapSuppression.suppressed.length,
         overlapSuppressedClipPreview: overlapSuppression.suppressed.slice(0, 5).map((clip) => ({
           id: clip.id,

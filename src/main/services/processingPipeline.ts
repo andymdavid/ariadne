@@ -57,9 +57,10 @@ const LEGACY_SELECTION_RUN_VERSION = 'legacy_pipeline_v1'
 const LEGACY_SELECTION_SOURCE = 'legacy_pipeline'
 const ARC_SELECTION_RUN_VERSION = 'candidate_arc_ranker_v1'
 const ARC_SELECTION_SOURCE = 'candidate_arc_ranker'
+const DEFAULT_LOCAL_WHISPER_MODEL = 'turbo'
 
 class ProcessingPipeline {
-  private readonly mediaTranscriptFingerprintVersion = 'media_transcript_cache_v1'
+  private readonly mediaTranscriptFingerprintVersion = 'media_transcript_cache_v2'
 
   private getFriendlyMediaError(filePath: string, error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -798,6 +799,8 @@ class ProcessingPipeline {
       .update(String(mediaInfo.resolution?.width || 0))
       .update('x')
       .update(String(mediaInfo.resolution?.height || 0))
+      .update('|')
+      .update(this.buildPipelineRunConfigSnapshot().localWhisperModel)
       .digest('hex')
 
     return {
@@ -1039,7 +1042,7 @@ class ProcessingPipeline {
       maxClipsPerEpisode: Number.isFinite(userPreferences.maxClipsPerEpisode) ? userPreferences.maxClipsPerEpisode : 25,
       brandVoiceExampleCount: brandVoice.examples.length,
       brandVoicePreferences: brandVoice.preferences,
-      localWhisperModel: 'medium',
+      localWhisperModel: DEFAULT_LOCAL_WHISPER_MODEL,
       candidateGeneratorVersion: 'clip_candidate_service_v6',
       rankingPromptVersion: 'candidate_ranking_v1',
       rankingImplementationVersion: 'ai_service_v4',

@@ -103,6 +103,14 @@ class ClipProjectionService {
       return 'legacy_pipeline'
     }
 
+    if (selectionDecisions.some((decision) =>
+      decision.decision === 'fallback_selected' &&
+      !decision.candidateArcId &&
+      /resolved transcript segment proposal/i.test(decision.reason ?? '')
+    )) {
+      return 'resolved_clip_recovery'
+    }
+
     if (selectionDecisions.some((decision) => decision.decision === 'fallback_selected')) {
       return 'deterministic_candidate_arcs'
     }
