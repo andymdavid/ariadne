@@ -22,6 +22,7 @@ const CLIP_REFINEMENT_MAX_TRAILING_PAD_SECONDS = 0.45
 const CLIP_REFINEMENT_WORD_GUARD_SECONDS = 0.04
 const THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS = 1.1
 const SEMANTIC_CLIP_MAX_DURATION_SECONDS = 120
+const ROUGH_CUT_REPAIR_MAX_DURATION_SECONDS = 150
 const RESOLVED_CLIP_MIN_DURATION_SECONDS = 25
 const BOUNDARY_OPTIMIZER_MIN_SCORE = 45
 const BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE = 25
@@ -219,7 +220,12 @@ class FinalClipValidationService {
       preferredTranscriptLines
     )
     const wordRefinement = this.refinePotentialClips(transcription, semanticReview.clips, mediaDuration)
-    const optimizedClosure = this.optimizeClipBoundaries(transcription, wordRefinement.clips, mediaDuration)
+    const optimizedClosure = this.optimizeClipBoundaries(
+      transcription,
+      wordRefinement.clips,
+      mediaDuration,
+      preferredTranscriptLines
+    )
 
     return {
       clips: optimizedClosure.accepted,
@@ -703,9 +709,10 @@ class FinalClipValidationService {
   private buildBoundaryStartAnchors(
     transcription: PipelineWorkerTranscription,
     clip: PipelineWorkerPotentialClip,
-    mediaDuration: number
+    mediaDuration: number,
+    transcriptLines?: TranscriptBoundaryLine[]
   ) {
-    const minStart = Math.max(0, clip.startTime - 24)
+    const minStart = Math.max(0, clip.startTime - 45)
     const maxStart = Math.min(clip.endTime - RESOLVED_CLIP_MIN_DURATION_SECONDS, clip.startTime + 8)
     const words = this.getWordsWithinWindow(transcription, minStart, Math.min(mediaDuration, clip.startTime + 10))
     const segmentStarts = transcription.segments
@@ -731,6 +738,14 @@ class FinalClipValidationService {
           ? 'earlier_clean_word_start'
           : 'clean_word_start'
       }))
+    const lineStarts = (transcriptLines ?? buildTranscriptLinesFromSegments(transcription.segments))
+      .filter((line) => line.start >= minStart && line.start <= maxStart)
+      .map((line): BoundaryAnchor => ({
+        time: line.start,
+        type: line.start < clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS
+          ? 'previous_transcript_line_start'
+          : 'transcript_line_start'
+      }))
 
     return this.uniqueSortedAnchors([
       { time: clip.startTime, type: 'initial_start' },
@@ -738,6 +753,7 @@ class FinalClipValidationService {
         ? null
         : { time: connectedStartAnchor, type: 'connected_thread_start' },
       ...segmentStarts,
+      ...lineStarts,
       ...wordStarts
     ].filter((anchor): anchor is BoundaryAnchor => Boolean(anchor)))
   }
@@ -745,10 +761,11 @@ class FinalClipValidationService {
   private buildBoundaryEndAnchors(
     transcription: PipelineWorkerTranscription,
     clip: PipelineWorkerPotentialClip,
-    mediaDuration: number
+    mediaDuration: number,
+    transcriptLines?: TranscriptBoundaryLine[]
   ) {
     const minEnd = Math.max(clip.startTime + RESOLVED_CLIP_MIN_DURATION_SECONDS, clip.endTime - 10)
-    const maxEnd = Math.min(mediaDuration, clip.startTime + SEMANTIC_CLIP_MAX_DURATION_SECONDS, clip.endTime + 36)
+    const maxEnd = Math.min(mediaDuration, clip.startTime + ROUGH_CUT_REPAIR_MAX_DURATION_SECONDS, clip.endTime + 72)
     const words = this.getWordsWithinWindow(transcription, Math.max(0, minEnd - 8), maxEnd)
     const segmentEnds = transcription.segments
       .filter((segment) => segment.end >= minEnd && segment.end <= maxEnd)
@@ -767,8 +784,16 @@ class FinalClipValidationService {
           ? 'extended_word_end'
           : 'word_end'
       }))
+    const lineEnds = (transcriptLines ?? buildTranscriptLinesFromSegments(transcription.segments))
+      .filter((line) => line.end >= minEnd && line.end <= maxEnd)
+      .map((line): BoundaryAnchor => ({
+        time: line.end,
+        type: line.end > clip.endTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS
+          ? 'next_transcript_line_end'
+          : 'transcript_line_end'
+      }))
 
-    return this.uniqueSortedAnchors([{ time: clip.endTime, type: 'initial_end' }, ...segmentEnds, ...wordEnds])
+    return this.uniqueSortedAnchors([{ time: clip.endTime, type: 'initial_end' }, ...segmentEnds, ...lineEnds, ...wordEnds])
   }
 
   private scoreOptimizedBoundaryPair(
@@ -786,7 +811,7 @@ class FinalClipValidationService {
       duration: Number((endTime - startTime).toFixed(3))
     }
     const duration = candidateClip.duration
-    if (duration < RESOLVED_CLIP_MIN_DURATION_SECONDS || duration > SEMANTIC_CLIP_MAX_DURATION_SECONDS) {
+    if (duration < RESOLVED_CLIP_MIN_DURATION_SECONDS || duration > ROUGH_CUT_REPAIR_MAX_DURATION_SECONDS) {
       return null
     }
 
@@ -875,10 +900,11 @@ class FinalClipValidationService {
   private optimizeClipBoundary(
     transcription: PipelineWorkerTranscription,
     clip: PipelineWorkerPotentialClip,
-    mediaDuration: number
+    mediaDuration: number,
+    transcriptLines?: TranscriptBoundaryLine[]
   ) {
-    const startAnchors = this.buildBoundaryStartAnchors(transcription, clip, mediaDuration)
-    const endAnchors = this.buildBoundaryEndAnchors(transcription, clip, mediaDuration)
+    const startAnchors = this.buildBoundaryStartAnchors(transcription, clip, mediaDuration, transcriptLines)
+    const endAnchors = this.buildBoundaryEndAnchors(transcription, clip, mediaDuration, transcriptLines)
     const scored: BoundaryVariantScore[] = []
 
     for (const startAnchor of startAnchors) {
@@ -927,7 +953,8 @@ class FinalClipValidationService {
   private optimizeClipBoundaries(
     transcription: PipelineWorkerTranscription,
     clips: PipelineWorkerPotentialClip[],
-    mediaDuration: number
+    mediaDuration: number,
+    preferredTranscriptLines?: TranscriptBoundaryLine[]
   ) {
     const accepted: PipelineWorkerPotentialClip[] = []
     const decisions: FinalClipValidationDecision[] = []
@@ -945,7 +972,7 @@ class FinalClipValidationService {
     }
 
     for (const clip of clips) {
-      const optimization = this.optimizeClipBoundary(transcription, clip, mediaDuration)
+      const optimization = this.optimizeClipBoundary(transcription, clip, mediaDuration, preferredTranscriptLines)
       report.boundaryVariantsGenerated += optimization.alternativesConsidered
       const contextClean = Boolean(
         optimization.best &&
