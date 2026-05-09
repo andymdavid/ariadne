@@ -1506,12 +1506,16 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
     if (candidateArcs.length > 0 || editorialUnits.length > 0) {
       postProgress(command.workflowJobId, currentStage, 5, 'Drafting coherent rough cuts...')
-      const roughCutSelection = coherentRoughCutService.selectRoughCuts({
+      const roughCutSelection = await coherentRoughCutService.selectRoughCuts({
         transcription,
         editorialUnits,
         candidateArcs,
         mediaDuration: command.mediaDuration,
-        targetClipCount: resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration)
+        targetClipCount: resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
+        aiService,
+        onProgress: (progress) => {
+          postProgress(command.workflowJobId, currentStage, Math.min(5 + progress * 0.35, 40), 'Drafting coherent rough cuts...')
+        }
       })
 
       if (roughCutSelection.clips.length > 0) {

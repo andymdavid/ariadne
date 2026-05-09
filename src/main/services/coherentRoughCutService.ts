@@ -9,6 +9,8 @@ import {
 } from '../../shared/clipBoundaryQuality'
 import type { CandidateArc, EditorialUnit } from '../../shared/editorialUnits'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
+import type AIService from './aiService'
+import type { RoughCutVariantForJudging, RoughCutVariantJudgment } from './aiService'
 import type {
   PipelineWorkerPotentialClip,
   PipelineWorkerSelectionDecision,
@@ -92,6 +94,9 @@ export type CoherentRoughCutResult = {
     reviewableRoughCuts: number
     rejectedMoments: number
     overlapSuppressedCount: number
+    modelJudgeAttempted: boolean
+    modelJudgeSucceeded: boolean
+    modelJudgeFailureReason?: string
     selectedPreview: Array<Record<string, unknown>>
     rejectedPreview: Array<Record<string, unknown>>
   }
@@ -103,19 +108,26 @@ const REPAIR_MAX_SECONDS = 150
 const MOMENT_LIMIT = 12
 
 class CoherentRoughCutService {
-  selectRoughCuts(input: {
+  async selectRoughCuts(input: {
     transcription: PipelineWorkerTranscription
     editorialUnits: EditorialUnit[]
     candidateArcs: CandidateArc[]
     mediaDuration: number
     targetClipCount: number
-  }): CoherentRoughCutResult {
+    aiService?: AIService | null
+    onProgress?: (progress: number) => void
+  }): Promise<CoherentRoughCutResult> {
     const moments = this.generateMoments(input.editorialUnits, input.candidateArcs)
-    const candidates: RoughCutCandidate[] = []
-    const rejected: Array<Record<string, unknown>> = []
+    const momentEvaluations: Array<{
+      moment: RoughCutMoment
+      thread: RoughCutThread
+      draftSpan: DraftSpan
+      evaluated: Array<{ variant: BoundaryVariant; evaluation: CompletenessEvaluation }>
+    }> = []
     let boundaryVariantsGenerated = 0
     let variantsEvaluated = 0
 
+    input.onProgress?.(15)
     for (const moment of moments) {
       const thread = this.labelThread(moment, input.editorialUnits, input.candidateArcs)
       const draftSpan = this.createDraftSpan(moment)
@@ -135,27 +147,35 @@ class CoherentRoughCutService {
         }))
         .sort((left, right) => right.evaluation.score - left.evaluation.score)
       variantsEvaluated += evaluated.length
+      momentEvaluations.push({ moment, thread, draftSpan, evaluated })
+    }
 
-      const winner = evaluated.find((item) => item.evaluation.isCoherent) ?? null
+    input.onProgress?.(35)
+    const modelJudgeResult = await this.applyModelJudgments(input.aiService ?? null, input.transcription, momentEvaluations, input.onProgress)
+    const candidates: RoughCutCandidate[] = []
+    const rejected: Array<Record<string, unknown>> = []
+
+    for (const item of momentEvaluations) {
+      const winner = item.evaluated.find((candidate) => candidate.evaluation.isCoherent) ?? null
       if (!winner) {
         rejected.push({
-          momentId: moment.id,
-          sourceArcId: moment.sourceArcId,
-          thread: thread.label,
-          bestVariant: evaluated[0]?.variant.variantType ?? null,
-          fatalIssues: evaluated[0]?.evaluation.fatalIssues ?? ['no_boundary_variants'],
-          rationale: evaluated[0]?.evaluation.rationale ?? 'No coherent rough-cut boundary variant was available.'
+          momentId: item.moment.id,
+          sourceArcId: item.moment.sourceArcId,
+          thread: item.thread.label,
+          bestVariant: item.evaluated[0]?.variant.variantType ?? null,
+          fatalIssues: item.evaluated[0]?.evaluation.fatalIssues ?? ['no_boundary_variants'],
+          rationale: item.evaluated[0]?.evaluation.rationale ?? 'No coherent rough-cut boundary variant was available.'
         })
         continue
       }
 
       candidates.push({
-        moment,
-        thread,
-        draftSpan,
+        moment: item.moment,
+        thread: item.thread,
+        draftSpan: item.draftSpan,
         variant: winner.variant,
         evaluation: winner.evaluation,
-        clip: this.buildClip(moment, thread, winner.variant, winner.evaluation)
+        clip: this.buildClip(item.moment, item.thread, winner.variant, winner.evaluation)
       })
     }
 
@@ -176,6 +196,9 @@ class CoherentRoughCutService {
         reviewableRoughCuts: portfolio.length,
         rejectedMoments: Math.max(0, moments.length - portfolio.length),
         overlapSuppressedCount: Math.max(0, candidates.length - portfolio.length),
+        modelJudgeAttempted: modelJudgeResult.attempted,
+        modelJudgeSucceeded: modelJudgeResult.succeeded,
+        modelJudgeFailureReason: modelJudgeResult.failureReason,
         selectedPreview: portfolio.slice(0, 5).map((candidate) => ({
           momentId: candidate.moment.id,
           sourceArcId: candidate.moment.sourceArcId,
@@ -236,6 +259,103 @@ class CoherentRoughCutService {
 
     return [...arcMoments, ...windows.sort((left, right) => right.score - left.score)]
       .slice(0, MOMENT_LIMIT)
+  }
+
+  private async applyModelJudgments(
+    aiService: AIService | null,
+    transcription: PipelineWorkerTranscription,
+    momentEvaluations: Array<{
+      moment: RoughCutMoment
+      thread: RoughCutThread
+      draftSpan: DraftSpan
+      evaluated: Array<{ variant: BoundaryVariant; evaluation: CompletenessEvaluation }>
+    }>,
+    onProgress?: (progress: number) => void
+  ) {
+    if (!aiService) {
+      return { attempted: false, succeeded: false }
+    }
+
+    const judgeInputs = momentEvaluations
+      .flatMap((item) => item.evaluated.slice(0, 4).map((candidate): RoughCutVariantForJudging => ({
+        variantId: candidate.variant.id,
+        momentId: item.moment.id,
+        threadLabel: item.thread.label,
+        duration: candidate.variant.duration,
+        transcriptText: candidate.variant.transcriptText,
+        previousContext: this.extractText(transcription, Math.max(0, candidate.variant.startTime - 12), candidate.variant.startTime),
+        nextContext: this.extractText(transcription, candidate.variant.endTime, Math.min(candidate.variant.endTime + 18, transcription.segments[transcription.segments.length - 1]?.end ?? candidate.variant.endTime + 18)),
+        deterministicIssues: candidate.evaluation.fatalIssues
+      })))
+      .sort((left, right) => {
+        const leftScore = momentEvaluations
+          .flatMap((item) => item.evaluated)
+          .find((candidate) => candidate.variant.id === left.variantId)?.evaluation.score ?? 0
+        const rightScore = momentEvaluations
+          .flatMap((item) => item.evaluated)
+          .find((candidate) => candidate.variant.id === right.variantId)?.evaluation.score ?? 0
+        return rightScore - leftScore
+      })
+      .slice(0, 48)
+
+    if (judgeInputs.length === 0) {
+      return { attempted: false, succeeded: false }
+    }
+
+    try {
+      const judgments = await aiService.judgeRoughCutVariants(judgeInputs, (progress) => {
+        onProgress?.(35 + progress * 0.45)
+      })
+      const judgmentByVariantId = new Map(judgments.map((judgment) => [judgment.variantId, judgment]))
+      for (const item of momentEvaluations) {
+        item.evaluated = item.evaluated
+          .map((candidate) => {
+            const judgment = judgmentByVariantId.get(candidate.variant.id)
+            if (!judgment) {
+              return candidate
+            }
+            return {
+              ...candidate,
+              evaluation: this.mergeModelJudgment(candidate.evaluation, judgment)
+            }
+          })
+          .sort((left, right) => right.evaluation.score - left.evaluation.score)
+      }
+      return { attempted: true, succeeded: judgments.length > 0 }
+    } catch (error) {
+      return {
+        attempted: true,
+        succeeded: false,
+        failureReason: error instanceof Error ? error.message : 'Unknown rough cut model judgment error'
+      }
+    }
+  }
+
+  private mergeModelJudgment(
+    deterministic: CompletenessEvaluation,
+    judgment: RoughCutVariantJudgment
+  ): CompletenessEvaluation {
+    const fatalIssues = judgment.fatalIssues.length > 0
+      ? judgment.fatalIssues
+      : deterministic.fatalIssues
+    const isCoherent = judgment.isReviewable &&
+      judgment.startStatus === 'clean' &&
+      judgment.endStatus === 'rounded' &&
+      judgment.contextStatus === 'sufficient' &&
+      judgment.threadPreserved
+
+    return {
+      variantId: deterministic.variantId,
+      isCoherent,
+      startStatus: judgment.startStatus,
+      endStatus: judgment.endStatus,
+      contextStatus: judgment.contextStatus,
+      threadPreserved: judgment.threadPreserved,
+      tooPadded: judgment.tooPadded,
+      fatalIssues: isCoherent ? [] : fatalIssues,
+      score: Number(Math.max(0, Math.min(100, judgment.score)).toFixed(3)),
+      rationale: judgment.rationale || deterministic.rationale
+    }
   }
 
   private scoreUnitWindow(units: EditorialUnit[]) {

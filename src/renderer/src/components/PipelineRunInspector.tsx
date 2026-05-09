@@ -28,6 +28,18 @@ type CoherentRoughCutsReport = {
   missingContextFailures?: number
 }
 
+type CoherentRoughCutSelectionReport = {
+  momentsGenerated?: number
+  boundaryVariantsGenerated?: number
+  variantsEvaluated?: number
+  reviewableRoughCuts?: number
+  rejectedMoments?: number
+  overlapSuppressedCount?: number
+  modelJudgeAttempted?: boolean
+  modelJudgeSucceeded?: boolean
+  modelJudgeFailureReason?: string
+}
+
 function formatDateTime(value: string | null) {
   if (!value) {
     return 'Not finished'
@@ -225,6 +237,10 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
     typeof clipRankingMetadata.coherentRoughCutsReport === 'object'
     ? clipRankingMetadata.coherentRoughCutsReport as CoherentRoughCutsReport
     : null
+  const coherentRoughCutSelectionReport = clipRankingMetadata?.coherentRoughCut &&
+    typeof clipRankingMetadata.coherentRoughCut === 'object'
+    ? clipRankingMetadata.coherentRoughCut as CoherentRoughCutSelectionReport
+    : null
   const selectedDecisions = (selectedSelection?.decisions ?? [])
     .filter((decision) => decision.decision !== 'rejected')
     .sort((left, right) => (left.rankOrder ?? Number.MAX_SAFE_INTEGER) - (right.rankOrder ?? Number.MAX_SAFE_INTEGER))
@@ -402,6 +418,34 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                     <span>Recovery Succeeded</span>
                     <span className="text-right text-text-primary">{clipRankingMetadata.fallbackBoundaryRecoverySucceeded ? 'yes' : 'no'}</span>
                   </div>
+                  {coherentRoughCutSelectionReport && (
+                    <div className="inspector-subcard mt-3 text-[11px]">
+                      <div className="mb-2 uppercase tracking-[0.2em] text-text-muted">Rough Cut Selector</div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <span>Moments</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.momentsGenerated ?? 0)}</span>
+                        <span>Variants</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.boundaryVariantsGenerated ?? 0)}</span>
+                        <span>Evaluated</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.variantsEvaluated ?? 0)}</span>
+                        <span>Rough Cuts</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.reviewableRoughCuts ?? 0)}</span>
+                        <span>Rejected Moments</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.rejectedMoments ?? 0)}</span>
+                        <span>Overlap Suppressed</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.overlapSuppressedCount ?? 0)}</span>
+                        <span>Model Judge</span>
+                        <span className="text-right text-text-primary">
+                          {coherentRoughCutSelectionReport.modelJudgeAttempted
+                            ? coherentRoughCutSelectionReport.modelJudgeSucceeded ? 'passed' : 'failed'
+                            : 'not used'}
+                        </span>
+                      </div>
+                      {coherentRoughCutSelectionReport.modelJudgeFailureReason && (
+                        <div className="mt-2 text-text-muted">{coherentRoughCutSelectionReport.modelJudgeFailureReason}</div>
+                      )}
+                    </div>
+                  )}
                   {coherentRoughCutsReport && (
                     <div className="inspector-subcard mt-3 text-[11px]">
                       <div className="mb-2 uppercase tracking-[0.2em] text-text-muted">Coherent Rough Cuts</div>

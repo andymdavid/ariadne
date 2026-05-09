@@ -88,6 +88,30 @@ export interface RankedCandidateArcSelection {
   reason: string
 }
 
+export interface RoughCutVariantForJudging {
+  variantId: string
+  momentId: string
+  threadLabel: string
+  duration: number
+  transcriptText: string
+  previousContext: string
+  nextContext: string
+  deterministicIssues: string[]
+}
+
+export interface RoughCutVariantJudgment {
+  variantId: string
+  isReviewable: boolean
+  startStatus: 'clean' | 'abrupt'
+  endStatus: 'rounded' | 'unresolved'
+  contextStatus: 'sufficient' | 'missing_previous' | 'needs_next'
+  threadPreserved: boolean
+  tooPadded: boolean
+  fatalIssues: string[]
+  score: number
+  rationale: string
+}
+
 export interface WordSpanClipSelection {
   startWordIndex: number
   endWordIndex: number
@@ -427,6 +451,63 @@ class AIService {
     const selections = this.parseWordSpanClipSelectionResponse(response.content, words)
     onProgress?.(100)
     return selections
+  }
+
+  async judgeRoughCutVariants(
+    variants: RoughCutVariantForJudging[],
+    onProgress?: (progress: number) => void
+  ): Promise<RoughCutVariantJudgment[]> {
+    if (variants.length === 0) {
+      return []
+    }
+
+    onProgress?.(10)
+    const payload = variants.slice(0, 48).map((variant) => ({
+      variant_id: variant.variantId,
+      moment_id: variant.momentId,
+      thread: variant.threadLabel,
+      duration: Number(variant.duration.toFixed(1)),
+      transcript: variant.transcriptText.slice(0, 1800),
+      previous_context: variant.previousContext.slice(-500),
+      next_context: variant.nextContext.slice(0, 500),
+      deterministic_issues: variant.deterministicIssues
+    }))
+
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are a senior podcast rough-cut editor.',
+            'Judge only the prepared transcript variants. Do not invent timestamps.',
+            'A clip can be loose, but it cannot be broken.',
+            'Return valid JSON only.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: [
+            'Evaluate each prepared clip variant as a reviewable rough cut.',
+            'A reviewable rough cut starts naturally, preserves one conversational thread, has enough context, and ends after the current thought lands.',
+            'Do not reject for weak virality, minor filler, or slight padding.',
+            'Reject if it needs the previous sentence, needs the next sentence, starts abruptly, or ends unresolved.',
+            '',
+            'Return JSON with this shape:',
+            '{"judgments":[{"variant_id":"string","is_reviewable":true,"start_status":"clean|abrupt","end_status":"rounded|unresolved","context_status":"sufficient|missing_previous|needs_next","thread_preserved":true,"too_padded":false,"fatal_issues":["string"],"score":0-100,"rationale":"string"}]}',
+            '',
+            JSON.stringify({ variants: payload }, null, 2)
+          ].join('\n')
+        }
+      ],
+      max_tokens: 4500,
+      temperature: 0.05
+    })
+
+    onProgress?.(80)
+    const judgments = this.parseRoughCutVariantJudgments(response.content, new Set(payload.map((variant) => variant.variant_id)))
+    onProgress?.(100)
+    return judgments
   }
 
   /**
@@ -3358,6 +3439,55 @@ Return JSON only.
         }
         return left.startWordIndex - right.startWordIndex
       })
+  }
+
+  private parseRoughCutVariantJudgments(
+    content: string,
+    validVariantIds: Set<string>
+  ): RoughCutVariantJudgment[] {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error('No JSON found in rough cut variant judgment response')
+    }
+
+    const parsed = JSON.parse(jsonString)
+    if (!Array.isArray(parsed.judgments)) {
+      throw new Error('Invalid rough cut variant judgment response: missing judgments')
+    }
+
+    return parsed.judgments
+      .map((item: any): RoughCutVariantJudgment | null => {
+        const variantId = String(item.variant_id ?? item.variantId ?? '').trim()
+        if (!variantId || !validVariantIds.has(variantId)) {
+          return null
+        }
+
+        const rawContextStatus = String(item.context_status ?? item.contextStatus ?? 'sufficient')
+        const contextStatus: RoughCutVariantJudgment['contextStatus'] =
+          rawContextStatus === 'missing_previous' || rawContextStatus === 'needs_next'
+            ? rawContextStatus
+            : 'sufficient'
+        const fatalIssues = Array.isArray(item.fatal_issues ?? item.fatalIssues)
+          ? (item.fatal_issues ?? item.fatalIssues)
+              .map((issue: unknown) => String(issue ?? '').trim())
+              .filter(Boolean)
+          : []
+        const score = Number(item.score)
+
+        return {
+          variantId,
+          isReviewable: Boolean(item.is_reviewable ?? item.isReviewable),
+          startStatus: (item.start_status ?? item.startStatus) === 'abrupt' ? 'abrupt' : 'clean',
+          endStatus: (item.end_status ?? item.endStatus) === 'unresolved' ? 'unresolved' : 'rounded',
+          contextStatus,
+          threadPreserved: Boolean(item.thread_preserved ?? item.threadPreserved),
+          tooPadded: Boolean(item.too_padded ?? item.tooPadded),
+          fatalIssues,
+          score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0,
+          rationale: String(item.rationale ?? '').replace(/\s+/g, ' ').trim()
+        }
+      })
+      .filter((item: RoughCutVariantJudgment | null): item is RoughCutVariantJudgment => Boolean(item))
   }
   
   updateConfig(config: APIConfig) {
