@@ -27,6 +27,29 @@ const BOUNDARY_OPTIMIZER_MIN_SCORE = 45
 const BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE = 25
 const BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS = 1.1
 
+type BoundaryAnchor = {
+  time: number
+  type: string
+}
+
+type BoundaryVariantScore = {
+  clip: PipelineWorkerPotentialClip
+  score: number
+  cleanStart: boolean
+  cleanEnd: boolean
+  localEndClean: boolean
+  hardEndIssue: string | null
+  startBoundaryIssue: string | null
+  startLookbackIssue: string | null
+  lookaheadIssue: string | null
+  endingPreview: string
+  openingPreview: string
+  movementSeconds: number
+  variantType: string
+  editOperation: string
+  fatalIssues: string[]
+}
+
 export interface SemanticBoundaryReviewResult {
   clips: PipelineWorkerPotentialClip[]
   reviews: ClipBoundaryReview[]
@@ -57,6 +80,10 @@ export interface FinalClipValidationDecision {
   endingPreview: string
   reason: string
   topAlternatives: Array<Record<string, unknown>>
+  roughCutStatus?: 'reviewable_rough_cut' | 'rejected_after_repair'
+  boundaryVariantType?: string
+  repairOperation?: string
+  fatalIssues?: string[]
 }
 
 export interface FinalClipValidationRejectedClip {
@@ -74,6 +101,17 @@ export interface FinalClipValidationResult {
   wordAdjustments: WordBoundaryAdjustment[]
   validatorDecisions: FinalClipValidationDecision[]
   rejectedClips: FinalClipValidationRejectedClip[]
+  boundaryRepairReport: {
+    clipsReviewed: number
+    boundaryVariantsGenerated: number
+    reviewableRoughCuts: number
+    rejectedAfterRepair: number
+    repairedStartCount: number
+    repairedEndCount: number
+    abruptStartFailures: number
+    unresolvedEndingFailures: number
+    missingContextFailures: number
+  }
 }
 
 class FinalClipValidationService {
@@ -187,7 +225,8 @@ class FinalClipValidationService {
       semanticReview,
       wordAdjustments: wordRefinement.adjustments,
       validatorDecisions: optimizedClosure.decisions,
-      rejectedClips: optimizedClosure.rejected
+      rejectedClips: optimizedClosure.rejected,
+      boundaryRepairReport: optimizedClosure.report
     }
   }
 
@@ -604,10 +643,18 @@ class FinalClipValidationService {
     return null
   }
 
-  private uniqueSortedTimes(times: number[]) {
-    return [...new Set(times.map((time) => Number(time.toFixed(3))))]
-      .filter((time) => Number.isFinite(time))
-      .sort((left, right) => left - right)
+  private uniqueSortedAnchors(anchors: BoundaryAnchor[]) {
+    const byTime = new Map<number, BoundaryAnchor>()
+
+    for (const anchor of anchors) {
+      if (!Number.isFinite(anchor.time)) continue
+      const time = Number(anchor.time.toFixed(3))
+      if (!byTime.has(time)) {
+        byTime.set(time, { ...anchor, time })
+      }
+    }
+
+    return [...byTime.values()].sort((left, right) => left.time - right.time)
   }
 
   private isRecoverableLeadInStart(text: string) {
@@ -662,7 +709,12 @@ class FinalClipValidationService {
     const words = this.getWordsWithinWindow(transcription, minStart, Math.min(mediaDuration, clip.startTime + 10))
     const segmentStarts = transcription.segments
       .filter((segment) => segment.start >= minStart && segment.start <= maxStart)
-      .map((segment) => segment.start)
+      .map((segment): BoundaryAnchor => ({
+        time: segment.start,
+        type: segment.start < clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS
+          ? 'previous_segment_start'
+          : 'segment_start'
+      }))
     const connectedStartAnchor = this.getConnectedStartAnchor(transcription, clip)
     const wordStarts = words
       .filter((word, index) => {
@@ -672,14 +724,21 @@ class FinalClipValidationService {
         const leadingText = words.slice(index, index + 8).map((item) => item.word).join(' ')
         return gap >= 0.22 || isCleanClipStart(leadingText) || this.isRecoverableLeadInStart(leadingText)
       })
-      .map((word) => word.start)
+      .map((word): BoundaryAnchor => ({
+        time: word.start,
+        type: word.start < clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS
+          ? 'earlier_clean_word_start'
+          : 'clean_word_start'
+      }))
 
-    return this.uniqueSortedTimes([
-      clip.startTime,
-      connectedStartAnchor,
+    return this.uniqueSortedAnchors([
+      { time: clip.startTime, type: 'initial_start' },
+      connectedStartAnchor == null
+        ? null
+        : { time: connectedStartAnchor, type: 'connected_thread_start' },
       ...segmentStarts,
       ...wordStarts
-    ].filter((time): time is number => typeof time === 'number'))
+    ].filter((anchor): anchor is BoundaryAnchor => Boolean(anchor)))
   }
 
   private buildBoundaryEndAnchors(
@@ -692,20 +751,33 @@ class FinalClipValidationService {
     const words = this.getWordsWithinWindow(transcription, Math.max(0, minEnd - 8), maxEnd)
     const segmentEnds = transcription.segments
       .filter((segment) => segment.end >= minEnd && segment.end <= maxEnd)
-      .map((segment) => segment.end)
+      .map((segment): BoundaryAnchor => ({
+        time: segment.end,
+        type: segment.end > clip.endTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS
+          ? 'next_segment_end'
+          : 'segment_end'
+      }))
     const wordEnds = words
       .map((word, index) => this.resolveClipEndWithTrailingPad(words, index, mediaDuration))
       .filter((endTime) => endTime >= minEnd && endTime <= maxEnd)
+      .map((endTime): BoundaryAnchor => ({
+        time: endTime,
+        type: endTime > clip.endTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS
+          ? 'extended_word_end'
+          : 'word_end'
+      }))
 
-    return this.uniqueSortedTimes([clip.endTime, ...segmentEnds, ...wordEnds])
+    return this.uniqueSortedAnchors([{ time: clip.endTime, type: 'initial_end' }, ...segmentEnds, ...wordEnds])
   }
 
   private scoreOptimizedBoundaryPair(
     transcription: PipelineWorkerTranscription,
     originalClip: PipelineWorkerPotentialClip,
-    startTime: number,
-    endTime: number
-  ) {
+    startAnchor: BoundaryAnchor,
+    endAnchor: BoundaryAnchor
+  ): BoundaryVariantScore | null {
+    const startTime = startAnchor.time
+    const endTime = endAnchor.time
     const candidateClip = {
       ...originalClip,
       startTime,
@@ -728,6 +800,23 @@ class FinalClipValidationService {
     const cleanStart = !startBoundaryIssue && this.clipStartsCleanly(transcription, candidateClip)
     const cleanEnd = isCleanClipEnd(text) && isCleanLocalClipEnd(localEndingText)
     const localEndClean = isCleanLocalClipEnd(localEndingText)
+    const fatalIssues = [
+      startBoundaryIssue,
+      hardEndIssue,
+      startLookbackIssue,
+      lookaheadIssue
+    ].filter((issue): issue is string => typeof issue === 'string' && issue.length > 0)
+    const startMoved = Math.abs(startTime - originalClip.startTime) > CLIP_REFINEMENT_WORD_GUARD_SECONDS
+    const endMoved = Math.abs(endTime - originalClip.endTime) > CLIP_REFINEMENT_WORD_GUARD_SECONDS
+    const editOperation = [
+      startMoved
+        ? startTime < originalClip.startTime ? 'expand_left' : 'contract_left'
+        : 'keep_start',
+      endMoved
+        ? endTime > originalClip.endTime ? 'expand_right' : 'contract_right'
+        : 'keep_end'
+    ].join('+')
+    const variantType = `${startAnchor.type}+${endAnchor.type}`
 
     if (startBoundaryIssue || hardEndIssue) {
       return {
@@ -742,7 +831,10 @@ class FinalClipValidationService {
         lookaheadIssue,
         endingPreview: text.split(/\s+/).slice(-18).join(' '),
         openingPreview: this.getClipOpeningPreview(transcription, candidateClip),
-        movementSeconds: Number((Math.abs(startTime - originalClip.startTime) + Math.abs(endTime - originalClip.endTime)).toFixed(3))
+        movementSeconds: Number((Math.abs(startTime - originalClip.startTime) + Math.abs(endTime - originalClip.endTime)).toFixed(3)),
+        variantType,
+        editOperation,
+        fatalIssues
       }
     }
 
@@ -772,7 +864,10 @@ class FinalClipValidationService {
       lookaheadIssue,
       endingPreview: text.split(/\s+/).slice(-18).join(' '),
       openingPreview: this.getClipOpeningPreview(transcription, candidateClip),
-      movementSeconds: Number((Math.abs(startTime - originalClip.startTime) + Math.abs(endTime - originalClip.endTime)).toFixed(3))
+      movementSeconds: Number((Math.abs(startTime - originalClip.startTime) + Math.abs(endTime - originalClip.endTime)).toFixed(3)),
+      variantType,
+      editOperation,
+      fatalIssues
     }
   }
 
@@ -783,12 +878,12 @@ class FinalClipValidationService {
   ) {
     const startAnchors = this.buildBoundaryStartAnchors(transcription, clip, mediaDuration)
     const endAnchors = this.buildBoundaryEndAnchors(transcription, clip, mediaDuration)
-    const scored: NonNullable<ReturnType<FinalClipValidationService['scoreOptimizedBoundaryPair']>>[] = []
+    const scored: BoundaryVariantScore[] = []
 
-    for (const startTime of startAnchors) {
-      for (const endTime of endAnchors) {
-        if (endTime <= startTime) continue
-        const result = this.scoreOptimizedBoundaryPair(transcription, clip, startTime, endTime)
+    for (const startAnchor of startAnchors) {
+      for (const endAnchor of endAnchors) {
+        if (endAnchor.time <= startAnchor.time) continue
+        const result = this.scoreOptimizedBoundaryPair(transcription, clip, startAnchor, endAnchor)
         if (result) {
           scored.push(result)
         }
@@ -818,6 +913,10 @@ class FinalClipValidationService {
         startBoundaryIssue: item.startBoundaryIssue,
         startLookbackIssue: item.startLookbackIssue,
         lookaheadIssue: item.lookaheadIssue,
+        fatalIssues: item.fatalIssues,
+        variantType: item.variantType,
+        editOperation: item.editOperation,
+        movementSeconds: item.movementSeconds,
         openingPreview: item.openingPreview,
         endingPreview: item.endingPreview
       }))
@@ -832,9 +931,21 @@ class FinalClipValidationService {
     const accepted: PipelineWorkerPotentialClip[] = []
     const decisions: FinalClipValidationDecision[] = []
     let rejected: FinalClipValidationRejectedClip[] = []
+    const report = {
+      clipsReviewed: clips.length,
+      boundaryVariantsGenerated: 0,
+      reviewableRoughCuts: 0,
+      rejectedAfterRepair: 0,
+      repairedStartCount: 0,
+      repairedEndCount: 0,
+      abruptStartFailures: 0,
+      unresolvedEndingFailures: 0,
+      missingContextFailures: 0
+    }
 
     for (const clip of clips) {
       const optimization = this.optimizeClipBoundary(transcription, clip, mediaDuration)
+      report.boundaryVariantsGenerated += optimization.alternativesConsidered
       const contextClean = Boolean(
         optimization.best &&
         !optimization.best.startBoundaryIssue &&
@@ -852,6 +963,11 @@ class FinalClipValidationService {
         optimization.best.score >= BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE
       )
       if (optimization.best && contextClean && (meetsPreferredThreshold || softAccepted)) {
+        const repairedStart = Math.abs(optimization.best.clip.startTime - clip.startTime) > CLIP_REFINEMENT_WORD_GUARD_SECONDS
+        const repairedEnd = Math.abs(optimization.best.clip.endTime - clip.endTime) > CLIP_REFINEMENT_WORD_GUARD_SECONDS
+        report.reviewableRoughCuts += 1
+        if (repairedStart) report.repairedStartCount += 1
+        if (repairedEnd) report.repairedEndCount += 1
         accepted.push(optimization.best.clip)
         decisions.push({
           clipId: clip.id,
@@ -865,17 +981,34 @@ class FinalClipValidationService {
           openingPreview: optimization.best.openingPreview,
           endingPreview: optimization.best.endingPreview,
           reason: optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE
-            ? 'Accepted by final boundary validator using the highest-scoring nearby start/end boundary pair.'
-            : 'Accepted by final boundary validator using a usable nearby boundary pair below the preferred score threshold.',
-          topAlternatives: optimization.topAlternatives
+            ? 'Accepted as a coherent rough cut after prepared boundary variant search.'
+            : 'Accepted as a coherent rough cut using a lower-scoring prepared boundary variant.',
+          topAlternatives: optimization.topAlternatives,
+          roughCutStatus: 'reviewable_rough_cut',
+          boundaryVariantType: optimization.best.variantType,
+          repairOperation: optimization.best.editOperation,
+          fatalIssues: []
         })
         continue
       }
 
       const topAlternative = optimization.topAlternatives[0]
+      const fatalIssues = Array.isArray(topAlternative?.fatalIssues)
+        ? topAlternative.fatalIssues.filter((issue): issue is string => typeof issue === 'string')
+        : []
+      report.rejectedAfterRepair += 1
+      if (fatalIssues.some((issue) => issue.startsWith('leading_'))) {
+        report.abruptStartFailures += 1
+      }
+      if (fatalIssues.includes('leading_continues_previous_thought')) {
+        report.missingContextFailures += 1
+      }
+      if (fatalIssues.some((issue) => issue.startsWith('trailing_') || issue === 'lookahead_continues_current_ending')) {
+        report.unresolvedEndingFailures += 1
+      }
       const rejectedClip: FinalClipValidationRejectedClip = {
         clipId: clip.id,
-        reason: 'Rejected by final boundary validator because no nearby boundary pair met the acceptance threshold.',
+        reason: 'Rejected after prepared boundary repair variants failed to produce a coherent rough cut.',
         rejectionCode: 'boundary_optimizer_threshold',
         openingPreview: typeof topAlternative?.openingPreview === 'string' ? topAlternative.openingPreview : '',
         endingPreview: typeof topAlternative?.endingPreview === 'string' ? topAlternative.endingPreview : '',
@@ -894,7 +1027,11 @@ class FinalClipValidationService {
         openingPreview: rejectedClip.openingPreview,
         endingPreview: rejectedClip.endingPreview,
         reason: rejectedClip.reason,
-        topAlternatives: optimization.topAlternatives
+        topAlternatives: optimization.topAlternatives,
+        roughCutStatus: 'rejected_after_repair',
+        boundaryVariantType: typeof topAlternative?.variantType === 'string' ? topAlternative.variantType : undefined,
+        repairOperation: typeof topAlternative?.editOperation === 'string' ? topAlternative.editOperation : undefined,
+        fatalIssues
       })
     }
 
@@ -914,12 +1051,17 @@ class FinalClipValidationService {
           decision.score = Math.max(decision.score, BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE)
           decision.openingPreview = openingPreview
           decision.endingPreview = endingPreview
-          decision.reason = 'Accepted by final boundary validator best-effort recovery because all ranked arc boundaries were rejected.'
+          decision.reason = 'Accepted as a coherent rough cut by best-effort recovery after prepared boundary variants rejected all ranked cuts.'
+          decision.roughCutStatus = 'reviewable_rough_cut'
+          decision.repairOperation = 'best_effort_recovery'
+          decision.fatalIssues = []
         }
       }
+      report.reviewableRoughCuts = accepted.length
+      report.rejectedAfterRepair = rejected.length
     }
 
-    return { accepted, rejected, decisions }
+    return { accepted, rejected, decisions, report }
   }
 
   private recoverBestEffortValidatedClips(

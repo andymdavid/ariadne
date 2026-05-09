@@ -16,6 +16,18 @@ interface PipelineRunInspectorProps {
   episodeId: string
 }
 
+type CoherentRoughCutsReport = {
+  clipsReviewed?: number
+  boundaryVariantsGenerated?: number
+  reviewableRoughCuts?: number
+  rejectedAfterRepair?: number
+  repairedStartCount?: number
+  repairedEndCount?: number
+  abruptStartFailures?: number
+  unresolvedEndingFailures?: number
+  missingContextFailures?: number
+}
+
 function formatDateTime(value: string | null) {
   if (!value) {
     return 'Not finished'
@@ -209,6 +221,10 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
   const clipRankingMetadata = clipRankingOutput && typeof clipRankingOutput.metadata === 'object'
     ? clipRankingOutput.metadata as Record<string, unknown>
     : null
+  const coherentRoughCutsReport = clipRankingMetadata?.coherentRoughCutsReport &&
+    typeof clipRankingMetadata.coherentRoughCutsReport === 'object'
+    ? clipRankingMetadata.coherentRoughCutsReport as CoherentRoughCutsReport
+    : null
   const selectedDecisions = (selectedSelection?.decisions ?? [])
     .filter((decision) => decision.decision !== 'rejected')
     .sort((left, right) => (left.rankOrder ?? Number.MAX_SAFE_INTEGER) - (right.rankOrder ?? Number.MAX_SAFE_INTEGER))
@@ -386,6 +402,31 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                     <span>Recovery Succeeded</span>
                     <span className="text-right text-text-primary">{clipRankingMetadata.fallbackBoundaryRecoverySucceeded ? 'yes' : 'no'}</span>
                   </div>
+                  {coherentRoughCutsReport && (
+                    <div className="inspector-subcard mt-3 text-[11px]">
+                      <div className="mb-2 uppercase tracking-[0.2em] text-text-muted">Coherent Rough Cuts</div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <span>Reviewed</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.clipsReviewed ?? 0)}</span>
+                        <span>Variants</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.boundaryVariantsGenerated ?? 0)}</span>
+                        <span>Rough Cuts</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.reviewableRoughCuts ?? 0)}</span>
+                        <span>Rejected After Repair</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.rejectedAfterRepair ?? 0)}</span>
+                        <span>Start Repairs</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.repairedStartCount ?? 0)}</span>
+                        <span>End Repairs</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.repairedEndCount ?? 0)}</span>
+                        <span>Abrupt Starts</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.abruptStartFailures ?? 0)}</span>
+                        <span>Unresolved Ends</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.unresolvedEndingFailures ?? 0)}</span>
+                        <span>Missing Context</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.missingContextFailures ?? 0)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

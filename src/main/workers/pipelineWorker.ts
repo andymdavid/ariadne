@@ -1081,6 +1081,10 @@ function applyFinalClipValidationToSelectionDecisions(
           endingPreview: validatorDecision.endingPreview,
           reason: validatorDecision.reason,
           topAlternatives: validatorDecision.topAlternatives,
+          roughCutStatus: validatorDecision.roughCutStatus,
+          boundaryVariantType: validatorDecision.boundaryVariantType,
+          repairOperation: validatorDecision.repairOperation,
+          fatalIssues: validatorDecision.fatalIssues,
           recoveredFromFallbackBoundaryPass: recoveredFromFallback,
           wordAdjustment
         }
@@ -1094,6 +1098,7 @@ function applyFinalClipValidationToSelectionDecisions(
             endingPreview: rejectedClip.endingPreview,
             reason: rejectedClip.reason,
             topAlternatives: rejectedClip.topAlternatives,
+            roughCutStatus: 'rejected_after_repair',
             recoveredFromFallbackBoundaryPass: recoveredFromFallback,
             wordAdjustment
           }
@@ -2193,6 +2198,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         wordBoundaryAdjustmentCount: boundaryFinalization.wordAdjustments.filter((adjustment) => adjustment.changed).length,
         finalBoundaryValidatorAcceptedCount: boundaryFinalization.validatorDecisions.filter((decision) => decision.status === 'accepted').length,
         finalBoundaryValidatorRejectedCount: boundaryFinalization.rejectedClips.length,
+        coherentRoughCutsReport: boundaryFinalization.boundaryRepairReport,
         fallbackBoundaryRecoveryAttempted: Boolean(fallbackBoundaryFinalization),
         fallbackBoundaryRecoverySucceeded: Boolean(fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0),
         fallbackBoundaryRecoveredArcIds: fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0
