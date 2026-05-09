@@ -584,7 +584,7 @@ class CoherentRoughCutService {
           modelScore: moment.score,
           finalScore: match.candidate.clip.shareabilityScore,
           reason: `Selected as coherent rough cut. ${match.candidate.thread.label}`,
-          validatorResultJson: '{}'
+          validatorResultJson: JSON.stringify(this.buildSelectedDecisionTrace(match.candidate))
         }
       }
 
@@ -596,9 +596,61 @@ class CoherentRoughCutService {
         finalScore: moment.score,
         rejectionCode: 'not_selected_by_rough_cut_portfolio',
         reason: 'Not selected by coherent rough cut portfolio pass.',
-        validatorResultJson: '{}'
+        validatorResultJson: JSON.stringify(this.buildRejectedDecisionTrace(moment))
       }
     })
+  }
+
+  private buildSelectedDecisionTrace(candidate: RoughCutCandidate) {
+    return {
+      stage: 'coherent_rough_cut_selector_v1',
+      status: 'selected_for_final_validation',
+      source: 'coherent_rough_cut_service',
+      moment: this.summarizeMoment(candidate.moment),
+      thread: candidate.thread,
+      draftSpan: candidate.draftSpan,
+      selectedVariant: this.summarizeVariant(candidate.variant),
+      completenessEvaluation: candidate.evaluation
+    }
+  }
+
+  private buildRejectedDecisionTrace(moment: RoughCutMoment) {
+    return {
+      stage: 'coherent_rough_cut_selector_v1',
+      status: 'rejected_before_final_validation',
+      source: 'coherent_rough_cut_service',
+      rejectionCode: 'not_selected_by_rough_cut_portfolio',
+      moment: this.summarizeMoment(moment)
+    }
+  }
+
+  private summarizeMoment(moment: RoughCutMoment) {
+    return {
+      id: moment.id,
+      source: moment.source,
+      sourceArcId: moment.sourceArcId,
+      sourceUnitIds: moment.sourceUnitIds,
+      startTime: moment.startTime,
+      endTime: moment.endTime,
+      duration: Number((moment.endTime - moment.startTime).toFixed(3)),
+      score: moment.score,
+      momentType: moment.momentType,
+      reasonForInterest: moment.reasonForInterest
+    }
+  }
+
+  private summarizeVariant(variant: BoundaryVariant) {
+    return {
+      id: variant.id,
+      momentId: variant.momentId,
+      draftSpanId: variant.draftSpanId,
+      variantType: variant.variantType,
+      editOperation: variant.editOperation,
+      startTime: variant.startTime,
+      endTime: variant.endTime,
+      duration: variant.duration,
+      transcriptPreview: variant.transcriptText.slice(0, 700)
+    }
   }
 
   private extractText(transcription: PipelineWorkerTranscription, startTime: number, endTime: number) {

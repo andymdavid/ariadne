@@ -1010,6 +1010,38 @@ function buildWordSpanSelectionDecisions(
   })
 }
 
+function parseValidatorResultJson(value: string | null | undefined): Record<string, unknown> | null {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+function mergeUpstreamSelectionTrace(
+  decision: PipelineWorkerSelectionDecision,
+  validatorResult: Record<string, unknown>
+) {
+  const upstreamSelection = parseValidatorResultJson(decision.validatorResultJson)
+  if (!upstreamSelection || upstreamSelection.stage === 'final_clip_validator_v1') {
+    return validatorResult
+  }
+
+  return {
+    ...validatorResult,
+    upstreamSelection
+  }
+}
+
 function applyFinalClipValidationToSelectionDecisions(
   selectionDecisions: PipelineWorkerSelectionDecision[],
   selectedClips: PipelineWorkerPotentialClip[],
@@ -1113,7 +1145,7 @@ function applyFinalClipValidationToSelectionDecisions(
 
     return {
       ...decision,
-      validatorResultJson: JSON.stringify(validatorResult)
+      validatorResultJson: JSON.stringify(mergeUpstreamSelectionTrace(decision, validatorResult))
     }
   })
 }
