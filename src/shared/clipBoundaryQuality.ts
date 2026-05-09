@@ -139,7 +139,8 @@ export const isCleanLocalClipEnd = (text: string) => {
 
   return (
     /\b(true|right|exactly|yeah|yes|no|done|finished|complete|matters|works|helps|changes|solves|defines|controls|owns|operates|operate)\s*$/.test(normalized) ||
-    /\b(that'?s why|that'?s how|which means|the point is|the takeaway|bottom line|so basically)\b[^.!?]{0,80}$/.test(normalized)
+    /\b(that'?s why|that'?s how|which means|the point is|the takeaway|bottom line|so basically)\b[^.!?]{0,80}$/.test(normalized) ||
+    /\b(wrong|right|better|best)\s+way\s+to\b[^.!?]{0,90}$/.test(normalized)
   )
 }
 
@@ -159,7 +160,8 @@ export const looksLikeCompleteThought = (text: string) => {
 
   return (
     /\b(that'?s why|that'?s how|that'?s what|which means|the point is|the takeaway|bottom line|so basically)\b/.test(normalized) ||
-    /\b(works|matters|helps|changes|solves|defines|controls|owns|operate|operates|need|should|shouldn'?t|don'?t need)\b[^.!?]{0,80}$/.test(normalized)
+    /\b(works|matters|helps|changes|solves|defines|controls|owns|operate|operates|need|should|shouldn'?t|don'?t need)\b[^.!?]{0,80}$/.test(normalized) ||
+    /\b(wrong|right|better|best)\s+way\s+to\b[^.!?]{0,90}$/.test(normalized)
   )
 }
 

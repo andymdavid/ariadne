@@ -277,7 +277,7 @@ class CoherentRoughCutService {
     }
 
     const judgeInputs = momentEvaluations
-      .flatMap((item) => item.evaluated.slice(0, 4).map((candidate): RoughCutVariantForJudging => ({
+      .flatMap((item) => this.selectVariantsForModelJudgment(item.evaluated).map((candidate): RoughCutVariantForJudging => ({
         variantId: candidate.variant.id,
         momentId: item.moment.id,
         threadLabel: item.thread.label,
@@ -287,16 +287,7 @@ class CoherentRoughCutService {
         nextContext: this.extractText(transcription, candidate.variant.endTime, Math.min(candidate.variant.endTime + 18, transcription.segments[transcription.segments.length - 1]?.end ?? candidate.variant.endTime + 18)),
         deterministicIssues: candidate.evaluation.fatalIssues
       })))
-      .sort((left, right) => {
-        const leftScore = momentEvaluations
-          .flatMap((item) => item.evaluated)
-          .find((candidate) => candidate.variant.id === left.variantId)?.evaluation.score ?? 0
-        const rightScore = momentEvaluations
-          .flatMap((item) => item.evaluated)
-          .find((candidate) => candidate.variant.id === right.variantId)?.evaluation.score ?? 0
-        return rightScore - leftScore
-      })
-      .slice(0, 48)
+      .slice(0, 72)
 
     if (judgeInputs.length === 0) {
       return { attempted: false, succeeded: false }
@@ -329,6 +320,34 @@ class CoherentRoughCutService {
         failureReason: error instanceof Error ? error.message : 'Unknown rough cut model judgment error'
       }
     }
+  }
+
+  private selectVariantsForModelJudgment(
+    evaluated: Array<{ variant: BoundaryVariant; evaluation: CompletenessEvaluation }>
+  ) {
+    const selected = new Map<string, { variant: BoundaryVariant; evaluation: CompletenessEvaluation }>()
+    const add = (candidate: { variant: BoundaryVariant; evaluation: CompletenessEvaluation } | undefined) => {
+      if (candidate) {
+        selected.set(candidate.variant.id, candidate)
+      }
+    }
+
+    evaluated.slice(0, 6).forEach(add)
+    add([...evaluated].sort((left, right) => left.variant.startTime - right.variant.startTime)[0])
+    add([...evaluated].sort((left, right) => right.variant.endTime - left.variant.endTime)[0])
+    add([...evaluated].sort((left, right) =>
+      (right.variant.endTime - right.variant.startTime) - (left.variant.endTime - left.variant.startTime)
+    )[0])
+    add(evaluated.find((candidate) =>
+      candidate.variant.editOperation.includes('expand_left') &&
+      candidate.variant.editOperation.includes('expand_right')
+    ))
+    add(evaluated.find((candidate) => candidate.variant.variantType.includes('previous_line_start')))
+    add(evaluated.find((candidate) => candidate.variant.variantType.includes('next_line_end')))
+
+    return [...selected.values()]
+      .sort((left, right) => right.evaluation.score - left.evaluation.score)
+      .slice(0, 10)
   }
 
   private mergeModelJudgment(

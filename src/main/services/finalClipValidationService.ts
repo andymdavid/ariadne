@@ -974,12 +974,20 @@ class FinalClipValidationService {
     for (const clip of clips) {
       const optimization = this.optimizeClipBoundary(transcription, clip, mediaDuration, preferredTranscriptLines)
       report.boundaryVariantsGenerated += optimization.alternativesConsidered
+      const hasOnlySoftContinuationWarning = Boolean(
+        optimization.best &&
+        !optimization.best.startBoundaryIssue &&
+        !optimization.best.hardEndIssue &&
+        !optimization.best.startLookbackIssue &&
+        optimization.best.lookaheadIssue &&
+        optimization.best.localEndClean
+      )
       const contextClean = Boolean(
         optimization.best &&
         !optimization.best.startBoundaryIssue &&
         !optimization.best.hardEndIssue &&
         !optimization.best.startLookbackIssue &&
-        !optimization.best.lookaheadIssue
+        (!optimization.best.lookaheadIssue || hasOnlySoftContinuationWarning)
       )
       const meetsPreferredThreshold = Boolean(
         optimization.best &&
@@ -1008,14 +1016,18 @@ class FinalClipValidationService {
           alternativesConsidered: optimization.alternativesConsidered,
           openingPreview: optimization.best.openingPreview,
           endingPreview: optimization.best.endingPreview,
-          reason: optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE
-            ? 'Accepted as a coherent rough cut after prepared boundary variant search.'
-            : 'Accepted as a coherent rough cut using a lower-scoring prepared boundary variant.',
+          reason: hasOnlySoftContinuationWarning
+            ? 'Accepted as a coherent rough cut with a soft continuation warning after prepared boundary variant search.'
+            : optimization.best.score >= BOUNDARY_OPTIMIZER_MIN_SCORE
+              ? 'Accepted as a coherent rough cut after prepared boundary variant search.'
+              : 'Accepted as a coherent rough cut using a lower-scoring prepared boundary variant.',
           topAlternatives: optimization.topAlternatives,
           roughCutStatus: 'reviewable_rough_cut',
           boundaryVariantType: optimization.best.variantType,
           repairOperation: optimization.best.editOperation,
-          fatalIssues: []
+          fatalIssues: hasOnlySoftContinuationWarning && optimization.best.lookaheadIssue
+            ? [optimization.best.lookaheadIssue]
+            : []
         })
         continue
       }
