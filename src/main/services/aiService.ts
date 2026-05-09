@@ -462,7 +462,7 @@ class AIService {
     }
 
     onProgress?.(10)
-    const payload = variants.slice(0, 48).map((variant) => ({
+    const payload = variants.slice(0, 72).map((variant) => ({
       variant_id: variant.variantId,
       moment_id: variant.momentId,
       thread: variant.threadLabel,

@@ -19,7 +19,7 @@ import type {
 
 type RoughCutMoment = {
   id: string
-  source: 'candidate_arc' | 'editorial_unit_window'
+  source: 'candidate_arc' | 'editorial_unit_window' | 'transcript_line_window'
   sourceArcId: string | null
   sourceUnitIds: string[]
   startTime: number
@@ -105,7 +105,10 @@ export type CoherentRoughCutResult = {
 const TARGET_MIN_SECONDS = 20
 const TARGET_MAX_SECONDS = 90
 const REPAIR_MAX_SECONDS = 150
-const MOMENT_LIMIT = 12
+const MOMENT_LIMIT = 24
+const ARC_MOMENT_LIMIT = 10
+const UNIT_WINDOW_LIMIT = 8
+const TRANSCRIPT_LINE_WINDOW_LIMIT = 14
 
 class CoherentRoughCutService {
   async selectRoughCuts(input: {
@@ -117,7 +120,7 @@ class CoherentRoughCutService {
     aiService?: AIService | null
     onProgress?: (progress: number) => void
   }): Promise<CoherentRoughCutResult> {
-    const moments = this.generateMoments(input.editorialUnits, input.candidateArcs)
+    const moments = this.generateMoments(input.editorialUnits, input.candidateArcs, input.transcription)
     const momentEvaluations: Array<{
       moment: RoughCutMoment
       thread: RoughCutThread
@@ -215,8 +218,12 @@ class CoherentRoughCutService {
     }
   }
 
-  private generateMoments(units: EditorialUnit[], arcs: CandidateArc[]): RoughCutMoment[] {
-    const arcMoments = arcs.slice(0, MOMENT_LIMIT).map((arc, index): RoughCutMoment => ({
+  private generateMoments(
+    units: EditorialUnit[],
+    arcs: CandidateArc[],
+    transcription: PipelineWorkerTranscription
+  ): RoughCutMoment[] {
+    const arcMoments = arcs.slice(0, ARC_MOMENT_LIMIT).map((arc, index): RoughCutMoment => ({
       id: `moment_arc_${index + 1}_${arc.id}`,
       source: 'candidate_arc',
       sourceArcId: arc.id,
@@ -228,11 +235,7 @@ class CoherentRoughCutService {
       reasonForInterest: arc.summary || arc.topic || arc.keyQuote
     }))
 
-    if (arcMoments.length >= 8) {
-      return arcMoments
-    }
-
-    const windows: RoughCutMoment[] = []
+    const unitWindows: RoughCutMoment[] = []
     for (let startIndex = 0; startIndex < units.length; startIndex += 1) {
       for (let endIndex = startIndex; endIndex < units.length; endIndex += 1) {
         const windowUnits = units.slice(startIndex, endIndex + 1)
@@ -243,8 +246,8 @@ class CoherentRoughCutService {
         if (duration < TARGET_MIN_SECONDS) continue
         if (!windowUnits.some((unit) => unit.role === 'claim' || unit.role === 'hook' || unit.role === 'payoff')) continue
 
-        windows.push({
-          id: `moment_window_${windows.length + 1}`,
+        unitWindows.push({
+          id: `moment_window_${unitWindows.length + 1}`,
           source: 'editorial_unit_window',
           sourceArcId: null,
           sourceUnitIds: windowUnits.map((unit) => unit.id),
@@ -257,8 +260,49 @@ class CoherentRoughCutService {
       }
     }
 
-    return [...arcMoments, ...windows.sort((left, right) => right.score - left.score)]
+    const transcriptLineWindows = this.generateTranscriptLineWindowMoments(transcription)
+
+    return [
+      ...arcMoments,
+      ...unitWindows.sort((left, right) => right.score - left.score).slice(0, UNIT_WINDOW_LIMIT),
+      ...transcriptLineWindows
+    ]
+      .sort((left, right) => right.score - left.score)
       .slice(0, MOMENT_LIMIT)
+  }
+
+  private generateTranscriptLineWindowMoments(transcription: PipelineWorkerTranscription): RoughCutMoment[] {
+    const lines = buildTranscriptLinesFromSegments(transcription.segments)
+    const windows: RoughCutMoment[] = []
+
+    for (let startIndex = 0; startIndex < lines.length; startIndex += 1) {
+      for (let endIndex = startIndex; endIndex < lines.length; endIndex += 1) {
+        const startLine = lines[startIndex]
+        const endLine = lines[endIndex]
+        const duration = endLine.end - startLine.start
+        if (duration > REPAIR_MAX_SECONDS) break
+        if (duration < TARGET_MIN_SECONDS) continue
+
+        const text = lines.slice(startIndex, endIndex + 1).map((line) => line.text).join(' ').replace(/\s+/g, ' ').trim()
+        if (!this.hasEnoughSubstance(text)) continue
+
+        windows.push({
+          id: `moment_line_window_${startIndex + 1}_${endIndex + 1}`,
+          source: 'transcript_line_window',
+          sourceArcId: null,
+          sourceUnitIds: [],
+          startTime: startLine.start,
+          endTime: endLine.end,
+          score: this.scoreTranscriptLineWindow(text, duration, startIndex, endIndex),
+          momentType: this.inferMomentTypeFromText(text),
+          reasonForInterest: text.slice(0, 260)
+        })
+      }
+    }
+
+    return windows
+      .sort((left, right) => right.score - left.score)
+      .slice(0, TRANSCRIPT_LINE_WINDOW_LIMIT)
   }
 
   private async applyModelJudgments(
@@ -387,6 +431,60 @@ class CoherentRoughCutService {
       return score + 0.3
     }, 0)
     return Number(Math.max(1, Math.min(9.2, 4 + cleanStart + cleanEnd + roleScore)).toFixed(2))
+  }
+
+  private hasEnoughSubstance(text: string) {
+    const words = text.split(/\s+/).filter(Boolean)
+    if (words.length < 90) {
+      return false
+    }
+
+    const normalized = text.toLowerCase()
+    const fillerMatches = normalized.match(/\b(yeah|yep|okay|right|like|you know|um|uh)\b/g) ?? []
+    const fillerRatio = fillerMatches.length / words.length
+    if (fillerRatio > 0.16) {
+      return false
+    }
+
+    return /\b(because|why|how|what|think|mean|point|problem|decision|decisions|business|people|need|should|actually|really|important|different|wrong|right|works|own|owned|ownership|consistent|consistency)\b/i.test(text)
+  }
+
+  private scoreTranscriptLineWindow(text: string, duration: number, startIndex: number, endIndex: number) {
+    const openingWords = text.split(/\s+/).slice(0, 12).join(' ')
+    const endingWords = text.split(/\s+/).slice(-18).join(' ')
+    const cleanStart = !getLeadingBoundaryIssue(openingWords) && isCleanClipStart(openingWords)
+    const cleanEnd = !getTrailingBoundaryIssue(endingWords) && (isCleanClipEnd(text) || looksLikeCompleteThought(text))
+    const durationScore = duration >= 35 && duration <= TARGET_MAX_SECONDS
+      ? 1.4
+      : duration <= 120
+        ? 0.8
+        : 0.2
+    const lineCount = endIndex - startIndex + 1
+    const lineCountScore = lineCount >= 3 && lineCount <= 10 ? 0.8 : 0.2
+    const substanceScore = this.hasStrongConversationalSubstance(text) ? 1.2 : 0.4
+
+    return Number(Math.max(1, Math.min(9.5,
+      5.2 +
+      (cleanStart ? 1 : -0.8) +
+      (cleanEnd ? 1.2 : -0.6) +
+      durationScore +
+      lineCountScore +
+      substanceScore
+    )).toFixed(2))
+  }
+
+  private hasStrongConversationalSubstance(text: string) {
+    return /\b(that'?s why|that'?s how|which means|the point is|because|the problem|the decision|wrong way|right way|need to|have to|be able to|business|ownership|consistency|consistent)\b/i.test(text)
+  }
+
+  private inferMomentTypeFromText(text: string): PipelineWorkerPotentialClip['contentType'] {
+    if (/\b(wrong way|right way|shouldn'?t|don'?t|hot take|honestly)\b/i.test(text)) {
+      return 'hot_take'
+    }
+    if (/\b(how to|need to|have to|should|practical|decision|decisions)\b/i.test(text)) {
+      return 'advice'
+    }
+    return 'insight'
   }
 
   private labelThread(moment: RoughCutMoment, units: EditorialUnit[], arcs: CandidateArc[]): RoughCutThread {
