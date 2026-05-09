@@ -128,6 +128,13 @@ class ClipProjectionService {
       return 'word_span_clip_selector'
     }
 
+    if (selectionDecisions.some((decision) =>
+      decision.decision === 'selected' &&
+      /coherent rough cut/i.test(decision.reason ?? '')
+    )) {
+      return 'coherent_rough_cut_service'
+    }
+
     if (selectionDecisions.some((decision) => decision.decision === 'selected')) {
       return 'candidate_arc_ranker'
     }

@@ -7,6 +7,7 @@ import { arcSelectionService } from '../services/arcSelectionService'
 import ClipSelectionAgentService, { ClipSelectionAgentError } from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
 import { canonicalTimelineService } from '../services/canonicalTimelineService'
+import { coherentRoughCutService } from '../services/coherentRoughCutService'
 import { finalClipValidationService } from '../services/finalClipValidationService'
 import type { FinalClipValidationResult } from '../services/finalClipValidationService'
 import LocalWhisperService from '../services/localWhisperService'
@@ -1503,7 +1504,62 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       }
     }
 
-    if (!aiService) {
+    if (candidateArcs.length > 0 || editorialUnits.length > 0) {
+      postProgress(command.workflowJobId, currentStage, 5, 'Drafting coherent rough cuts...')
+      const roughCutSelection = coherentRoughCutService.selectRoughCuts({
+        transcription,
+        editorialUnits,
+        candidateArcs,
+        mediaDuration: command.mediaDuration,
+        targetClipCount: resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration)
+      })
+
+      if (roughCutSelection.clips.length > 0) {
+        analysis = { potentialClips: roughCutSelection.clips }
+        aiAnalysisSucceeded = Boolean(aiService)
+        selectionDecisions = roughCutSelection.decisions
+        clipSelectionSourceMetadata = {
+          ...clipSelectionSourceMetadata,
+          selectionSource: 'coherent_rough_cut_service',
+          coherentRoughCutAttempted: true,
+          coherentRoughCutSucceeded: true,
+          coherentRoughCutReport: roughCutSelection.metadata
+        }
+
+        postStageCompleted(command.workflowJobId, currentStage, {
+          clipCount: analysis.potentialClips.length,
+          mode: 'coherent_rough_cut_service',
+          aiAnalysisSucceeded,
+          selectionDecisions,
+          selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+            id: clip.id,
+            startTime: clip.startTime,
+            endTime: clip.endTime,
+            shareabilityScore: clip.shareabilityScore
+          })),
+          metadata: {
+            ...getRankingModelMetadata(command),
+            ...clipSelectionSourceMetadata,
+            coherentRoughCut: roughCutSelection.metadata,
+            editorialUnitBuilderVersion: 'editorial_units_v1',
+            candidateArcGeneratorVersion: 'candidate_arcs_v1',
+            editorialUnits: summarizeEditorialUnits(editorialUnits),
+            candidateArcs: summarizeCandidateArcs(candidateArcs),
+            boundaryViableCandidateArcs: summarizeCandidateArcs(selectionCandidateArcs)
+          },
+          analysis
+        })
+      } else {
+        clipSelectionSourceMetadata = {
+          ...clipSelectionSourceMetadata,
+          coherentRoughCutAttempted: true,
+          coherentRoughCutSucceeded: false,
+          coherentRoughCutReport: roughCutSelection.metadata
+        }
+      }
+    }
+
+    if (!analysis && !aiService) {
       if (selectionCandidateArcs.length > 0) {
         const arcSelection = await arcSelectionService.selectCandidateArcs(
           selectionCandidateArcs,
@@ -1577,12 +1633,15 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             analysis
           })
       }
-    } else {
+    }
+
+    if (!analysis && aiService) {
+      const activeAiService = aiService
       let agentFailureMetadata: Record<string, unknown> | null = null
 
       try {
         postProgress(command.workflowJobId, currentStage, 6, 'Selecting exact transcript word spans...')
-        const wordSpanSelections = await aiService.selectWordSpanClips(
+        const wordSpanSelections = await activeAiService.selectWordSpanClips(
           transcription,
           command.mediaDuration,
           resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
@@ -1650,7 +1709,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
             selectionCandidateArcs,
             command.mediaDuration,
             resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
-            aiService,
+            activeAiService,
             (progress) => {
               postProgress(command.workflowJobId, currentStage, Math.min(8 + progress * 0.32, 40), 'Ranking editorial candidate arcs...')
             }
@@ -1720,7 +1779,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         try {
           postProgress(command.workflowJobId, currentStage, 10, 'Proposing resolved clip arcs...')
 
-          const resolvedProposals = await aiService.proposeResolvedClips(
+          const resolvedProposals = await activeAiService.proposeResolvedClips(
             transcription,
             command.mediaDuration,
             (progress) => {
@@ -1855,7 +1914,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         try {
           postProgress(command.workflowJobId, currentStage, 10, 'AI proposing clip boundaries...')
 
-          const proposedClips = await aiService.proposeBoundaries(
+          const proposedClips = await activeAiService.proposeBoundaries(
             transcription,
             command.mediaDuration,
             (progress) => {
@@ -1880,7 +1939,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
               }))
             }
 
-            const semanticReview = await finalClipValidationService.applySemanticBoundaryReview(transcription, analysis.potentialClips, aiService, command.mediaDuration)
+            const semanticReview = await finalClipValidationService.applySemanticBoundaryReview(transcription, analysis.potentialClips, activeAiService, command.mediaDuration)
             analysis = { potentialClips: semanticReview.clips }
             aiAnalysisSucceeded = true
 
@@ -1925,7 +1984,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         try {
           postProgress(command.workflowJobId, currentStage, 55, 'Falling back to candidate ranking...')
 
-          analysis = await aiService.analyzeTranscript(
+          analysis = await activeAiService.analyzeTranscript(
             transcription,
             command.mediaDuration,
             candidates,
@@ -1933,7 +1992,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
               postProgress(command.workflowJobId, currentStage, 55 + progress * 0.4, 'AI ranking candidates...')
             }
           )
-          const semanticReview = await finalClipValidationService.applySemanticBoundaryReview(transcription, analysis.potentialClips, aiService, command.mediaDuration)
+          const semanticReview = await finalClipValidationService.applySemanticBoundaryReview(transcription, analysis.potentialClips, activeAiService, command.mediaDuration)
           analysis = { potentialClips: semanticReview.clips }
           aiAnalysisSucceeded = true
 
