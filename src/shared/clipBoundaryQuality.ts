@@ -9,7 +9,7 @@ export type BoundaryQuality = {
 }
 
 const CONTINUATION_WORD_PATTERN =
-  /^(and|but|so|because|then|which|that|it|this|these|those|or|if|when|where|while|who|what|how|than|as|to|for|with|of|in|on|at|from|by|about|into|over|after|before)\b/i
+  /^(and|but|so|because|then|which|that|it|this|these|those|or|than|as|to|for|with|of|in|on|at|from|by|about|into|over|after|before)\b/i
 
 const normalize = (text: string) => text.trim().toLowerCase()
 
@@ -57,7 +57,7 @@ export const getLeadingBoundaryIssue = (text: string): string | null => {
     return 'leading_aside'
   }
 
-  if (/^(gonna|going|wanna|want|need|trying|able|owned|doing|done)\b/.test(normalized)) {
+  if (/^(gonna|going|wanna|want|need|trying|able|owned|doing|done|way)\b/.test(normalized)) {
     return 'leading_fragment'
   }
 
