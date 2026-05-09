@@ -426,20 +426,21 @@ class ProcessingPipeline {
     startedAt: number,
     window?: BrowserWindow
   ) {
+    const namespacedWorkerResult = this.namespaceSelectionArtifacts(selectionRunId, workerResult)
     await this.storeTranscript(episodeId, workerResult.transcription)
-    this.storeSelectionArtifacts(selectionRunId, episodeId, workerResult)
+    this.storeSelectionArtifacts(selectionRunId, episodeId, namespacedWorkerResult)
     const storedClips = await this.storeClips(
       episodeId,
-      workerResult,
+      namespacedWorkerResult,
       sourceResolution,
       workflowJobId,
       selectionRunId
     )
-    await this.storeGeneratedContentPackages(storedClips, workerResult.contentPackages)
-    this.completePipelineSelectionRun(workflowJobId, selectionRunId, episodeId, workerResult)
+    await this.storeGeneratedContentPackages(storedClips, namespacedWorkerResult.contentPackages)
+    this.completePipelineSelectionRun(workflowJobId, selectionRunId, episodeId, namespacedWorkerResult)
 
     database.updateEpisodeStatus(episodeId, 'completed')
-    this.completeWorkflowJob(workflowJobId, projectId, episodeId, workerResult.analysis.potentialClips.length)
+    this.completeWorkflowJob(workflowJobId, projectId, episodeId, namespacedWorkerResult.analysis.potentialClips.length)
 
     configService.addRecentProject({
       id: projectId,
@@ -452,7 +453,7 @@ class ProcessingPipeline {
       stage: 'completed',
       progress: 100,
       stageProgress: 100,
-      message: `Found ${workerResult.analysis.potentialClips.length} potential clips!`
+      message: `Found ${namespacedWorkerResult.analysis.potentialClips.length} potential clips!`
     })
 
     const processingTime = (Date.now() - startedAt) / 1000
@@ -460,18 +461,18 @@ class ProcessingPipeline {
       jobId: workflowJobId,
       projectId,
       episodeId,
-      clipsFound: workerResult.analysis.potentialClips.length,
+      clipsFound: namespacedWorkerResult.analysis.potentialClips.length,
       processingTime,
-      aiAnalysisSucceeded: workerResult.aiAnalysisSucceeded,
+      aiAnalysisSucceeded: namespacedWorkerResult.aiAnalysisSucceeded,
       hasTranscript: true
     }
 
     window?.webContents.send('processing-complete', result)
 
-    const finalMessage = workerResult.aiAnalysisSucceeded
-      ? `Found ${workerResult.analysis.potentialClips.length} potential clips!`
-      : workerResult.analysis.potentialClips.length > 0
-        ? `Generated ${workerResult.analysis.potentialClips.length} heuristic clip suggestions.`
+    const finalMessage = namespacedWorkerResult.aiAnalysisSucceeded
+      ? `Found ${namespacedWorkerResult.analysis.potentialClips.length} potential clips!`
+      : namespacedWorkerResult.analysis.potentialClips.length > 0
+        ? `Generated ${namespacedWorkerResult.analysis.potentialClips.length} heuristic clip suggestions.`
         : 'Transcription completed, but no clips were identified.'
 
     this.sendProgress(window, {
@@ -483,6 +484,63 @@ class ProcessingPipeline {
     })
 
     return result
+  }
+
+  private namespaceSelectionArtifacts(
+    selectionRunId: string,
+    workerResult: PipelineWorkerCompletedEvent
+  ): PipelineWorkerCompletedEvent {
+    const prefix = `${selectionRunId}:`
+    const namespaceId = (id: string | null | undefined) => {
+      if (!id) {
+        return id
+      }
+      return id.startsWith(prefix) ? id : `${prefix}${id}`
+    }
+
+    const unitIdByOriginal = new Map<string, string>()
+    const arcIdByOriginal = new Map<string, string>()
+
+    const editorialUnits = workerResult.editorialUnits?.map((unit) => {
+      const id = namespaceId(unit.id) ?? unit.id
+      unitIdByOriginal.set(unit.id, id)
+      return { ...unit, id }
+    })
+
+    const candidateArcs = workerResult.candidateArcs?.map((arc) => {
+      const id = namespaceId(arc.id) ?? arc.id
+      arcIdByOriginal.set(arc.id, id)
+      return {
+        ...arc,
+        id,
+        unitIds: arc.unitIds.map((unitId) => unitIdByOriginal.get(unitId) ?? namespaceId(unitId) ?? unitId)
+      }
+    })
+
+    const selectionDecisions = workerResult.selectionDecisions?.map((decision) => ({
+      ...decision,
+      candidateArcId: decision.candidateArcId
+        ? arcIdByOriginal.get(decision.candidateArcId) ?? namespaceId(decision.candidateArcId)
+        : decision.candidateArcId
+    }))
+
+    const potentialClips = workerResult.analysis.potentialClips.map((clip) => ({
+      ...clip,
+      sourceArcId: clip.sourceArcId
+        ? arcIdByOriginal.get(clip.sourceArcId) ?? namespaceId(clip.sourceArcId)
+        : clip.sourceArcId
+    }))
+
+    return {
+      ...workerResult,
+      editorialUnits,
+      candidateArcs,
+      selectionDecisions,
+      analysis: {
+        ...workerResult.analysis,
+        potentialClips
+      }
+    }
   }
 
   private parseStepOutput<T>(workflowJobId: string, stepKey: PipelineStepKey): T | null {

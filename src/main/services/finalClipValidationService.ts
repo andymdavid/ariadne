@@ -25,6 +25,7 @@ const SEMANTIC_CLIP_MAX_DURATION_SECONDS = 120
 const RESOLVED_CLIP_MIN_DURATION_SECONDS = 25
 const BOUNDARY_OPTIMIZER_MIN_SCORE = 45
 const BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE = 25
+const BOUNDARY_OPTIMIZER_ROUGH_CUT_SCORE = 18
 const BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS = 1.1
 
 type BoundaryAnchor = {
@@ -892,7 +893,7 @@ class FinalClipValidationService {
 
     scored.sort((left, right) => right.score - left.score)
     const acceptable = scored.find((item) =>
-      item.score >= BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE &&
+      item.score >= BOUNDARY_OPTIMIZER_ROUGH_CUT_SCORE &&
       !item.startBoundaryIssue &&
       !item.hardEndIssue &&
       !item.startLookbackIssue &&
@@ -960,7 +961,7 @@ class FinalClipValidationService {
       const softAccepted = Boolean(
         contextClean &&
         optimization.best &&
-        optimization.best.score >= BOUNDARY_OPTIMIZER_SOFT_ACCEPT_SCORE
+        optimization.best.score >= BOUNDARY_OPTIMIZER_ROUGH_CUT_SCORE
       )
       if (optimization.best && contextClean && (meetsPreferredThreshold || softAccepted)) {
         const repairedStart = Math.abs(optimization.best.clip.startTime - clip.startTime) > CLIP_REFINEMENT_WORD_GUARD_SECONDS
