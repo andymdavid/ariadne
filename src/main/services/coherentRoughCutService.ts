@@ -1,11 +1,14 @@
 import { randomUUID } from 'crypto'
 import {
+  endsWithDanglingPhrase,
+  endsWithTerminalPunctuation,
   getLeadingBoundaryIssue,
   getTrailingBoundaryIssue,
   isCleanClipEnd,
   isCleanClipStart,
   looksLikeCompleteThought,
-  startsLikeContinuation
+  startsLikeContinuation,
+  stripLeadingBoundaryFiller
 } from '../../shared/clipBoundaryQuality'
 import type { CandidateArc, EditorialUnit } from '../../shared/editorialUnits'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
@@ -14,7 +17,8 @@ import type { RoughCutVariantForJudging, RoughCutVariantJudgment } from './aiSer
 import type {
   PipelineWorkerPotentialClip,
   PipelineWorkerSelectionDecision,
-  PipelineWorkerTranscription
+  PipelineWorkerTranscription,
+  PipelineWorkerWord
 } from '@shared/types/pipelineWorker'
 
 type RoughCutMoment = {
@@ -112,6 +116,10 @@ const MOMENT_LIMIT = 24
 const ARC_MOMENT_LIMIT = 10
 const UNIT_WINDOW_LIMIT = 8
 const TRANSCRIPT_LINE_WINDOW_LIMIT = 14
+const BOUNDARY_GUARD_SECONDS = 0.04
+const THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS = 1.1
+const START_LOOKBACK_SECONDS = 1.1
+const END_LOOKAHEAD_SECONDS = 6
 
 class CoherentRoughCutService {
   async selectRoughCuts(input: {
@@ -434,11 +442,13 @@ class CoherentRoughCutService {
     const fatalIssues = judgment.fatalIssues.length > 0
       ? judgment.fatalIssues
       : deterministic.fatalIssues
+    const hardDeterministicIssues = deterministic.fatalIssues.filter((issue) => this.isHardBoundaryIssue(issue))
     const isCoherent = judgment.isReviewable &&
       judgment.startStatus === 'clean' &&
       judgment.endStatus === 'rounded' &&
       judgment.contextStatus === 'sufficient' &&
-      judgment.threadPreserved
+      judgment.threadPreserved &&
+      hardDeterministicIssues.length === 0
 
     return {
       variantId: deterministic.variantId,
@@ -448,10 +458,18 @@ class CoherentRoughCutService {
       contextStatus: judgment.contextStatus,
       threadPreserved: judgment.threadPreserved,
       tooPadded: judgment.tooPadded,
-      fatalIssues: isCoherent ? [] : fatalIssues,
+      fatalIssues: isCoherent ? [] : [...new Set([...hardDeterministicIssues, ...fatalIssues])],
       score: Number(Math.max(0, Math.min(100, judgment.score)).toFixed(3)),
       rationale: judgment.rationale || deterministic.rationale
     }
+  }
+
+  private isHardBoundaryIssue(issue: string) {
+    return issue === 'leading_continues_previous_thought' ||
+      issue === 'lookahead_continues_current_ending' ||
+      issue === 'leading_continuation' ||
+      issue === 'abrupt_start' ||
+      issue.startsWith('trailing_')
   }
 
   private scoreUnitWindow(units: EditorialUnit[]) {
@@ -600,11 +618,32 @@ class CoherentRoughCutService {
         time: line.start,
         type: line.start < input.draftSpan.startTime ? 'previous_line_start' : 'line_start'
       }))
+    const words = this.getWordsWithinWindow(input.transcription, minStart, Math.min(input.draftSpan.startTime + 10, input.draftSpan.endTime))
+    const wordStarts = words
+      .filter((word, index) => {
+        if (word.start < minStart || word.start > maxStart) return false
+        const previous = words[index - 1]
+        const gap = previous ? word.start - previous.end : Number.POSITIVE_INFINITY
+        const leadingText = words.slice(index, index + 8).map((item) => item.word).join(' ')
+        return gap >= 0.22 || isCleanClipStart(leadingText) || this.isRecoverableLeadInStart(leadingText)
+      })
+      .map((word) => ({
+        time: word.start,
+        type: word.start < input.draftSpan.startTime ? 'previous_word_start' : 'word_start'
+      }))
+    const segmentStarts = input.transcription.segments
+      .filter((segment) => segment.start >= minStart && segment.start <= maxStart)
+      .map((segment) => ({
+        time: segment.start,
+        type: segment.start < input.draftSpan.startTime ? 'previous_segment_start' : 'segment_start'
+      }))
 
     return this.uniqueAnchors([
       { time: input.draftSpan.startTime, type: 'draft_start' },
       ...unitStarts,
-      ...lineStarts
+      ...lineStarts,
+      ...segmentStarts,
+      ...wordStarts
     ])
   }
 
@@ -629,11 +668,26 @@ class CoherentRoughCutService {
         time: line.end,
         type: line.end > input.draftSpan.endTime ? 'next_line_end' : 'line_end'
       }))
+    const words = this.getWordsWithinWindow(input.transcription, Math.max(0, minEnd - 8), maxEnd)
+    const wordEnds = words
+      .filter((word) => word.end >= minEnd && word.end <= maxEnd)
+      .map((word) => ({
+        time: Math.min(input.mediaDuration, Number((word.end + 0.22).toFixed(3))),
+        type: word.end > input.draftSpan.endTime ? 'extended_word_end' : 'word_end'
+      }))
+    const segmentEnds = input.transcription.segments
+      .filter((segment) => segment.end >= minEnd && segment.end <= maxEnd)
+      .map((segment) => ({
+        time: segment.end,
+        type: segment.end > input.draftSpan.endTime ? 'next_segment_end' : 'segment_end'
+      }))
 
     return this.uniqueAnchors([
       { time: input.draftSpan.endTime, type: 'draft_end' },
       ...unitEnds,
-      ...lineEnds
+      ...lineEnds,
+      ...segmentEnds,
+      ...wordEnds
     ])
   }
 
@@ -645,13 +699,17 @@ class CoherentRoughCutService {
     const endingWords = variant.transcriptText.split(/\s+/).slice(-18).join(' ')
     const leadingIssue = getLeadingBoundaryIssue(openingWords)
     const trailingIssue = getTrailingBoundaryIssue(endingWords) ?? getTrailingBoundaryIssue(variant.transcriptText)
+    const startLookbackIssue = this.getVariantStartLookbackIssue(transcription, variant)
+    const lookaheadIssue = this.getVariantEndLookaheadIssue(transcription, variant)
     const nextText = this.extractText(transcription, variant.endTime, Math.min(variant.endTime + 12, variant.endTime + 30))
     const startsClean = !leadingIssue && isCleanClipStart(openingWords)
     const endsClean = !trailingIssue && (isCleanClipEnd(variant.transcriptText) || looksLikeCompleteThought(variant.transcriptText))
-    const nextContinues = Boolean(nextText && (startsLikeContinuation(nextText) || !endsClean))
+    const nextContinues = Boolean(lookaheadIssue || (nextText && (startsLikeContinuation(nextText) || !endsClean)))
     const fatalIssues = [
       startsClean ? null : leadingIssue ?? 'abrupt_start',
       endsClean ? null : trailingIssue ?? 'unresolved_ending',
+      startLookbackIssue,
+      lookaheadIssue,
       nextContinues ? 'needs_next_sentence' : null
     ].filter((issue): issue is string => Boolean(issue))
     const tooPadded = variant.duration > TARGET_MAX_SECONDS
@@ -801,6 +859,131 @@ class CoherentRoughCutService {
       duration: variant.duration,
       transcriptPreview: variant.transcriptText.slice(0, 700)
     }
+  }
+
+  private getWordsWithinWindow(
+    transcription: PipelineWorkerTranscription,
+    startTime: number,
+    endTime: number
+  ): PipelineWorkerWord[] {
+    return transcription.segments
+      .flatMap((segment) => segment.words ?? [])
+      .filter((word) =>
+        Number.isFinite(word.start) &&
+        Number.isFinite(word.end) &&
+        word.end > startTime &&
+        word.start < endTime &&
+        String(word.word ?? '').trim().length > 0
+      )
+      .map((word) => ({
+        word: String(word.word ?? '').trim(),
+        start: Number(word.start),
+        end: Number(word.end)
+      }))
+      .sort((left, right) => left.start - right.start)
+  }
+
+  private wordsToText(words: PipelineWorkerWord[]) {
+    return words.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
+  }
+
+  private isRecoverableLeadInStart(text: string) {
+    const normalized = text.trim().replace(/\s+/g, ' ').toLowerCase()
+    return /^(and\s+i\s+(think|mean|guess|would|can|was|have)|and\s+so\b|but\s+i\b)/.test(normalized)
+  }
+
+  private shouldContinueThoughtAcrossBoundary(currentText: string, nextText: string, gap: number) {
+    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
+      return false
+    }
+
+    if (endsWithTerminalPunctuation(currentText)) {
+      return false
+    }
+
+    if (endsWithDanglingPhrase(currentText)) {
+      return true
+    }
+
+    if (startsLikeContinuation(nextText)) {
+      return true
+    }
+
+    return !looksLikeCompleteThought(currentText)
+  }
+
+  private endsWithConversationalAcknowledgementBeforeContinuation(currentText: string, nextText: string, gap: number) {
+    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
+      return false
+    }
+
+    const current = currentText.trim().toLowerCase()
+    const next = stripLeadingBoundaryFiller(nextText).trim()
+    if (!current || !next) {
+      return false
+    }
+
+    return /\b(yeah|yep|yes|right|okay|ok)\s*$/i.test(current)
+  }
+
+  private getVariantStartLookbackIssue(
+    transcription: PipelineWorkerTranscription,
+    variant: BoundaryVariant
+  ): string | null {
+    const words = this.getWordsWithinWindow(
+      transcription,
+      Math.max(0, variant.startTime - START_LOOKBACK_SECONDS),
+      Math.min(variant.endTime, variant.startTime + 4)
+    )
+    const previousWords = words.filter((word) => word.end <= variant.startTime + BOUNDARY_GUARD_SECONDS).slice(-8)
+    const nextWords = words.filter((word) => word.start >= variant.startTime - BOUNDARY_GUARD_SECONDS).slice(0, 8)
+
+    if (previousWords.length === 0 || nextWords.length === 0) {
+      return null
+    }
+
+    const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
+    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
+      return null
+    }
+
+    return this.shouldContinueThoughtAcrossBoundary(this.wordsToText(previousWords), this.wordsToText(nextWords), gap)
+      ? 'leading_continues_previous_thought'
+      : null
+  }
+
+  private getVariantEndLookaheadIssue(
+    transcription: PipelineWorkerTranscription,
+    variant: BoundaryVariant
+  ): string | null {
+    const words = this.getWordsWithinWindow(
+      transcription,
+      Math.max(0, variant.endTime - 3),
+      Math.min(variant.endTime + END_LOOKAHEAD_SECONDS, transcription.segments[transcription.segments.length - 1]?.end ?? variant.endTime + END_LOOKAHEAD_SECONDS)
+    )
+    const previousWords = words.filter((word) => word.end <= variant.endTime + BOUNDARY_GUARD_SECONDS).slice(-6)
+    const nextWords = words.filter((word) => word.start > variant.endTime - BOUNDARY_GUARD_SECONDS).slice(0, 6)
+
+    if (previousWords.length === 0 || nextWords.length === 0) {
+      return null
+    }
+
+    const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
+    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
+      return null
+    }
+
+    const previousText = this.wordsToText(previousWords)
+    const nextText = this.wordsToText(nextWords)
+    const joined = this.wordsToText([...previousWords, ...nextWords]).toLowerCase()
+
+    return (
+      /\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w+\s+\w+/.test(joined) ||
+      this.endsWithConversationalAcknowledgementBeforeContinuation(previousText, nextText, gap) ||
+      this.shouldContinueThoughtAcrossBoundary(previousText, nextText, gap)
+    )
+      ? 'lookahead_continues_current_ending'
+      : null
   }
 
   private extractText(transcription: PipelineWorkerTranscription, startTime: number, endTime: number) {
