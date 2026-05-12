@@ -87,10 +87,13 @@ export type CoherentRoughCutResult = {
     executor: 'coherent_rough_cut_service'
     implementationVersion: 'coherent_rough_cuts_v1'
     momentsGenerated: number
+    momentsBySource: Record<RoughCutMoment['source'], number>
     threadsLabeled: number
     draftSpansCreated: number
     boundaryVariantsGenerated: number
     variantsEvaluated: number
+    deterministicallyCoherentVariants: number
+    coherentVariantsAfterModelJudgment: number
     reviewableRoughCuts: number
     rejectedMoments: number
     overlapSuppressedCount: number
@@ -129,6 +132,7 @@ class CoherentRoughCutService {
     }> = []
     let boundaryVariantsGenerated = 0
     let variantsEvaluated = 0
+    let deterministicallyCoherentVariants = 0
 
     input.onProgress?.(15)
     for (const moment of moments) {
@@ -150,11 +154,16 @@ class CoherentRoughCutService {
         }))
         .sort((left, right) => right.evaluation.score - left.evaluation.score)
       variantsEvaluated += evaluated.length
+      deterministicallyCoherentVariants += evaluated.filter((candidate) => candidate.evaluation.isCoherent).length
       momentEvaluations.push({ moment, thread, draftSpan, evaluated })
     }
 
     input.onProgress?.(35)
     const modelJudgeResult = await this.applyModelJudgments(input.aiService ?? null, input.transcription, momentEvaluations, input.onProgress)
+    const coherentVariantsAfterModelJudgment = momentEvaluations.reduce(
+      (count, item) => count + item.evaluated.filter((candidate) => candidate.evaluation.isCoherent).length,
+      0
+    )
     const candidates: RoughCutCandidate[] = []
     const rejected: Array<Record<string, unknown>> = []
 
@@ -163,11 +172,21 @@ class CoherentRoughCutService {
       if (!winner) {
         rejected.push({
           momentId: item.moment.id,
+          source: item.moment.source,
           sourceArcId: item.moment.sourceArcId,
+          startTime: item.moment.startTime,
+          endTime: item.moment.endTime,
+          duration: Number((item.moment.endTime - item.moment.startTime).toFixed(3)),
           thread: item.thread.label,
           bestVariant: item.evaluated[0]?.variant.variantType ?? null,
+          bestVariantStartTime: item.evaluated[0]?.variant.startTime ?? null,
+          bestVariantEndTime: item.evaluated[0]?.variant.endTime ?? null,
+          bestVariantDuration: item.evaluated[0]?.variant.duration ?? null,
+          bestVariantScore: item.evaluated[0]?.evaluation.score ?? null,
           fatalIssues: item.evaluated[0]?.evaluation.fatalIssues ?? ['no_boundary_variants'],
-          rationale: item.evaluated[0]?.evaluation.rationale ?? 'No coherent rough-cut boundary variant was available.'
+          rationale: item.evaluated[0]?.evaluation.rationale ?? 'No coherent rough-cut boundary variant was available.',
+          openingPreview: item.evaluated[0]?.variant.transcriptText.split(/\s+/).slice(0, 18).join(' ') ?? '',
+          endingPreview: item.evaluated[0]?.variant.transcriptText.split(/\s+/).slice(-18).join(' ') ?? ''
         })
         continue
       }
@@ -192,10 +211,13 @@ class CoherentRoughCutService {
         executor: 'coherent_rough_cut_service',
         implementationVersion: 'coherent_rough_cuts_v1',
         momentsGenerated: moments.length,
+        momentsBySource: this.countMomentsBySource(moments),
         threadsLabeled: moments.length,
         draftSpansCreated: moments.length,
         boundaryVariantsGenerated,
         variantsEvaluated,
+        deterministicallyCoherentVariants,
+        coherentVariantsAfterModelJudgment,
         reviewableRoughCuts: portfolio.length,
         rejectedMoments: Math.max(0, moments.length - portfolio.length),
         overlapSuppressedCount: Math.max(0, candidates.length - portfolio.length),
@@ -269,6 +291,17 @@ class CoherentRoughCutService {
     ]
       .sort((left, right) => right.score - left.score)
       .slice(0, MOMENT_LIMIT)
+  }
+
+  private countMomentsBySource(moments: RoughCutMoment[]) {
+    return moments.reduce<Record<RoughCutMoment['source'], number>>((counts, moment) => {
+      counts[moment.source] += 1
+      return counts
+    }, {
+      candidate_arc: 0,
+      editorial_unit_window: 0,
+      transcript_line_window: 0
+    })
   }
 
   private generateTranscriptLineWindowMoments(transcription: PipelineWorkerTranscription): RoughCutMoment[] {

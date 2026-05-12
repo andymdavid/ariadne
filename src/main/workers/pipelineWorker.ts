@@ -61,12 +61,126 @@ type TranscriptTimingQuality = {
   issues: string[]
 }
 
+type ClipApprovalFunnelReport = {
+  transcriptWordsAvailable: number
+  transcriptSegments: number
+  editorialUnitsGenerated: number
+  candidateArcsGenerated: number
+  boundaryPreflightAcceptedArcs: number
+  boundaryPreflightRejectedArcs: number
+  roughCutMomentsGenerated: number
+  roughCutMomentsBySource: Record<string, number>
+  roughCutBoundaryVariantsGenerated: number
+  roughCutVariantsEvaluated: number
+  roughCutDeterministicallyCoherentVariants: number
+  roughCutCoherentVariantsAfterModelJudgment: number
+  roughCutsSelectedForValidation: number
+  initialFinalValidationReviewed: number
+  initialFinalValidationAccepted: number
+  initialFinalValidationRejected: number
+  finalValidationAccepted: number
+  finalValidationRejected: number
+  overlapSuppressedClips: number
+  finalVisibleClips: number
+  zeroOutputStage: string | null
+  fallbackBoundaryRecoveryAttempted: boolean
+  fallbackBoundaryRecoverySucceeded: boolean
+  resolvedClipRecoveryAttempted: boolean
+  resolvedClipRecoverySucceeded: boolean
+  topRejectedRoughCutMoments: Array<Record<string, unknown>>
+  topFinalValidationRejections: Array<Record<string, unknown>>
+}
+
 function resolveArcTargetClipCount(maxClipsPerEpisode: number, mediaDuration: number) {
   const configuredLimit = Number.isFinite(maxClipsPerEpisode)
     ? Math.max(1, Math.floor(maxClipsPerEpisode))
     : 6
   const durationBasedTarget = Math.max(1, Math.min(6, Math.ceil(mediaDuration / 240)))
   return Math.min(configuredLimit, durationBasedTarget)
+}
+
+function countTranscriptWords(transcription: PipelineWorkerTranscription) {
+  const timedWords = transcription.segments.flatMap((segment) => segment.words ?? []).filter((word) => String(word.word ?? '').trim())
+  if (timedWords.length > 0) {
+    return timedWords.length
+  }
+
+  return transcription.text.split(/\s+/).filter(Boolean).length
+}
+
+function resolveZeroOutputStage(report: Omit<ClipApprovalFunnelReport, 'zeroOutputStage'>) {
+  if (report.finalVisibleClips > 0) return null
+  if (report.roughCutMomentsGenerated === 0) return 'rough_cut_moment_generation'
+  if (report.roughCutBoundaryVariantsGenerated === 0) return 'rough_cut_boundary_variant_generation'
+  if (report.roughCutCoherentVariantsAfterModelJudgment === 0) return 'rough_cut_coherence_approval'
+  if (report.roughCutsSelectedForValidation === 0) return 'rough_cut_portfolio_selection'
+  if (report.initialFinalValidationAccepted === 0 && report.initialFinalValidationReviewed > 0) return 'final_boundary_validation'
+  if (report.finalValidationAccepted > 0 && report.finalVisibleClips === 0) return 'overlap_suppression_or_visibility'
+  return 'unknown_zero_output_stage'
+}
+
+function buildClipApprovalFunnelReport(input: {
+  transcription: PipelineWorkerTranscription
+  editorialUnitCount: number
+  candidateArcCount: number
+  boundaryPreflightAcceptedArcCount: number
+  boundaryPreflightRejectedArcCount: number
+  coherentRoughCutReport?: Record<string, unknown> | null
+  roughCutsSelectedForValidation: number
+  initialBoundaryFinalization: FinalClipValidationResult
+  finalBoundaryFinalization: FinalClipValidationResult
+  overlapSuppressedClipCount: number
+  finalVisibleClipCount: number
+  fallbackBoundaryRecoveryAttempted: boolean
+  fallbackBoundaryRecoverySucceeded: boolean
+  resolvedClipRecoveryAttempted: boolean
+  resolvedClipRecoverySucceeded: boolean
+}): ClipApprovalFunnelReport {
+  const roughCutReport = input.coherentRoughCutReport ?? {}
+  const baseReport: Omit<ClipApprovalFunnelReport, 'zeroOutputStage'> = {
+    transcriptWordsAvailable: countTranscriptWords(input.transcription),
+    transcriptSegments: input.transcription.segments.length,
+    editorialUnitsGenerated: input.editorialUnitCount,
+    candidateArcsGenerated: input.candidateArcCount,
+    boundaryPreflightAcceptedArcs: input.boundaryPreflightAcceptedArcCount,
+    boundaryPreflightRejectedArcs: input.boundaryPreflightRejectedArcCount,
+    roughCutMomentsGenerated: Number(roughCutReport.momentsGenerated ?? 0),
+    roughCutMomentsBySource: typeof roughCutReport.momentsBySource === 'object' && roughCutReport.momentsBySource !== null
+      ? roughCutReport.momentsBySource as Record<string, number>
+      : {},
+    roughCutBoundaryVariantsGenerated: Number(roughCutReport.boundaryVariantsGenerated ?? 0),
+    roughCutVariantsEvaluated: Number(roughCutReport.variantsEvaluated ?? 0),
+    roughCutDeterministicallyCoherentVariants: Number(roughCutReport.deterministicallyCoherentVariants ?? 0),
+    roughCutCoherentVariantsAfterModelJudgment: Number(roughCutReport.coherentVariantsAfterModelJudgment ?? 0),
+    roughCutsSelectedForValidation: input.roughCutsSelectedForValidation,
+    initialFinalValidationReviewed: input.initialBoundaryFinalization.boundaryRepairReport.clipsReviewed,
+    initialFinalValidationAccepted: input.initialBoundaryFinalization.validatorDecisions.filter((decision) => decision.status === 'accepted').length,
+    initialFinalValidationRejected: input.initialBoundaryFinalization.rejectedClips.length,
+    finalValidationAccepted: input.finalBoundaryFinalization.validatorDecisions.filter((decision) => decision.status === 'accepted').length,
+    finalValidationRejected: input.finalBoundaryFinalization.rejectedClips.length,
+    overlapSuppressedClips: input.overlapSuppressedClipCount,
+    finalVisibleClips: input.finalVisibleClipCount,
+    fallbackBoundaryRecoveryAttempted: input.fallbackBoundaryRecoveryAttempted,
+    fallbackBoundaryRecoverySucceeded: input.fallbackBoundaryRecoverySucceeded,
+    resolvedClipRecoveryAttempted: input.resolvedClipRecoveryAttempted,
+    resolvedClipRecoverySucceeded: input.resolvedClipRecoverySucceeded,
+    topRejectedRoughCutMoments: Array.isArray(roughCutReport.rejectedPreview)
+      ? roughCutReport.rejectedPreview.slice(0, 5).filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object' && !Array.isArray(item))
+      : [],
+    topFinalValidationRejections: input.finalBoundaryFinalization.rejectedClips.slice(0, 5).map((clip) => ({
+      clipId: clip.clipId,
+      rejectionCode: clip.rejectionCode,
+      reason: clip.reason,
+      openingPreview: clip.openingPreview,
+      endingPreview: clip.endingPreview,
+      topAlternatives: clip.topAlternatives
+    }))
+  }
+
+  return {
+    ...baseReport,
+    zeroOutputStage: resolveZeroOutputStage(baseReport)
+  }
 }
 
 function postMessage(event: PipelineWorkerEvent) {
@@ -2266,6 +2380,27 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     )
     const overlapSuppression = suppressOverlappingFinalClips(boundaryFinalization.clips)
     analysis = { potentialClips: overlapSuppression.clips }
+    const coherentRoughCutReport = clipSelectionSourceMetadata.coherentRoughCutReport &&
+      typeof clipSelectionSourceMetadata.coherentRoughCutReport === 'object'
+      ? clipSelectionSourceMetadata.coherentRoughCutReport as Record<string, unknown>
+      : null
+    const clipApprovalFunnel = buildClipApprovalFunnelReport({
+      transcription,
+      editorialUnitCount: editorialUnits.length,
+      candidateArcCount: candidateArcs.length,
+      boundaryPreflightAcceptedArcCount: boundaryViableCandidateArcs.length,
+      boundaryPreflightRejectedArcCount: boundaryPreflightRejectedArcIds.length,
+      coherentRoughCutReport,
+      roughCutsSelectedForValidation: selectedClipsBeforeBoundaryValidation.length,
+      initialBoundaryFinalization,
+      finalBoundaryFinalization: boundaryFinalization,
+      overlapSuppressedClipCount: overlapSuppression.suppressed.length,
+      finalVisibleClipCount: analysis.potentialClips.length,
+      fallbackBoundaryRecoveryAttempted: Boolean(fallbackBoundaryFinalization),
+      fallbackBoundaryRecoverySucceeded: Boolean(fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0),
+      resolvedClipRecoveryAttempted: Boolean(resolvedRecoveryFinalization || clipSelectionSourceMetadata.resolvedClipRecoveryAttempted),
+      resolvedClipRecoverySucceeded: Boolean(resolvedRecoveryFinalization && resolvedRecoveryFinalization.clips.length > 0)
+    })
 
     postStageCompleted(command.workflowJobId, 'clip_ranking', {
       clipCount: analysis.potentialClips.length,
@@ -2294,6 +2429,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         finalBoundaryValidatorAcceptedCount: boundaryFinalization.validatorDecisions.filter((decision) => decision.status === 'accepted').length,
         finalBoundaryValidatorRejectedCount: boundaryFinalization.rejectedClips.length,
         coherentRoughCutsReport: boundaryFinalization.boundaryRepairReport,
+        clipApprovalFunnel,
         fallbackBoundaryRecoveryAttempted: Boolean(fallbackBoundaryFinalization),
         fallbackBoundaryRecoverySucceeded: Boolean(fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0),
         fallbackBoundaryRecoveredArcIds: fallbackBoundaryFinalization && fallbackBoundaryFinalization.clips.length > 0

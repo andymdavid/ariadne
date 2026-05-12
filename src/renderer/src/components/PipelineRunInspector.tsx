@@ -30,14 +30,47 @@ type CoherentRoughCutsReport = {
 
 type CoherentRoughCutSelectionReport = {
   momentsGenerated?: number
+  momentsBySource?: Record<string, number>
   boundaryVariantsGenerated?: number
   variantsEvaluated?: number
+  deterministicallyCoherentVariants?: number
+  coherentVariantsAfterModelJudgment?: number
   reviewableRoughCuts?: number
   rejectedMoments?: number
   overlapSuppressedCount?: number
   modelJudgeAttempted?: boolean
   modelJudgeSucceeded?: boolean
   modelJudgeFailureReason?: string
+}
+
+type ClipApprovalFunnelReport = {
+  transcriptWordsAvailable?: number
+  transcriptSegments?: number
+  editorialUnitsGenerated?: number
+  candidateArcsGenerated?: number
+  boundaryPreflightAcceptedArcs?: number
+  boundaryPreflightRejectedArcs?: number
+  roughCutMomentsGenerated?: number
+  roughCutMomentsBySource?: Record<string, number>
+  roughCutBoundaryVariantsGenerated?: number
+  roughCutVariantsEvaluated?: number
+  roughCutDeterministicallyCoherentVariants?: number
+  roughCutCoherentVariantsAfterModelJudgment?: number
+  roughCutsSelectedForValidation?: number
+  initialFinalValidationReviewed?: number
+  initialFinalValidationAccepted?: number
+  initialFinalValidationRejected?: number
+  finalValidationAccepted?: number
+  finalValidationRejected?: number
+  overlapSuppressedClips?: number
+  finalVisibleClips?: number
+  zeroOutputStage?: string | null
+  fallbackBoundaryRecoveryAttempted?: boolean
+  fallbackBoundaryRecoverySucceeded?: boolean
+  resolvedClipRecoveryAttempted?: boolean
+  resolvedClipRecoverySucceeded?: boolean
+  topRejectedRoughCutMoments?: Array<Record<string, unknown>>
+  topFinalValidationRejections?: Array<Record<string, unknown>>
 }
 
 function formatDateTime(value: string | null) {
@@ -241,6 +274,10 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
     typeof clipRankingMetadata.coherentRoughCut === 'object'
     ? clipRankingMetadata.coherentRoughCut as CoherentRoughCutSelectionReport
     : null
+  const clipApprovalFunnel = clipRankingMetadata?.clipApprovalFunnel &&
+    typeof clipRankingMetadata.clipApprovalFunnel === 'object'
+    ? clipRankingMetadata.clipApprovalFunnel as ClipApprovalFunnelReport
+    : null
   const selectedDecisions = (selectedSelection?.decisions ?? [])
     .filter((decision) => decision.decision !== 'rejected')
     .sort((left, right) => (left.rankOrder ?? Number.MAX_SAFE_INTEGER) - (right.rankOrder ?? Number.MAX_SAFE_INTEGER))
@@ -418,16 +455,71 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                     <span>Recovery Succeeded</span>
                     <span className="text-right text-text-primary">{clipRankingMetadata.fallbackBoundaryRecoverySucceeded ? 'yes' : 'no'}</span>
                   </div>
+                  {clipApprovalFunnel && (
+                    <div className="inspector-subcard mt-3 text-[11px]">
+                      <div className="mb-2 uppercase tracking-[0.2em] text-text-muted">Approval Funnel</div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <span>Zero Stage</span>
+                        <span className="text-right text-text-primary">{clipApprovalFunnel.zeroOutputStage || 'none'}</span>
+                        <span>Transcript Words</span>
+                        <span className="text-right text-text-primary">{String(clipApprovalFunnel.transcriptWordsAvailable ?? 0)}</span>
+                        <span>Moments</span>
+                        <span className="text-right text-text-primary">{String(clipApprovalFunnel.roughCutMomentsGenerated ?? 0)}</span>
+                        <span>Moment Sources</span>
+                        <span className="text-right text-text-primary">
+                          {clipApprovalFunnel.roughCutMomentsBySource
+                            ? Object.entries(clipApprovalFunnel.roughCutMomentsBySource).map(([source, count]) => `${source}:${count}`).join(' ')
+                            : 'n/a'}
+                        </span>
+                        <span>Variants</span>
+                        <span className="text-right text-text-primary">{String(clipApprovalFunnel.roughCutBoundaryVariantsGenerated ?? 0)}</span>
+                        <span>Coherent Pre-Judge</span>
+                        <span className="text-right text-text-primary">{String(clipApprovalFunnel.roughCutDeterministicallyCoherentVariants ?? 0)}</span>
+                        <span>Coherent Post-Judge</span>
+                        <span className="text-right text-text-primary">{String(clipApprovalFunnel.roughCutCoherentVariantsAfterModelJudgment ?? 0)}</span>
+                        <span>Selected For Validation</span>
+                        <span className="text-right text-text-primary">{String(clipApprovalFunnel.roughCutsSelectedForValidation ?? 0)}</span>
+                        <span>Initial Validator</span>
+                        <span className="text-right text-text-primary">
+                          {String(clipApprovalFunnel.initialFinalValidationAccepted ?? 0)} accepted / {String(clipApprovalFunnel.initialFinalValidationRejected ?? 0)} rejected
+                        </span>
+                        <span>Final Visible</span>
+                        <span className="text-right text-text-primary">{String(clipApprovalFunnel.finalVisibleClips ?? 0)}</span>
+                      </div>
+                      {((clipApprovalFunnel.topRejectedRoughCutMoments?.length ?? 0) > 0 ||
+                        (clipApprovalFunnel.topFinalValidationRejections?.length ?? 0) > 0) && (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-text-muted">Rejected candidate detail</summary>
+                          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[10px] text-text-muted">
+                            {JSON.stringify({
+                              topRejectedRoughCutMoments: clipApprovalFunnel.topRejectedRoughCutMoments ?? [],
+                              topFinalValidationRejections: clipApprovalFunnel.topFinalValidationRejections ?? []
+                            }, null, 2)}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
+                  )}
                   {coherentRoughCutSelectionReport && (
                     <div className="inspector-subcard mt-3 text-[11px]">
                       <div className="mb-2 uppercase tracking-[0.2em] text-text-muted">Rough Cut Selector</div>
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
                         <span>Moments</span>
                         <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.momentsGenerated ?? 0)}</span>
+                        <span>Moment Sources</span>
+                        <span className="text-right text-text-primary">
+                          {coherentRoughCutSelectionReport.momentsBySource
+                            ? Object.entries(coherentRoughCutSelectionReport.momentsBySource).map(([source, count]) => `${source}:${count}`).join(' ')
+                            : 'n/a'}
+                        </span>
                         <span>Variants</span>
                         <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.boundaryVariantsGenerated ?? 0)}</span>
                         <span>Evaluated</span>
                         <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.variantsEvaluated ?? 0)}</span>
+                        <span>Coherent Pre-Judge</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.deterministicallyCoherentVariants ?? 0)}</span>
+                        <span>Coherent Post-Judge</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.coherentVariantsAfterModelJudgment ?? 0)}</span>
                         <span>Rough Cuts</span>
                         <span className="text-right text-text-primary">{String(coherentRoughCutSelectionReport.reviewableRoughCuts ?? 0)}</span>
                         <span>Rejected Moments</span>
