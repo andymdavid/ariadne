@@ -941,8 +941,10 @@ Return JSON only.
     }
     const status = parsed.status === 'unrecoverable' ? 'unrecoverable' : 'repaired'
     const validLineIndexes = new Set(lines.map((line) => line.index))
-    const startLineIndex = parsed.start_line_index == null ? null : Number(parsed.start_line_index)
-    const endLineIndex = parsed.end_line_index == null ? null : Number(parsed.end_line_index)
+    const rawStartLineIndex = parsed.start_line_index ?? parsed.startLineIndex
+    const rawEndLineIndex = parsed.end_line_index ?? parsed.endLineIndex
+    const startLineIndex = rawStartLineIndex == null ? null : Number(rawStartLineIndex)
+    const endLineIndex = rawEndLineIndex == null ? null : Number(rawEndLineIndex)
 
     if (status === 'unrecoverable') {
       return {
@@ -2265,9 +2267,15 @@ Return JSON only.
     
     // Strategy 2: Look for ``` code blocks (without json specifier)
     match = content.match(/```\s*([\s\S]*?)\s*```/)
-    if (match && match[1].trim().startsWith('{')) {
-      console.log('Strategy 2 SUCCESS: Found JSON-like content in code block')
-      return match[1].trim()
+    if (match) {
+      const block = match[1].trim().replace(/^json\s*/i, '').trim()
+      if (block.startsWith('{')) {
+        const balancedObject = this.extractFirstBalancedJSONObject(block)
+        if (balancedObject) {
+          console.log('Strategy 2 SUCCESS: Found JSON-like content in code block')
+          return balancedObject
+        }
+      }
     }
 
     // Strategy 2b: Some models omit fences but prefix the object with a language label.
