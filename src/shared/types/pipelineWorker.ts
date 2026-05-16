@@ -154,6 +154,7 @@ export interface PipelineWorkerCompletedEvent {
   editorialUnits?: EditorialUnit[]
   candidateArcs?: CandidateArc[]
   selectionDecisions?: PipelineWorkerSelectionDecision[]
+  selectionMetadata?: Record<string, unknown>
   analysis: {
     potentialClips: PipelineWorkerPotentialClip[]
   }

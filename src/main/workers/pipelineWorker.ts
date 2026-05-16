@@ -1399,6 +1399,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     useLegacySelectorStack || command.runConfigSnapshot.enableLegacyCandidateRanking
   const allowHeuristicSupplementation =
     useLegacySelectorStack || command.runConfigSnapshot.enableHeuristicSupplementation
+  const allowWordSpanSelectorFallback = useLegacySelectorStack
 
   if (startStageIndex <= stageOrder.indexOf('transcription')) {
     currentStage = 'transcription'
@@ -1787,69 +1788,77 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       }
     }
 
-    if (!analysis && aiService) {
+    if (!analysis && aiService && (allowWordSpanSelectorFallback || allowLegacyResolvedClipProposal || allowLegacyTranscriptLineAgent || allowLegacyBoundaryProposal || allowLegacyCandidateRanking || allowHeuristicSupplementation)) {
       const activeAiService = aiService
       let agentFailureMetadata: Record<string, unknown> | null = null
 
-      try {
-        postProgress(command.workflowJobId, currentStage, 6, 'Selecting exact transcript word spans...')
-        const wordSpanSelections = await activeAiService.selectWordSpanClips(
-          transcription,
-          command.mediaDuration,
-          resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
-          (progress) => {
-            postProgress(command.workflowJobId, currentStage, Math.min(6 + progress * 0.34, 40), 'Selecting exact transcript word spans...')
-          }
-        )
-        const wordSpanClips = buildWordSpanClipsFromSelections(
-          transcription,
-          wordSpanSelections,
-          command.mediaDuration
-        )
+      if (allowWordSpanSelectorFallback) {
+        try {
+          postProgress(command.workflowJobId, currentStage, 6, 'Selecting exact transcript word spans...')
+          const wordSpanSelections = await activeAiService.selectWordSpanClips(
+            transcription,
+            command.mediaDuration,
+            resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
+            (progress) => {
+              postProgress(command.workflowJobId, currentStage, Math.min(6 + progress * 0.34, 40), 'Selecting exact transcript word spans...')
+            }
+          )
+          const wordSpanClips = buildWordSpanClipsFromSelections(
+            transcription,
+            wordSpanSelections,
+            command.mediaDuration
+          )
 
-        if (wordSpanClips.clips.length >= 1) {
-          analysis = { potentialClips: wordSpanClips.clips }
-          aiAnalysisSucceeded = true
-          selectionDecisions = buildWordSpanSelectionDecisions(wordSpanClips.clips)
+          if (wordSpanClips.clips.length >= 1) {
+            analysis = { potentialClips: wordSpanClips.clips }
+            aiAnalysisSucceeded = true
+            selectionDecisions = buildWordSpanSelectionDecisions(wordSpanClips.clips)
+            clipSelectionSourceMetadata = {
+              ...clipSelectionSourceMetadata,
+              selectionSource: 'word_span_clip_selector',
+              wordSpanSelectorAttempted: true,
+              wordSpanSelectedCount: wordSpanSelections.length,
+              wordSpanAcceptedCount: wordSpanClips.clips.length,
+              wordSpanRejectedCount: wordSpanClips.rejected.length,
+              wordSpanRejectedPreview: wordSpanClips.rejected.slice(0, 5)
+            }
+
+            postStageCompleted(command.workflowJobId, currentStage, {
+              clipCount: analysis.potentialClips.length,
+              mode: 'word_span_clip_selector',
+              aiAnalysisSucceeded,
+              selectionDecisions,
+              selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+                id: clip.id,
+                startTime: clip.startTime,
+                endTime: clip.endTime,
+                shareabilityScore: clip.shareabilityScore
+              })),
+              metadata: {
+                executor: 'word_span_clip_selector',
+                ...getRankingModelMetadata(command),
+                ...clipSelectionSourceMetadata
+              },
+              analysis
+            })
+          } else {
+            throw new Error(`Word span selector returned only ${wordSpanClips.clips.length} usable clips`)
+          }
+        } catch (wordSpanError) {
+          agentFailureMetadata = {
+            wordSpanSelectorAttempted: true,
+            wordSpanSelectorFailureReason: wordSpanError instanceof Error ? wordSpanError.message : 'Unknown word span selector error'
+          }
           clipSelectionSourceMetadata = {
             ...clipSelectionSourceMetadata,
-            selectionSource: 'word_span_clip_selector',
-            wordSpanSelectorAttempted: true,
-            wordSpanSelectedCount: wordSpanSelections.length,
-            wordSpanAcceptedCount: wordSpanClips.clips.length,
-            wordSpanRejectedCount: wordSpanClips.rejected.length,
-            wordSpanRejectedPreview: wordSpanClips.rejected.slice(0, 5)
+            ...agentFailureMetadata
           }
-
-          postStageCompleted(command.workflowJobId, currentStage, {
-            clipCount: analysis.potentialClips.length,
-            mode: 'word_span_clip_selector',
-            aiAnalysisSucceeded,
-            selectionDecisions,
-            selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
-              id: clip.id,
-              startTime: clip.startTime,
-              endTime: clip.endTime,
-              shareabilityScore: clip.shareabilityScore
-            })),
-            metadata: {
-              executor: 'word_span_clip_selector',
-              ...getRankingModelMetadata(command),
-              ...clipSelectionSourceMetadata
-            },
-            analysis
-          })
-        } else {
-          throw new Error(`Word span selector returned only ${wordSpanClips.clips.length} usable clips`)
         }
-      } catch (wordSpanError) {
-        agentFailureMetadata = {
-          wordSpanSelectorAttempted: true,
-          wordSpanSelectorFailureReason: wordSpanError instanceof Error ? wordSpanError.message : 'Unknown word span selector error'
-        }
+      } else {
         clipSelectionSourceMetadata = {
           ...clipSelectionSourceMetadata,
-          ...agentFailureMetadata
+          wordSpanSelectorSkipped: true,
+          wordSpanSelectorSkipReason: 'production_selector_mode_arc_v1'
         }
       }
 
@@ -2215,7 +2224,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     }
   }
 
-  if (!analysis && candidateArcs.length > 0 && boundaryViableCandidateArcs.length === 0) {
+  if (!analysis && candidateArcs.length > 0 && boundaryViableCandidateArcs.length === 0 && allowLegacyResolvedClipProposal) {
     if (aiService) {
       try {
         postProgress(command.workflowJobId, currentStage, 55, 'Finding boundary-viable clips from transcript...')
@@ -2271,6 +2280,18 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     }
   }
 
+  if (!analysis && command.runConfigSnapshot.productionSelectorMode === 'arc_v1') {
+    analysis = { potentialClips: [] }
+    aiAnalysisSucceeded = false
+    clipSelectionSourceMetadata = {
+      ...clipSelectionSourceMetadata,
+      selectionSource: 'arc_v1_no_boundary_viable_clips',
+      selectedArcIds: [],
+      boundaryPreflightRejectedArcIds,
+      arcV1FallbacksDisabled: true
+    }
+  }
+
   if (!analysis) {
     throw new Error('Missing ranked clip analysis for pipeline resume')
   }
@@ -2313,7 +2334,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       }
     }
 
-    if (boundaryFinalization.clips.length === 0 && aiService) {
+    if (boundaryFinalization.clips.length === 0 && aiService && allowLegacyResolvedClipProposal) {
       try {
         postProgress(command.workflowJobId, currentStage, 98, 'Recovering complete clip arcs from transcript...')
         const resolvedProposals = await aiService.proposeResolvedClips(
@@ -2455,6 +2476,25 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       },
       analysis
     })
+  } else if (startStageIndex <= stageOrder.indexOf('clip_ranking')) {
+    postStageCompleted(command.workflowJobId, 'clip_ranking', {
+      clipCount: 0,
+      mode: 'arc_v1_no_boundary_viable_clips',
+      aiAnalysisSucceeded,
+      selectionDecisions,
+      selectedClipPreview: [],
+      metadata: {
+        executor: 'final_boundary_refiner',
+        boundaryRefinementVersion: 'final_clip_validator_v1',
+        ...clipSelectionSourceMetadata,
+        editorialUnitBuilderVersion: 'editorial_units_v1',
+        candidateArcGeneratorVersion: 'candidate_arcs_v1',
+        editorialUnits: summarizeEditorialUnits(editorialUnits),
+        candidateArcs: summarizeCandidateArcs(candidateArcs),
+        boundaryViableCandidateArcs: summarizeCandidateArcs(boundaryViableCandidateArcs)
+      },
+      analysis
+    })
   }
 
   if (startStageIndex <= stageOrder.indexOf('content_package_generation')) {
@@ -2507,6 +2547,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     editorialUnits,
     candidateArcs,
     selectionDecisions,
+    selectionMetadata: clipSelectionSourceMetadata,
     analysis,
     aiAnalysisSucceeded,
     contentPackages

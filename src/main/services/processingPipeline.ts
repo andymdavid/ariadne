@@ -1465,6 +1465,11 @@ class ProcessingPipeline {
   }
 
   private resolveSelectionSourceFromWorkerResult(workerResult: PipelineWorkerCompletedEvent) {
+    const metadataSelectionSource = workerResult.selectionMetadata?.selectionSource
+    if (typeof metadataSelectionSource === 'string' && metadataSelectionSource.length > 0) {
+      return metadataSelectionSource
+    }
+
     const decisions = workerResult.selectionDecisions ?? []
     if (decisions.some((decision) => decision.decision === 'selected')) {
       return ARC_SELECTION_SOURCE
