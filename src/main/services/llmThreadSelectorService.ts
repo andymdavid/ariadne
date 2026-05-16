@@ -36,10 +36,13 @@ type VerificationResult = {
 }
 
 type CandidateEvaluation = {
+  originalCandidate: ThreadCandidateSelection
   candidate: ThreadCandidateSelection
   verification: VerificationResult
   repairAttempts: number
   repairError: string | null
+  deterministicRepairApplied: boolean
+  deterministicRepairReason: string | null
   clip: PipelineWorkerPotentialClip | null
 }
 
@@ -119,10 +122,13 @@ class LlmThreadSelectorService {
 
     for (let index = 0; index < uniqueCandidates.length; index += 1) {
       const candidate = uniqueCandidates[index]
+      const originalCandidate = candidate
       let currentCandidate = candidate
       let verification = this.verifyCandidate(input.timeline, input.transcription, currentCandidate)
       let repairAttempts = 0
       let repairError: string | null = null
+      let deterministicRepairApplied = false
+      let deterministicRepairReason: string | null = null
 
       while (verification.status === 'needs_repair' && repairAttempts < MAX_REPAIR_ATTEMPTS) {
         repairAttempts += 1
@@ -166,6 +172,36 @@ class LlmThreadSelectorService {
       }
 
       if (verification.status === 'needs_repair') {
+        const deterministicRepair = this.applyDeterministicLineRepair(
+          input.timeline,
+          input.transcription,
+          currentCandidate,
+          verification,
+          VARIANT_GUARD_LIMIT - mechanicalVariantsGenerated
+        )
+        mechanicalVariantsGenerated += deterministicRepair.variantsEvaluated
+        if (mechanicalVariantsGenerated > VARIANT_GUARD_LIMIT) {
+          return this.buildResult(input.timeline, evaluations, {
+            llmDiscoveryError,
+            llmRepairError,
+            llmRepairAttemptsExhausted,
+            mechanicalVariantsGenerated,
+            zeroOutputStage: 'selector_unhealthy_variant_explosion'
+          })
+        }
+
+        if (deterministicRepair.repairedCandidate) {
+          currentCandidate = deterministicRepair.repairedCandidate
+          verification = deterministicRepair.verification
+          deterministicRepairApplied = true
+          deterministicRepairReason = deterministicRepair.reason
+        } else {
+          deterministicRepairReason = deterministicRepair.reason
+          repairError = [repairError, deterministicRepair.reason].filter(Boolean).join(' | ') || null
+        }
+      }
+
+      if (verification.status === 'needs_repair') {
         llmRepairAttemptsExhausted = true
       }
 
@@ -174,10 +210,13 @@ class LlmThreadSelectorService {
         : null
 
       evaluations.push({
+        originalCandidate,
         candidate: currentCandidate,
         verification,
         repairAttempts,
         repairError,
+        deterministicRepairApplied,
+        deterministicRepairReason,
         clip
       })
       input.onProgress?.(45 + ((index + 1) / Math.max(1, uniqueCandidates.length)) * 45)
@@ -324,6 +363,121 @@ class LlmThreadSelectorService {
     return lines.filter((line) => line.index >= startIndex && line.index <= endIndex)
   }
 
+  private applyDeterministicLineRepair(
+    timeline: CanonicalConversationalTimeline,
+    transcription: PipelineWorkerTranscription,
+    candidate: ThreadCandidateSelection,
+    verification: VerificationResult,
+    remainingVariantBudget: number
+  ): {
+    repairedCandidate: ThreadCandidateSelection | null
+    verification: VerificationResult
+    variantsEvaluated: number
+    reason: string
+  } {
+    const sortedLines = [...timeline.lines].sort((left, right) => left.index - right.index)
+    const startPosition = sortedLines.findIndex((line) => line.index === candidate.startLineIndex)
+    const endPosition = sortedLines.findIndex((line) => line.index === candidate.endLineIndex)
+    if (startPosition === -1 || endPosition === -1 || endPosition < startPosition) {
+      return {
+        repairedCandidate: null,
+        verification,
+        variantsEvaluated: 0,
+        reason: 'Deterministic repair skipped because the candidate line range was not found.'
+      }
+    }
+
+    const needsEarlierStart = verification.issues.includes('leading_continues_previous_thought')
+    const needsLaterEnd = verification.issues.includes('lookahead_continues_current_ending')
+    if (!needsEarlierStart && !needsLaterEnd) {
+      return {
+        repairedCandidate: null,
+        verification,
+        variantsEvaluated: 0,
+        reason: 'Deterministic repair skipped because no semantic boundary issue was present.'
+      }
+    }
+
+    const maxLineExpansion = 8
+    const startPositions = needsEarlierStart
+      ? this.range(Math.max(0, startPosition - maxLineExpansion), startPosition).reverse()
+      : [startPosition]
+    const endPositions = needsLaterEnd
+      ? this.range(endPosition, Math.min(sortedLines.length - 1, endPosition + maxLineExpansion))
+      : [endPosition]
+
+    let variantsEvaluated = 0
+    let bestRejected: VerificationResult | null = null
+    let bestRejectedCandidate: ThreadCandidateSelection | null = null
+    const attempts: Array<{ startPosition: number; endPosition: number; movement: number }> = []
+
+    for (const proposedStartPosition of startPositions) {
+      for (const proposedEndPosition of endPositions) {
+        if (proposedEndPosition < proposedStartPosition) continue
+        attempts.push({
+          startPosition: proposedStartPosition,
+          endPosition: proposedEndPosition,
+          movement: Math.abs(startPosition - proposedStartPosition) + Math.abs(endPosition - proposedEndPosition)
+        })
+      }
+    }
+
+    attempts.sort((left, right) => left.movement - right.movement)
+
+    for (const attempt of attempts) {
+      if (variantsEvaluated >= remainingVariantBudget) break
+      variantsEvaluated += 1
+      const repairedCandidate: ThreadCandidateSelection = {
+        ...candidate,
+        startLineIndex: sortedLines[attempt.startPosition].index,
+        endLineIndex: sortedLines[attempt.endPosition].index,
+        reason: `${candidate.reason} Deterministic line expansion repaired semantic boundary warnings.`
+      }
+      const repairedVerification = this.verifyCandidate(timeline, transcription, repairedCandidate)
+      if (repairedVerification.status === 'accepted') {
+        return {
+          repairedCandidate,
+          verification: repairedVerification,
+          variantsEvaluated,
+          reason: `Expanded line range from ${candidate.startLineIndex}-${candidate.endLineIndex} to ${repairedCandidate.startLineIndex}-${repairedCandidate.endLineIndex}.`
+        }
+      }
+
+      if (
+        !bestRejected ||
+        this.verificationScore(repairedVerification) > this.verificationScore(bestRejected)
+      ) {
+        bestRejected = repairedVerification
+        bestRejectedCandidate = repairedCandidate
+      }
+    }
+
+    const bestRange = bestRejectedCandidate
+      ? `${bestRejectedCandidate.startLineIndex}-${bestRejectedCandidate.endLineIndex}`
+      : `${candidate.startLineIndex}-${candidate.endLineIndex}`
+    const bestIssues = bestRejected?.issues.join(', ') || verification.issues.join(', ') || 'unknown issue'
+    return {
+      repairedCandidate: null,
+      verification,
+      variantsEvaluated,
+      reason: `Deterministic line repair found no accepted range; best attempted range ${bestRange} still failed: ${bestIssues}.`
+    }
+  }
+
+  private range(start: number, end: number) {
+    const values: number[] = []
+    for (let value = start; value <= end; value += 1) {
+      values.push(value)
+    }
+    return values
+  }
+
+  private verificationScore(verification: VerificationResult) {
+    if (verification.status === 'accepted') return 100
+    if (verification.status === 'needs_repair') return 50 - verification.issues.length
+    return 10 - verification.issues.length
+  }
+
   private buildClip(candidate: ThreadCandidateSelection, verification: VerificationResult): PipelineWorkerPotentialClip {
     const selectionDecisionId = randomUUID()
     return {
@@ -384,7 +538,7 @@ class LlmThreadSelectorService {
         id: evaluation.clip?.selectionDecisionId ?? randomUUID(),
         candidateArcId: null,
         decision: selectedIds.has(evaluation.candidate.id) ? 'selected' : 'rejected',
-        rankOrder: selectedIds.has(evaluation.candidate.id) ? index + 1 : undefined,
+        rankOrder: index + 1,
         modelScore: evaluation.candidate.confidence * 10,
         finalScore: evaluation.clip?.shareabilityScore ?? 0,
         rejectionCode: evaluation.clip ? undefined : 'llm_thread_verification_failed',
@@ -393,10 +547,21 @@ class LlmThreadSelectorService {
           : `Rejected by llm_thread_v1: ${evaluation.verification.issues.join(', ') || evaluation.repairError || 'not selected'}`,
         validatorResultJson: JSON.stringify({
           stage: 'llm_thread_v1',
+          originalCandidate: evaluation.originalCandidate,
           candidate: evaluation.candidate,
+          originalLineRange: {
+            startLineIndex: evaluation.originalCandidate.startLineIndex,
+            endLineIndex: evaluation.originalCandidate.endLineIndex
+          },
+          finalLineRange: {
+            startLineIndex: evaluation.candidate.startLineIndex,
+            endLineIndex: evaluation.candidate.endLineIndex
+          },
           verification: evaluation.verification,
           repairAttempts: evaluation.repairAttempts,
-          repairError: evaluation.repairError
+          repairError: evaluation.repairError,
+          deterministicRepairApplied: evaluation.deterministicRepairApplied,
+          deterministicRepairReason: evaluation.deterministicRepairReason
         })
       })),
       metadata: {
@@ -415,7 +580,7 @@ class LlmThreadSelectorService {
         chunksProcessed: this.buildLineChunks(timeline.lines).length,
         threadCandidatesDiscovered: evaluations.length,
         threadCandidatesAccepted: selected.length,
-        threadCandidatesRepaired: evaluations.filter((evaluation) => evaluation.repairAttempts > 0 && evaluation.clip).length,
+        threadCandidatesRepaired: evaluations.filter((evaluation) => (evaluation.repairAttempts > 0 || evaluation.deterministicRepairApplied) && evaluation.clip).length,
         threadCandidatesRejected: evaluations.filter((evaluation) => !evaluation.clip).length,
         llmDiscoveryError: options.llmDiscoveryError,
         llmRepairError: options.llmRepairError,
@@ -426,6 +591,9 @@ class LlmThreadSelectorService {
           candidateId: evaluation.candidate.id,
           startTime: evaluation.clip?.startTime,
           endTime: evaluation.clip?.endTime,
+          originalLineRange: `${evaluation.originalCandidate.startLineIndex}-${evaluation.originalCandidate.endLineIndex}`,
+          finalLineRange: `${evaluation.candidate.startLineIndex}-${evaluation.candidate.endLineIndex}`,
+          deterministicRepairApplied: evaluation.deterministicRepairApplied,
           confidence: evaluation.candidate.confidence,
           title: evaluation.candidate.title
         })),
@@ -435,6 +603,10 @@ class LlmThreadSelectorService {
           issueClasses: evaluation.verification.issueClasses,
           repairAttempts: evaluation.repairAttempts,
           repairError: evaluation.repairError,
+          deterministicRepairApplied: evaluation.deterministicRepairApplied,
+          deterministicRepairReason: evaluation.deterministicRepairReason,
+          originalLineRange: `${evaluation.originalCandidate.startLineIndex}-${evaluation.originalCandidate.endLineIndex}`,
+          finalLineRange: `${evaluation.candidate.startLineIndex}-${evaluation.candidate.endLineIndex}`,
           title: evaluation.candidate.title
         }))
       }

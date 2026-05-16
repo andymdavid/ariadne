@@ -920,7 +920,11 @@ Return JSON only.
   private parseThreadRepairResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadRepairSelection {
     const jsonString = this.extractJSON(content)
     if (!jsonString) {
-      throw new Error('No JSON found in thread repair response')
+      const recovered = this.parseThreadRepairTextFallback(content, lines)
+      if (recovered) {
+        return recovered
+      }
+      throw new Error(`No JSON found in thread repair response. Preview: ${this.previewResponse(content)}`)
     }
 
     const parsed = JSON.parse(jsonString)
@@ -959,6 +963,56 @@ Return JSON only.
       endLineIndex,
       reason: String(parsed.reason || 'Repaired line range.').trim()
     }
+  }
+
+  private parseThreadRepairTextFallback(content: string, lines: ThreadDiscoveryLine[]): ThreadRepairSelection | null {
+    const normalized = content.replace(/\s+/g, ' ').trim()
+    if (!normalized) {
+      return null
+    }
+
+    if (/\bunrecoverable\b|\bnot recoverable\b|\bno viable\b/i.test(normalized)) {
+      return {
+        status: 'unrecoverable',
+        startLineIndex: null,
+        endLineIndex: null,
+        reason: this.previewResponse(content)
+      }
+    }
+
+    const validLineIndexes = new Set(lines.map((line) => line.index))
+    const patterns = [
+      /start[_\s-]*line[_\s-]*(?:index)?\s*[:=]\s*(\d+)[\s,;]+end[_\s-]*line[_\s-]*(?:index)?\s*[:=]\s*(\d+)/i,
+      /lines?\s+(\d+)\s*(?:-|to|through|until|\u2013)\s*(\d+)/i,
+      /line[_\s-]*range\s*[:=]\s*(\d+)\s*(?:-|to|through|until|\u2013)\s*(\d+)/i
+    ]
+
+    for (const pattern of patterns) {
+      const match = normalized.match(pattern)
+      if (!match) continue
+      const startLineIndex = Number(match[1])
+      const endLineIndex = Number(match[2])
+      if (
+        Number.isFinite(startLineIndex) &&
+        Number.isFinite(endLineIndex) &&
+        validLineIndexes.has(startLineIndex) &&
+        validLineIndexes.has(endLineIndex) &&
+        endLineIndex >= startLineIndex
+      ) {
+        return {
+          status: 'repaired',
+          startLineIndex,
+          endLineIndex,
+          reason: `Recovered repair line range from non-JSON response: ${this.previewResponse(content)}`
+        }
+      }
+    }
+
+    return null
+  }
+
+  private previewResponse(content: string, maxLength = 360): string {
+    return content.replace(/\s+/g, ' ').trim().slice(0, maxLength)
   }
 
   private buildClipBoundaryReviewPrompt(
