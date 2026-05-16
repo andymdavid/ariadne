@@ -556,6 +556,7 @@ class AIService {
     minDurationSeconds: number
     maxDurationSeconds: number
     lines: ThreadDiscoveryLine[]
+    broadDiscovery?: boolean
   }): Promise<ThreadDiscoveryResult> {
     if (input.lines.length === 0) {
       return {
@@ -813,6 +814,7 @@ Return JSON only. No explanations outside the JSON structure.
     minDurationSeconds: number
     maxDurationSeconds: number
     lines: ThreadDiscoveryLine[]
+    broadDiscovery?: boolean
   }) {
     const lineText = input.lines.map((line) => (
       `LINE ${line.index} [${line.startTime?.toFixed(2) ?? 'no-start'}-${line.endTime?.toFixed(2) ?? 'no-end'}]${line.speaker ? ` ${line.speaker}:` : ''} ${line.text}`
@@ -822,6 +824,7 @@ Return JSON only. No explanations outside the JSON structure.
 CHUNK_ID: ${input.chunkId}
 MEDIA_DURATION: ${input.mediaDuration.toFixed(2)}s
 TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
+DISCOVERY_MODE: ${input.broadDiscovery ? 'broad_repairable_threads' : 'standard_coherent_threads'}
 
 TASK:
 Find all usable or repairable coherent rough-cut threads in these transcript lines.
@@ -840,6 +843,7 @@ A repairable candidate:
 
 Do not return a fixed number. Return every usable or repairable candidate above the bar, or return an empty list only when the chunk has no coherent thread worth repairing.
 Choose transcript line indexes only.
+${input.broadDiscovery ? 'This is a retry after zero candidates. Lower the topical-interest threshold, but still require a coherent conversational thread that can plausibly be repaired into a rough cut.' : ''}
 
 OUTPUT JSON:
 {

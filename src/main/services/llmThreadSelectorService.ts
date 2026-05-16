@@ -74,6 +74,7 @@ export type LlmThreadSelectorResult = {
     llmRepairAttemptsExhausted: boolean
     mechanicalVariantsGenerated: number
     discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }>
+    discoveryRetryAttempted: boolean
     zeroOutputStage: string | null
     rejectedPreview: Array<Record<string, unknown>>
     selectedPreview: Array<Record<string, unknown>>
@@ -98,6 +99,7 @@ class LlmThreadSelectorService {
     const chunks = this.buildLineChunks(input.timeline.lines)
     const discovered: ThreadCandidateSelection[] = []
     const discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }> = []
+    let discoveryRetryAttempted = false
     let llmDiscoveryError: string | null = null
 
     input.onProgress?.(10)
@@ -113,7 +115,23 @@ class LlmThreadSelectorService {
           lines: chunk.map((line) => this.toDiscoveryLine(line))
         })
         discoveryDiagnostics.push({ chunkId, ...discovery.diagnostics })
-        discovered.push(...discovery.candidates)
+        let candidates = discovery.candidates
+
+        if (candidates.length === 0 && !llmDiscoveryError) {
+          discoveryRetryAttempted = true
+          const retry = await input.aiService.discoverThreadCandidates({
+            chunkId: `${chunkId}_broad_retry`,
+            mediaDuration: input.timeline.mediaDuration,
+            minDurationSeconds: MIN_CLIP_SECONDS,
+            maxDurationSeconds: MAX_CLIP_SECONDS,
+            lines: chunk.map((line) => this.toDiscoveryLine(line)),
+            broadDiscovery: true
+          })
+          discoveryDiagnostics.push({ chunkId: `${chunkId}_broad_retry`, ...retry.diagnostics })
+          candidates = retry.candidates
+        }
+
+        discovered.push(...candidates)
       } catch (error) {
         llmDiscoveryError = error instanceof Error ? error.message : 'Unknown LLM discovery error'
         discoveryDiagnostics.push({
@@ -155,6 +173,7 @@ class LlmThreadSelectorService {
             llmRepairAttemptsExhausted,
             mechanicalVariantsGenerated,
             discoveryDiagnostics,
+            discoveryRetryAttempted,
             zeroOutputStage: 'selector_unhealthy_variant_explosion'
           })
         }
@@ -203,6 +222,7 @@ class LlmThreadSelectorService {
             llmRepairAttemptsExhausted,
             mechanicalVariantsGenerated,
             discoveryDiagnostics,
+            discoveryRetryAttempted,
             zeroOutputStage: 'selector_unhealthy_variant_explosion'
           })
         }
@@ -247,6 +267,7 @@ class LlmThreadSelectorService {
       llmRepairAttemptsExhausted,
       mechanicalVariantsGenerated,
       discoveryDiagnostics,
+      discoveryRetryAttempted,
       zeroOutputStage: null,
       targetClipCount: input.targetClipCount
     })
@@ -550,6 +571,7 @@ class LlmThreadSelectorService {
       llmRepairAttemptsExhausted: boolean
       mechanicalVariantsGenerated: number
       discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }>
+      discoveryRetryAttempted: boolean
       zeroOutputStage: string | null
       targetClipCount?: number
     }
@@ -627,6 +649,7 @@ class LlmThreadSelectorService {
         llmRepairAttemptsExhausted: options.llmRepairAttemptsExhausted,
         mechanicalVariantsGenerated: options.mechanicalVariantsGenerated,
         discoveryDiagnostics: options.discoveryDiagnostics,
+        discoveryRetryAttempted: options.discoveryRetryAttempted,
         zeroOutputStage,
         selectedPreview: selected.slice(0, 5).map((evaluation) => ({
           candidateId: evaluation.candidate.id,
