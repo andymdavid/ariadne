@@ -10,6 +10,7 @@ import { canonicalTimelineService } from '../services/canonicalTimelineService'
 import { coherentRoughCutService } from '../services/coherentRoughCutService'
 import { finalClipValidationService } from '../services/finalClipValidationService'
 import type { FinalClipValidationResult } from '../services/finalClipValidationService'
+import { llmThreadSelectorService } from '../services/llmThreadSelectorService'
 import LocalWhisperService from '../services/localWhisperService'
 import type { AudioChunk } from '../services/clipSelectionTypes'
 import type {
@@ -1412,6 +1413,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   let boundaryViableCandidateArcs: CandidateArc[] = candidateArcs
   let boundaryPreflightRejectedArcIds: string[] = []
   let clipSelectionSourceMetadata: Record<string, unknown> = {}
+  let llmThreadSelectorUsed = false
   const useLegacySelectorStack = command.runConfigSnapshot.productionSelectorMode === 'legacy'
   const allowLegacyResolvedClipProposal =
     useLegacySelectorStack || command.runConfigSnapshot.enableLegacyResolvedClipProposal
@@ -1655,6 +1657,86 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     postStageStarted(command.workflowJobId, currentStage, aiService
       ? 'Ranking clip suggestions...'
       : 'Ranking heuristic clip suggestions...')
+
+    if (command.runConfigSnapshot.productionSelectorMode === 'llm_thread_v1') {
+      llmThreadSelectorUsed = true
+      if (aiService) {
+        postProgress(command.workflowJobId, currentStage, 5, 'Discovering conversational threads...')
+        const timeline = canonicalTimelineService.buildFromWhisperTranscription({
+          transcription,
+          mediaDuration: command.mediaDuration
+        })
+        const threadSelection = await llmThreadSelectorService.selectThreads({
+          timeline,
+          transcription,
+          aiService,
+          targetClipCount: command.runConfigSnapshot.maxClipsPerEpisode,
+          onProgress: (progress) => {
+            postProgress(command.workflowJobId, currentStage, Math.min(5 + progress * 0.85, 92), 'Discovering conversational threads...')
+          }
+        })
+
+        analysis = { potentialClips: threadSelection.clips }
+        aiAnalysisSucceeded = true
+        selectionDecisions = threadSelection.decisions
+        clipSelectionSourceMetadata = {
+          ...clipSelectionSourceMetadata,
+          selectionSource: 'llm_thread_selector',
+          ...threadSelection.metadata
+        }
+
+        postStageCompleted(command.workflowJobId, currentStage, {
+          clipCount: analysis.potentialClips.length,
+          mode: 'llm_thread_v1',
+          aiAnalysisSucceeded,
+          selectionDecisions,
+          selectedClipPreview: analysis.potentialClips.slice(0, 5).map((clip) => ({
+            id: clip.id,
+            startTime: clip.startTime,
+            endTime: clip.endTime,
+            shareabilityScore: clip.shareabilityScore
+          })),
+          metadata: {
+            ...getRankingModelMetadata(command),
+            ...clipSelectionSourceMetadata
+          },
+          analysis
+        })
+      } else {
+        analysis = { potentialClips: [] }
+        aiAnalysisSucceeded = false
+        selectionDecisions = []
+        clipSelectionSourceMetadata = {
+          ...clipSelectionSourceMetadata,
+          selectionSource: 'llm_thread_selector',
+          configuredSelectorMode: 'llm_thread_v1',
+          primarySelectorMode: 'llm_thread_v1',
+          finalSelectionSource: 'llm_thread_selector',
+          fallbackAttempted: false,
+          fallbackSource: null,
+          fallbackReason: null,
+          llmDiscoveryError: 'OpenRouter is not configured.',
+          zeroOutputStage: 'llm_discovery_failed'
+        }
+
+        postStageCompleted(command.workflowJobId, currentStage, {
+          clipCount: 0,
+          mode: 'llm_thread_v1',
+          aiAnalysisSucceeded,
+          selectionDecisions,
+          selectedClipPreview: [],
+          metadata: {
+            ...getRankingModelMetadata(command),
+            ...clipSelectionSourceMetadata
+          },
+          analysis
+        })
+      }
+    }
+
+    if (analysis) {
+      // The configured selector produced a complete result for this stage.
+    } else {
     const boundaryPreflight = candidateArcs.length > 0
       ? await preflightCandidateArcsForSelection(
           transcription,
@@ -2247,6 +2329,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         })
       }
     }
+    }
   }
 
   if (!analysis && candidateArcs.length > 0 && boundaryViableCandidateArcs.length === 0 && allowLegacyResolvedClipProposal) {
@@ -2321,7 +2404,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     throw new Error('Missing ranked clip analysis for pipeline resume')
   }
 
-  if (analysis.potentialClips.length > 0) {
+  if (analysis.potentialClips.length > 0 && !llmThreadSelectorUsed) {
     postProgress(command.workflowJobId, currentStage, 98, 'Finalizing clip boundaries...')
     const selectedClipsBeforeBoundaryValidation = [...analysis.potentialClips]
     let boundaryFinalization = await finalClipValidationService.finalizeClipBoundaries(
@@ -2501,7 +2584,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       },
       analysis
     })
-  } else if (startStageIndex <= stageOrder.indexOf('clip_ranking')) {
+  } else if (!llmThreadSelectorUsed && startStageIndex <= stageOrder.indexOf('clip_ranking')) {
     postStageCompleted(command.workflowJobId, 'clip_ranking', {
       clipCount: 0,
       mode: 'arc_v1_no_boundary_viable_clips',
