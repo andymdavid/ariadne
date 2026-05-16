@@ -7,6 +7,7 @@ import {
 import type AIService from './aiService'
 import type {
   ThreadCandidateSelection,
+  ThreadDiscoveryDiagnostics,
   ThreadDiscoveryLine
 } from './aiService'
 import type {
@@ -72,6 +73,7 @@ export type LlmThreadSelectorResult = {
     llmRepairError: string | null
     llmRepairAttemptsExhausted: boolean
     mechanicalVariantsGenerated: number
+    discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }>
     zeroOutputStage: string | null
     rejectedPreview: Array<Record<string, unknown>>
     selectedPreview: Array<Record<string, unknown>>
@@ -95,22 +97,33 @@ class LlmThreadSelectorService {
   }): Promise<LlmThreadSelectorResult> {
     const chunks = this.buildLineChunks(input.timeline.lines)
     const discovered: ThreadCandidateSelection[] = []
+    const discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }> = []
     let llmDiscoveryError: string | null = null
 
     input.onProgress?.(10)
     for (let index = 0; index < chunks.length; index += 1) {
       const chunk = chunks[index]
+      const chunkId = `chunk_${index + 1}`
       try {
-        const candidates = await input.aiService.discoverThreadCandidates({
-          chunkId: `chunk_${index + 1}`,
+        const discovery = await input.aiService.discoverThreadCandidates({
+          chunkId,
           mediaDuration: input.timeline.mediaDuration,
           minDurationSeconds: MIN_CLIP_SECONDS,
           maxDurationSeconds: MAX_CLIP_SECONDS,
           lines: chunk.map((line) => this.toDiscoveryLine(line))
         })
-        discovered.push(...candidates)
+        discoveryDiagnostics.push({ chunkId, ...discovery.diagnostics })
+        discovered.push(...discovery.candidates)
       } catch (error) {
         llmDiscoveryError = error instanceof Error ? error.message : 'Unknown LLM discovery error'
+        discoveryDiagnostics.push({
+          chunkId,
+          responsePreview: '',
+          rawCandidateCount: 0,
+          validCandidateCount: 0,
+          invalidCandidateCount: 0,
+          invalidReasons: [llmDiscoveryError]
+        })
       }
       input.onProgress?.(10 + ((index + 1) / Math.max(1, chunks.length)) * 35)
     }
@@ -141,6 +154,7 @@ class LlmThreadSelectorService {
             llmRepairError,
             llmRepairAttemptsExhausted,
             mechanicalVariantsGenerated,
+            discoveryDiagnostics,
             zeroOutputStage: 'selector_unhealthy_variant_explosion'
           })
         }
@@ -188,6 +202,7 @@ class LlmThreadSelectorService {
             llmRepairError,
             llmRepairAttemptsExhausted,
             mechanicalVariantsGenerated,
+            discoveryDiagnostics,
             zeroOutputStage: 'selector_unhealthy_variant_explosion'
           })
         }
@@ -231,6 +246,7 @@ class LlmThreadSelectorService {
       llmRepairError,
       llmRepairAttemptsExhausted,
       mechanicalVariantsGenerated,
+      discoveryDiagnostics,
       zeroOutputStage: null,
       targetClipCount: input.targetClipCount
     })
@@ -533,6 +549,7 @@ class LlmThreadSelectorService {
       llmRepairError: string | null
       llmRepairAttemptsExhausted: boolean
       mechanicalVariantsGenerated: number
+      discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }>
       zeroOutputStage: string | null
       targetClipCount?: number
     }
@@ -609,6 +626,7 @@ class LlmThreadSelectorService {
         llmRepairError: options.llmRepairError,
         llmRepairAttemptsExhausted: options.llmRepairAttemptsExhausted,
         mechanicalVariantsGenerated: options.mechanicalVariantsGenerated,
+        discoveryDiagnostics: options.discoveryDiagnostics,
         zeroOutputStage,
         selectedPreview: selected.slice(0, 5).map((evaluation) => ({
           candidateId: evaluation.candidate.id,

@@ -144,6 +144,19 @@ export interface ThreadCandidateSelection {
   confidence: number
 }
 
+export interface ThreadDiscoveryDiagnostics {
+  responsePreview: string
+  rawCandidateCount: number
+  validCandidateCount: number
+  invalidCandidateCount: number
+  invalidReasons: string[]
+}
+
+export interface ThreadDiscoveryResult {
+  candidates: ThreadCandidateSelection[]
+  diagnostics: ThreadDiscoveryDiagnostics
+}
+
 export interface ThreadRepairSelection {
   status: 'repaired' | 'unrecoverable'
   startLineIndex: number | null
@@ -543,9 +556,18 @@ class AIService {
     minDurationSeconds: number
     maxDurationSeconds: number
     lines: ThreadDiscoveryLine[]
-  }): Promise<ThreadCandidateSelection[]> {
+  }): Promise<ThreadDiscoveryResult> {
     if (input.lines.length === 0) {
-      return []
+      return {
+        candidates: [],
+        diagnostics: {
+          responsePreview: '',
+          rawCandidateCount: 0,
+          validCandidateCount: 0,
+          invalidCandidateCount: 0,
+          invalidReasons: ['empty_line_chunk']
+        }
+      }
     }
 
     const response = await this.callOpenRouter({
@@ -555,8 +577,9 @@ class AIService {
           role: 'system',
           content: [
             'You are a senior podcast editor selecting coherent rough cuts from transcript lines.',
-            'Find all usable standalone conversational threads above the quality bar.',
-            'Return line indexes only. Do not invent timestamps. Return valid JSON only.'
+            'Find all usable conversational threads above the quality bar, including candidates that may need small boundary repair.',
+            'Return line indexes only. Do not invent timestamps.',
+            'Return one valid JSON object only, with no Markdown, no code fence, and no explanatory prose.'
           ].join(' ')
         },
         {
@@ -801,7 +824,7 @@ MEDIA_DURATION: ${input.mediaDuration.toFixed(2)}s
 TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
 
 TASK:
-Find all usable coherent rough cuts in these transcript lines.
+Find all usable or repairable coherent rough-cut threads in these transcript lines.
 
 A usable rough cut:
 - starts where a listener has enough context
@@ -810,7 +833,12 @@ A usable rough cut:
 - may be loose or padded
 - should not be selected just to fill a quota
 
-Do not return a fixed number. Return every usable candidate above the bar, or return an empty list.
+A repairable candidate:
+- has a strong conversational thread but may need nearby start/end line adjustment
+- should set self_contained to false when it needs boundary repair
+- should explain the missing context or payoff in expected_context / expected_payoff
+
+Do not return a fixed number. Return every usable or repairable candidate above the bar, or return an empty list only when the chunk has no coherent thread worth repairing.
 Choose transcript line indexes only.
 
 OUTPUT JSON:
@@ -885,21 +913,31 @@ Return JSON only.
     `.trim()
   }
 
-  private parseThreadCandidateResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadCandidateSelection[] {
+  private parseThreadCandidateResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadDiscoveryResult {
     const jsonString = this.extractJSON(content)
     if (!jsonString) {
-      throw new Error('No JSON found in thread discovery response')
+      throw new Error(`No JSON found in thread discovery response. Preview: ${this.previewResponse(content)}`)
     }
 
-    const parsed = JSON.parse(jsonString)
+    let parsed: any
+    try {
+      parsed = JSON.parse(jsonString)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown JSON parse error'
+      throw new Error(`Invalid JSON in thread discovery response: ${message}. Preview: ${this.previewResponse(content)}`)
+    }
     const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : []
     const validLineIndexes = new Set(lines.map((line) => line.index))
+    const invalidReasons: string[] = []
 
-    return rawCandidates
+    const candidates = rawCandidates
       .map((candidate: any, index: number): ThreadCandidateSelection | null => {
-        const startLineIndex = Number(candidate.start_line_index)
-        const endLineIndex = Number(candidate.end_line_index)
+        const rawStartLineIndex = candidate.start_line_index ?? candidate.startLineIndex
+        const rawEndLineIndex = candidate.end_line_index ?? candidate.endLineIndex
+        const startLineIndex = Number(rawStartLineIndex)
+        const endLineIndex = Number(rawEndLineIndex)
         if (!validLineIndexes.has(startLineIndex) || !validLineIndexes.has(endLineIndex) || endLineIndex < startLineIndex) {
+          invalidReasons.push(`candidate_${index + 1}_invalid_line_range:${String(rawStartLineIndex)}-${String(rawEndLineIndex)}`)
           return null
         }
 
@@ -916,6 +954,17 @@ Return JSON only.
         }
       })
       .filter((candidate: ThreadCandidateSelection | null): candidate is ThreadCandidateSelection => Boolean(candidate))
+
+    return {
+      candidates,
+      diagnostics: {
+        responsePreview: this.previewResponse(content),
+        rawCandidateCount: rawCandidates.length,
+        validCandidateCount: candidates.length,
+        invalidCandidateCount: rawCandidates.length - candidates.length,
+        invalidReasons
+      }
+    }
   }
 
   private parseThreadRepairResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadRepairSelection {
