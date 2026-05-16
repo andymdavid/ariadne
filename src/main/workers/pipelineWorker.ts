@@ -958,7 +958,8 @@ async function preflightCandidateArcsForSelection(
     return {
       arcs,
       validation: null,
-      rejectedArcIds: []
+      rejectedArcIds: [],
+      rejectedArcDiagnostics: []
     }
   }
 
@@ -986,6 +987,28 @@ async function preflightCandidateArcsForSelection(
     .filter((decision) => decision.status === 'rejected')
     .map((decision) => preflightClips.find((clip) => clip.id === decision.clipId)?.sourceArcId)
     .filter((arcId): arcId is string => Boolean(arcId))
+  const clipById = new Map(preflightClips.map((clip) => [clip.id, clip]))
+  const rejectedArcDiagnostics = validation.validatorDecisions
+    .filter((decision) => decision.status === 'rejected')
+    .map((decision) => {
+      const sourceClip = clipById.get(decision.clipId)
+      return {
+        arcId: sourceClip?.sourceArcId ?? null,
+        clipId: decision.clipId,
+        originalStartTime: decision.originalStartTime,
+        originalEndTime: decision.originalEndTime,
+        score: decision.score,
+        alternativesConsidered: decision.alternativesConsidered,
+        repairFailureReason: decision.repairFailureReason ?? null,
+        repairFailureDetails: decision.repairFailureDetails ?? null,
+        fatalIssues: decision.fatalIssues ?? [],
+        boundaryVariantType: decision.boundaryVariantType ?? null,
+        repairOperation: decision.repairOperation ?? null,
+        openingPreview: decision.openingPreview,
+        endingPreview: decision.endingPreview,
+        topAlternatives: decision.topAlternatives
+      }
+    })
 
   return {
     arcs: arcs
@@ -1004,9 +1027,10 @@ async function preflightCandidateArcsForSelection(
             originalEndTime: arc.endTime
           }
         }
-      }),
+    }),
     validation,
-    rejectedArcIds
+    rejectedArcIds,
+    rejectedArcDiagnostics
   }
 }
 
@@ -1649,7 +1673,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         boundaryPreflightCandidateArcCount: candidateArcs.length,
         boundaryPreflightAcceptedArcCount: selectionCandidateArcs.length,
         boundaryPreflightRejectedArcCount: boundaryPreflight.rejectedArcIds.length,
-        boundaryPreflightRejectedArcIds: boundaryPreflight.rejectedArcIds
+        boundaryPreflightRejectedArcIds: boundaryPreflight.rejectedArcIds,
+        boundaryPreflightRejectedArcDiagnostics: boundaryPreflight.rejectedArcDiagnostics
       }
     }
 
