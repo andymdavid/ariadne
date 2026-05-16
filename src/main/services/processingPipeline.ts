@@ -1377,17 +1377,19 @@ class ProcessingPipeline {
   ) {
     const now = new Date().toISOString()
     const clipCount = workerResult.analysis.potentialClips.length
-    const productionMode = this.resolveProductionModeFromSelectionDecisions(workerResult)
+    const existingRun = database.getPipelineSelectionRun(selectionRunId)
+    const configuredProductionMode = existingRun?.productionMode === 'legacy' ? 'legacy' : 'arc_v1'
+    const productionMode = configuredProductionMode
     const selectionSource = this.resolveSelectionSourceFromWorkerResult(workerResult)
-    const selectorVersion = selectionSource === LEGACY_SELECTION_SOURCE
-      ? LEGACY_SELECTION_RUN_VERSION
-      : ARC_SELECTION_RUN_VERSION
+    const selectorVersion = this.resolveSelectionRunVersion(productionMode)
     database.updatePipelineSelectionRun(selectionRunId, {
       status: 'completed',
       productionMode,
       selectorVersion,
       summaryJson: JSON.stringify({
         selectionSource,
+        configuredProductionMode,
+        actualSelectionSource: selectionSource,
         selectorVersion,
         productionMode,
         workflowJobId,
@@ -1403,6 +1405,7 @@ class ProcessingPipeline {
       selectionRunId,
       episodeId,
       selectionSource,
+      configuredProductionMode,
       selectorVersion,
       productionMode,
       clipCount,
@@ -1470,12 +1473,6 @@ class ProcessingPipeline {
       return 'deterministic_candidate_arcs'
     }
     return LEGACY_SELECTION_SOURCE
-  }
-
-  private resolveProductionModeFromSelectionDecisions(workerResult: PipelineWorkerCompletedEvent) {
-    return (workerResult.selectionDecisions ?? []).some((decision) => Boolean(decision.candidateArcId))
-      ? 'arc_v1'
-      : 'legacy'
   }
 
   private createPipelineArtifact(
