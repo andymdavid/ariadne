@@ -22,6 +22,18 @@ The intended production flow is:
 
 Code handles media physics. The LLM handles editorial judgment.
 
+Implementation order:
+
+1. Create the canonical timeline schema and adapter from existing Whisper output.
+2. Add explicit selector-mode orchestration and truthful run metadata for `llm_thread_v1`.
+3. Implement `llm_thread_v1` discovery and repair over canonical transcript lines.
+4. Narrow final validation to mechanical confirmation for this path.
+5. Run the known failing file and compare against manually marked clip regions.
+6. Add `.srt` / `.vtt` import.
+7. Add `.txt` guided alignment.
+
+The first vertical slice is `llm_thread_v1` over Whisper-generated canonical timelines only. Transcript upload ships after the selector shape is proven.
+
 ## Selector Modes
 
 Supported selector modes:
@@ -182,6 +194,10 @@ type MechanicalClipVerification = {
     | 'lookahead_continues_current_ending'
     | 'overlap_suppressed'
   >
+  issueClasses: {
+    hardMechanicalInvalid: string[]
+    semanticRepairNeeded: string[]
+  }
   repairPromptContext?: {
     previousLines: number[]
     currentLines: number[]
@@ -190,7 +206,25 @@ type MechanicalClipVerification = {
 }
 ```
 
-Verification may flag obvious boundary issues, but it should not try to replace LLM editorial judgment with hundreds of thousands of variants.
+Verification may flag obvious boundary issues, but it must not try to replace LLM editorial judgment with hundreds of thousands of variants.
+
+Hard mechanical invalid issues:
+
+- `missing_timing`
+- `duration_too_short`
+- `duration_too_long`
+- `ungrounded_text`
+
+Semantic repair-needed issues:
+
+- `leading_continues_previous_thought`
+- `lookahead_continues_current_ending`
+
+Rules:
+
+- Hard mechanical invalid issues can reject a candidate without LLM repair when no valid media cut can be produced.
+- Semantic repair-needed issues should trigger LLM repair, not final rejection, unless repair attempts are exhausted or the model call fails.
+- The verifier may mark a semantic issue as obvious, but it should still route to repair before rejecting the candidate.
 
 ## LLM Repair Interface
 
@@ -240,10 +274,18 @@ Variant count target:
 
 The 600k variant behavior is explicitly retired for `llm_thread_v1`.
 
+Runtime guard:
+
+- `llm_thread_v1` must track `mechanicalVariantsGenerated`.
+- If generated variants exceed the configured ceiling, stop the selector path and mark the run as `selector_unhealthy_variant_explosion`.
+- The guard exists to prevent old Cartesian-product boundary search from creeping back into the new path.
+
 ## Files To Keep
 
 Keep and adapt:
 
+- `src/main/services/canonicalTimelineService.ts`
+- `src/main/services/llmThreadSelectorService.ts`
 - `src/main/workers/pipelineWorker.ts`
 - `src/main/services/processingPipeline.ts`
 - `src/main/services/finalClipValidationService.ts`
@@ -305,6 +347,9 @@ type SelectionRunMetadata = {
   speakerSource: string | null
   threadCandidatesDiscovered: number
   threadCandidatesRepaired: number
+  llmDiscoveryError: string | null
+  llmRepairError: string | null
+  llmRepairAttemptsExhausted: boolean
   mechanicalVariantsGenerated: number
   finalClipsAccepted: number
   finalClipsRejected: number
@@ -326,11 +371,15 @@ Zero-output reasons must resolve to one of:
 
 For known file `TGS053_SHOULDER_CLIP_1.mp4` using the same transcript:
 
+- Before implementation, record at least two manually identified human-obvious clip regions for this file.
 - `llm_thread_v1` identifies conversational thread candidates by line range.
 - At least one candidate overlaps a human-obvious clip region.
+- For this known eval file, zero clips is a failing test unless the run explains why all manually identified regions were missed or rejected.
 - If final output is zero clips, the reason is traceable to LLM discovery, repair failure, mechanical validation, or portfolio suppression.
+- If repair was needed, metadata shows whether repair ran, failed due to model error, or exhausted attempts.
 - The run does not generate hundreds of thousands of boundary variants.
 - Mechanical variants generated for the full run are below 2,000.
+- The runtime variant guard is active.
 - Run metadata preserves configured mode and actual final source separately.
 - No hidden fallback runs unless explicitly enabled.
 
