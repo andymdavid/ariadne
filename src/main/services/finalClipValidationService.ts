@@ -60,6 +60,22 @@ type BoundaryVariantScore = {
   fatalIssues: string[]
 }
 
+type BoundaryRepairFailureReason =
+  | 'missing_context'
+  | 'unresolved_ending'
+  | 'duration_cap'
+  | 'no_boundary_variant'
+  | 'low_boundary_score'
+  | 'ranking_error'
+  | 'unknown'
+
+type BoundaryOptimizationFailureStats = {
+  durationTooShort: number
+  durationTooLong: number
+  missingTranscriptText: number
+  acceptableVariants: number
+}
+
 export interface SemanticBoundaryReviewResult {
   clips: PipelineWorkerPotentialClip[]
   reviews: ClipBoundaryReview[]
@@ -93,6 +109,8 @@ export interface FinalClipValidationDecision {
   roughCutStatus?: 'reviewable_rough_cut' | 'rejected_after_repair'
   boundaryVariantType?: string
   repairOperation?: string
+  repairFailureReason?: BoundaryRepairFailureReason
+  repairFailureDetails?: Record<string, unknown>
   fatalIssues?: string[]
 }
 
@@ -100,6 +118,8 @@ export interface FinalClipValidationRejectedClip {
   clipId: string
   reason: string
   rejectionCode: 'boundary_optimizer_threshold'
+  repairFailureReason: BoundaryRepairFailureReason
+  repairFailureDetails: Record<string, unknown>
   openingPreview: string
   endingPreview: string
   topAlternatives: Array<Record<string, unknown>>
@@ -121,6 +141,11 @@ export interface FinalClipValidationResult {
     abruptStartFailures: number
     unresolvedEndingFailures: number
     missingContextFailures: number
+    durationCapFailures: number
+    noBoundaryVariantFailures: number
+    lowBoundaryScoreFailures: number
+    rankingErrorFailures: number
+    repairFailureReasons: Record<BoundaryRepairFailureReason, number>
   }
 }
 
@@ -803,13 +828,30 @@ class FinalClipValidationService {
     const startAnchors = this.buildBoundaryStartAnchors(transcription, clip, mediaDuration, transcriptLines)
     const endAnchors = this.buildBoundaryEndAnchors(transcription, clip, mediaDuration, transcriptLines)
     const scored: BoundaryVariantScore[] = []
+    const failureStats: BoundaryOptimizationFailureStats = {
+      durationTooShort: 0,
+      durationTooLong: 0,
+      missingTranscriptText: 0,
+      acceptableVariants: 0
+    }
 
     for (const startAnchor of startAnchors) {
       for (const endAnchor of endAnchors) {
         if (endAnchor.time <= startAnchor.time) continue
+        const duration = Number((endAnchor.time - startAnchor.time).toFixed(3))
+        if (duration < RESOLVED_CLIP_MIN_DURATION_SECONDS) {
+          failureStats.durationTooShort += 1
+          continue
+        }
+        if (duration > ROUGH_CUT_REPAIR_MAX_DURATION_SECONDS) {
+          failureStats.durationTooLong += 1
+          continue
+        }
         const result = this.scoreOptimizedBoundaryPair(transcription, clip, startAnchor, endAnchor)
         if (result) {
           scored.push(result)
+        } else {
+          failureStats.missingTranscriptText += 1
         }
       }
     }
@@ -822,10 +864,18 @@ class FinalClipValidationService {
       !item.startLookbackIssue &&
       !item.lookaheadIssue
     ) ?? null
+    failureStats.acceptableVariants = scored.filter((item) =>
+      item.score >= BOUNDARY_OPTIMIZER_ROUGH_CUT_SCORE &&
+      !item.startBoundaryIssue &&
+      !item.hardEndIssue &&
+      !item.startLookbackIssue &&
+      !item.lookaheadIssue
+    ).length
     const best = acceptable ?? scored[0] ?? null
     return {
       best,
       alternativesConsidered: scored.length,
+      failureStats,
       topAlternatives: scored.slice(0, 3).map((item) => ({
         startTime: item.clip.startTime,
         endTime: item.clip.endTime,
@@ -847,6 +897,51 @@ class FinalClipValidationService {
     }
   }
 
+  private resolveRepairFailureReason(input: {
+    optimization: ReturnType<FinalClipValidationService['optimizeClipBoundary']>
+    fatalIssues: string[]
+  }): BoundaryRepairFailureReason {
+    if (input.optimization.failureStats.acceptableVariants > 0) {
+      return 'ranking_error'
+    }
+
+    if (input.optimization.alternativesConsidered === 0) {
+      return input.optimization.failureStats.durationTooLong > 0
+        ? 'duration_cap'
+        : 'no_boundary_variant'
+    }
+
+    if (input.fatalIssues.includes('leading_continues_previous_thought')) {
+      return 'missing_context'
+    }
+
+    if (input.fatalIssues.some((issue) => issue.startsWith('trailing_') || issue === 'lookahead_continues_current_ending')) {
+      return 'unresolved_ending'
+    }
+
+    if (input.optimization.best && input.optimization.best.score < BOUNDARY_OPTIMIZER_ROUGH_CUT_SCORE) {
+      return 'low_boundary_score'
+    }
+
+    return 'unknown'
+  }
+
+  private buildRepairFailureDetails(input: {
+    optimization: ReturnType<FinalClipValidationService['optimizeClipBoundary']>
+    repairFailureReason: BoundaryRepairFailureReason
+    fatalIssues: string[]
+  }): Record<string, unknown> {
+    return {
+      repairFailureReason: input.repairFailureReason,
+      fatalIssues: input.fatalIssues,
+      alternativesConsidered: input.optimization.alternativesConsidered,
+      failureStats: input.optimization.failureStats,
+      bestScore: input.optimization.best?.score ?? null,
+      bestVariantType: input.optimization.best?.variantType ?? null,
+      bestRepairOperation: input.optimization.best?.editOperation ?? null
+    }
+  }
+
   private optimizeClipBoundaries(
     transcription: PipelineWorkerTranscription,
     clips: PipelineWorkerPotentialClip[],
@@ -865,7 +960,20 @@ class FinalClipValidationService {
       repairedEndCount: 0,
       abruptStartFailures: 0,
       unresolvedEndingFailures: 0,
-      missingContextFailures: 0
+      missingContextFailures: 0,
+      durationCapFailures: 0,
+      noBoundaryVariantFailures: 0,
+      lowBoundaryScoreFailures: 0,
+      rankingErrorFailures: 0,
+      repairFailureReasons: {
+        missing_context: 0,
+        unresolved_ending: 0,
+        duration_cap: 0,
+        no_boundary_variant: 0,
+        low_boundary_score: 0,
+        ranking_error: 0,
+        unknown: 0
+      }
     }
 
     for (const clip of clips) {
@@ -933,7 +1041,10 @@ class FinalClipValidationService {
       const fatalIssues = Array.isArray(topAlternative?.fatalIssues)
         ? topAlternative.fatalIssues.filter((issue): issue is string => typeof issue === 'string')
         : []
+      const repairFailureReason = this.resolveRepairFailureReason({ optimization, fatalIssues })
+      const repairFailureDetails = this.buildRepairFailureDetails({ optimization, repairFailureReason, fatalIssues })
       report.rejectedAfterRepair += 1
+      report.repairFailureReasons[repairFailureReason] += 1
       if (fatalIssues.some((issue) => issue.startsWith('leading_'))) {
         report.abruptStartFailures += 1
       }
@@ -943,10 +1054,24 @@ class FinalClipValidationService {
       if (fatalIssues.some((issue) => issue.startsWith('trailing_') || issue === 'lookahead_continues_current_ending')) {
         report.unresolvedEndingFailures += 1
       }
+      if (repairFailureReason === 'duration_cap') {
+        report.durationCapFailures += 1
+      }
+      if (repairFailureReason === 'no_boundary_variant') {
+        report.noBoundaryVariantFailures += 1
+      }
+      if (repairFailureReason === 'low_boundary_score') {
+        report.lowBoundaryScoreFailures += 1
+      }
+      if (repairFailureReason === 'ranking_error') {
+        report.rankingErrorFailures += 1
+      }
       const rejectedClip: FinalClipValidationRejectedClip = {
         clipId: clip.id,
         reason: 'Rejected after prepared boundary repair variants failed to produce a coherent rough cut.',
         rejectionCode: 'boundary_optimizer_threshold',
+        repairFailureReason,
+        repairFailureDetails,
         openingPreview: typeof topAlternative?.openingPreview === 'string' ? topAlternative.openingPreview : '',
         endingPreview: typeof topAlternative?.endingPreview === 'string' ? topAlternative.endingPreview : '',
         topAlternatives: optimization.topAlternatives
@@ -968,6 +1093,8 @@ class FinalClipValidationService {
         roughCutStatus: 'rejected_after_repair',
         boundaryVariantType: typeof topAlternative?.variantType === 'string' ? topAlternative.variantType : undefined,
         repairOperation: typeof topAlternative?.editOperation === 'string' ? topAlternative.editOperation : undefined,
+        repairFailureReason,
+        repairFailureDetails,
         fatalIssues
       })
     }

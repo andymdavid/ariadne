@@ -171,6 +171,8 @@ function buildClipApprovalFunnelReport(input: {
       clipId: clip.clipId,
       rejectionCode: clip.rejectionCode,
       reason: clip.reason,
+      repairFailureReason: clip.repairFailureReason,
+      repairFailureDetails: clip.repairFailureDetails,
       openingPreview: clip.openingPreview,
       endingPreview: clip.endingPreview,
       topAlternatives: clip.topAlternatives

@@ -26,6 +26,11 @@ type CoherentRoughCutsReport = {
   abruptStartFailures?: number
   unresolvedEndingFailures?: number
   missingContextFailures?: number
+  durationCapFailures?: number
+  noBoundaryVariantFailures?: number
+  lowBoundaryScoreFailures?: number
+  rankingErrorFailures?: number
+  repairFailureReasons?: Record<string, number>
 }
 
 type CoherentRoughCutSelectionReport = {
@@ -560,7 +565,23 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                         <span className="text-right text-text-primary">{String(coherentRoughCutsReport.unresolvedEndingFailures ?? 0)}</span>
                         <span>Missing Context</span>
                         <span className="text-right text-text-primary">{String(coherentRoughCutsReport.missingContextFailures ?? 0)}</span>
+                        <span>Duration Cap</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.durationCapFailures ?? 0)}</span>
+                        <span>No Variant</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.noBoundaryVariantFailures ?? 0)}</span>
+                        <span>Low Score</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.lowBoundaryScoreFailures ?? 0)}</span>
+                        <span>Ranking Error</span>
+                        <span className="text-right text-text-primary">{String(coherentRoughCutsReport.rankingErrorFailures ?? 0)}</span>
                       </div>
+                      {coherentRoughCutsReport.repairFailureReasons && (
+                        <div className="mt-2 text-text-muted">
+                          {Object.entries(coherentRoughCutsReport.repairFailureReasons)
+                            .filter(([, count]) => count > 0)
+                            .map(([reason, count]) => `${reason}:${count}`)
+                            .join(' ') || 'No repair failures'}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
