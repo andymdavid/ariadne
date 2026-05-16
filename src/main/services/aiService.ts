@@ -913,7 +913,7 @@ For unrecoverable:
 SURROUNDING_LINES:
 ${lineText}
 
-Return JSON only.
+Return one JSON object only. The first character must be "{" and the last character must be "}".
     `.trim()
   }
 
@@ -1032,7 +1032,11 @@ Return JSON only.
   }
 
   private parseThreadRepairTextFallback(content: string, lines: ThreadDiscoveryLine[]): ThreadRepairSelection | null {
-    const normalized = content.replace(/\s+/g, ' ').trim()
+    const normalized = content
+      .replace(/```json/gi, ' ')
+      .replace(/```/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
     if (!normalized) {
       return null
     }
@@ -1047,8 +1051,29 @@ Return JSON only.
     }
 
     const validLineIndexes = new Set(lines.map((line) => line.index))
+    const startField = normalized.match(/["']?start[_\s-]*line[_\s-]*(?:index)?["']?\s*[:=]\s*["']?(\d+)["']?/i)
+    const endField = normalized.match(/["']?end[_\s-]*line[_\s-]*(?:index)?["']?\s*[:=]\s*["']?(\d+)["']?/i)
+    if (startField && endField) {
+      const startLineIndex = Number(startField[1])
+      const endLineIndex = Number(endField[1])
+      if (
+        Number.isFinite(startLineIndex) &&
+        Number.isFinite(endLineIndex) &&
+        validLineIndexes.has(startLineIndex) &&
+        validLineIndexes.has(endLineIndex) &&
+        endLineIndex >= startLineIndex
+      ) {
+        return {
+          status: 'repaired',
+          startLineIndex,
+          endLineIndex,
+          reason: `Recovered repair line range from partial JSON fields: ${this.previewResponse(content)}`
+        }
+      }
+    }
+
     const patterns = [
-      /start[_\s-]*line[_\s-]*(?:index)?\s*[:=]\s*(\d+)[\s,;]+end[_\s-]*line[_\s-]*(?:index)?\s*[:=]\s*(\d+)/i,
+      /["']?start[_\s-]*line[_\s-]*(?:index)?["']?\s*[:=]\s*["']?(\d+)["']?[\s,;]+["']?end[_\s-]*line[_\s-]*(?:index)?["']?\s*[:=]\s*["']?(\d+)["']?/i,
       /lines?\s+(\d+)\s*(?:-|to|through|until|\u2013)\s*(\d+)/i,
       /line[_\s-]*range\s*[:=]\s*(\d+)\s*(?:-|to|through|until|\u2013)\s*(\d+)/i
     ]
@@ -2316,6 +2341,16 @@ Return JSON only.
     if (match) {
       console.log('Strategy 1 SUCCESS: Found JSON in code block')
       return match[1].trim()
+    }
+
+    // Strategy 1b: Handle an unclosed fenced JSON response if the object itself is complete.
+    match = content.match(/```json\s*([\s\S]*)/i)
+    if (match) {
+      const balancedObject = this.extractFirstBalancedJSONObject(match[1].trim())
+      if (balancedObject) {
+        console.log('Strategy 1b SUCCESS: Found JSON in unclosed code block')
+        return balancedObject
+      }
     }
     
     // Strategy 2: Look for ``` code blocks (without json specifier)
