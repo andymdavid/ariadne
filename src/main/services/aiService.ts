@@ -124,6 +124,33 @@ export interface WordSpanClipSelection {
   reason: string
 }
 
+export interface ThreadDiscoveryLine {
+  index: number
+  startTime: number | null
+  endTime: number | null
+  speaker: string | null
+  text: string
+}
+
+export interface ThreadCandidateSelection {
+  id: string
+  startLineIndex: number
+  endLineIndex: number
+  title: string
+  reason: string
+  selfContained: boolean
+  expectedContext: string | null
+  expectedPayoff: string | null
+  confidence: number
+}
+
+export interface ThreadRepairSelection {
+  status: 'repaired' | 'unrecoverable'
+  startLineIndex: number | null
+  endLineIndex: number | null
+  reason: string
+}
+
 export interface TranscriptDataWithWords {
   text: string
   segments: Array<{
@@ -510,6 +537,70 @@ class AIService {
     return judgments
   }
 
+  async discoverThreadCandidates(input: {
+    chunkId: string
+    mediaDuration: number
+    minDurationSeconds: number
+    maxDurationSeconds: number
+    lines: ThreadDiscoveryLine[]
+  }): Promise<ThreadCandidateSelection[]> {
+    if (input.lines.length === 0) {
+      return []
+    }
+
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are a senior podcast editor selecting coherent rough cuts from transcript lines.',
+            'Find all usable standalone conversational threads above the quality bar.',
+            'Return line indexes only. Do not invent timestamps. Return valid JSON only.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: this.buildThreadDiscoveryPrompt(input)
+        }
+      ],
+      max_tokens: 5000,
+      temperature: 0.2
+    })
+
+    return this.parseThreadCandidateResponse(response.content, input.lines)
+  }
+
+  async repairThreadCandidate(input: {
+    candidate: ThreadCandidateSelection
+    issues: string[]
+    surroundingLines: ThreadDiscoveryLine[]
+    minDurationSeconds: number
+    maxDurationSeconds: number
+  }): Promise<ThreadRepairSelection> {
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are a senior podcast editor repairing a rough-cut transcript line range.',
+            'Choose a better line range or mark it unrecoverable.',
+            'Return line indexes only. Do not invent timestamps. Return valid JSON only.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: this.buildThreadRepairPrompt(input)
+        }
+      ],
+      max_tokens: 1800,
+      temperature: 0.15
+    })
+
+    return this.parseThreadRepairResponse(response.content, input.surroundingLines)
+  }
+
   /**
    * Propose clip boundaries directly using AI (not limited to pre-computed candidates)
    * This gives the AI freedom to propose arbitrary start/end times based on word-level timing
@@ -690,6 +781,184 @@ VALIDATION CHECKLIST (apply to each clip before including):
 
 Return JSON only. No explanations outside the JSON structure.
     `.trim()
+  }
+
+  private buildThreadDiscoveryPrompt(input: {
+    chunkId: string
+    mediaDuration: number
+    minDurationSeconds: number
+    maxDurationSeconds: number
+    lines: ThreadDiscoveryLine[]
+  }) {
+    const lineText = input.lines.map((line) => (
+      `LINE ${line.index} [${line.startTime?.toFixed(2) ?? 'no-start'}-${line.endTime?.toFixed(2) ?? 'no-end'}]${line.speaker ? ` ${line.speaker}:` : ''} ${line.text}`
+    )).join('\n')
+
+    return `
+CHUNK_ID: ${input.chunkId}
+MEDIA_DURATION: ${input.mediaDuration.toFixed(2)}s
+TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
+
+TASK:
+Find all usable coherent rough cuts in these transcript lines.
+
+A usable rough cut:
+- starts where a listener has enough context
+- preserves one conversational thread
+- ends after the thought lands
+- may be loose or padded
+- should not be selected just to fill a quota
+
+Do not return a fixed number. Return every usable candidate above the bar, or return an empty list.
+Choose transcript line indexes only.
+
+OUTPUT JSON:
+{
+  "candidates": [
+    {
+      "id": "thread_1",
+      "start_line_index": 1,
+      "end_line_index": 8,
+      "title": "Short descriptive title",
+      "reason": "Why this is a coherent rough cut",
+      "self_contained": true,
+      "expected_context": null,
+      "expected_payoff": "Where the thought lands",
+      "confidence": 0.82
+    }
+  ]
+}
+
+TRANSCRIPT_LINES:
+${lineText}
+
+Return JSON only.
+    `.trim()
+  }
+
+  private buildThreadRepairPrompt(input: {
+    candidate: ThreadCandidateSelection
+    issues: string[]
+    surroundingLines: ThreadDiscoveryLine[]
+    minDurationSeconds: number
+    maxDurationSeconds: number
+  }) {
+    const lineText = input.surroundingLines.map((line) => (
+      `LINE ${line.index} [${line.startTime?.toFixed(2) ?? 'no-start'}-${line.endTime?.toFixed(2) ?? 'no-end'}]${line.speaker ? ` ${line.speaker}:` : ''} ${line.text}`
+    )).join('\n')
+
+    return `
+CURRENT_CANDIDATE:
+${JSON.stringify(input.candidate, null, 2)}
+
+ISSUES:
+${input.issues.join(', ')}
+
+TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
+
+TASK:
+Repair this rough cut by choosing a better start_line_index and end_line_index from the surrounding lines.
+If the candidate is embedded in a larger thread, expand to the parent conversational thread.
+If it cannot be repaired within duration limits, mark it unrecoverable.
+
+OUTPUT JSON:
+{
+  "status": "repaired",
+  "start_line_index": 1,
+  "end_line_index": 8,
+  "reason": "Expanded to include the question and final payoff."
+}
+
+For unrecoverable:
+{
+  "status": "unrecoverable",
+  "start_line_index": null,
+  "end_line_index": null,
+  "reason": "The complete thread exceeds the duration cap."
+}
+
+SURROUNDING_LINES:
+${lineText}
+
+Return JSON only.
+    `.trim()
+  }
+
+  private parseThreadCandidateResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadCandidateSelection[] {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error('No JSON found in thread discovery response')
+    }
+
+    const parsed = JSON.parse(jsonString)
+    const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : []
+    const validLineIndexes = new Set(lines.map((line) => line.index))
+
+    return rawCandidates
+      .map((candidate: any, index: number): ThreadCandidateSelection | null => {
+        const startLineIndex = Number(candidate.start_line_index)
+        const endLineIndex = Number(candidate.end_line_index)
+        if (!validLineIndexes.has(startLineIndex) || !validLineIndexes.has(endLineIndex) || endLineIndex < startLineIndex) {
+          return null
+        }
+
+        return {
+          id: String(candidate.id || `thread_${index + 1}`),
+          startLineIndex,
+          endLineIndex,
+          title: String(candidate.title || 'Conversational thread').trim(),
+          reason: String(candidate.reason || '').trim(),
+          selfContained: Boolean(candidate.self_contained),
+          expectedContext: candidate.expected_context == null ? null : String(candidate.expected_context).trim(),
+          expectedPayoff: candidate.expected_payoff == null ? null : String(candidate.expected_payoff).trim(),
+          confidence: Math.max(0, Math.min(1, Number(candidate.confidence ?? 0.5)))
+        }
+      })
+      .filter((candidate: ThreadCandidateSelection | null): candidate is ThreadCandidateSelection => Boolean(candidate))
+  }
+
+  private parseThreadRepairResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadRepairSelection {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error('No JSON found in thread repair response')
+    }
+
+    const parsed = JSON.parse(jsonString)
+    const status = parsed.status === 'unrecoverable' ? 'unrecoverable' : 'repaired'
+    const validLineIndexes = new Set(lines.map((line) => line.index))
+    const startLineIndex = parsed.start_line_index == null ? null : Number(parsed.start_line_index)
+    const endLineIndex = parsed.end_line_index == null ? null : Number(parsed.end_line_index)
+
+    if (status === 'unrecoverable') {
+      return {
+        status,
+        startLineIndex: null,
+        endLineIndex: null,
+        reason: String(parsed.reason || 'Marked unrecoverable by thread repair.').trim()
+      }
+    }
+
+    if (
+      startLineIndex == null ||
+      endLineIndex == null ||
+      !validLineIndexes.has(startLineIndex) ||
+      !validLineIndexes.has(endLineIndex) ||
+      endLineIndex < startLineIndex
+    ) {
+      return {
+        status: 'unrecoverable',
+        startLineIndex: null,
+        endLineIndex: null,
+        reason: 'Thread repair returned invalid line indexes.'
+      }
+    }
+
+    return {
+      status: 'repaired',
+      startLineIndex,
+      endLineIndex,
+      reason: String(parsed.reason || 'Repaired line range.').trim()
+    }
   }
 
   private buildClipBoundaryReviewPrompt(
