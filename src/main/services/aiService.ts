@@ -586,7 +586,8 @@ class AIService {
           content: [
             'You are a senior podcast editor repairing a rough-cut transcript line range.',
             'Choose a better line range or mark it unrecoverable.',
-            'Return line indexes only. Do not invent timestamps. Return valid JSON only.'
+            'Return line indexes only. Do not invent timestamps.',
+            'Return one valid JSON object only, with no Markdown, no code fence, and no explanatory prose.'
           ].join(' ')
         },
         {
@@ -832,7 +833,7 @@ OUTPUT JSON:
 TRANSCRIPT_LINES:
 ${lineText}
 
-Return JSON only.
+Return one JSON object only. The first character must be "{" and the last character must be "}".
     `.trim()
   }
 
