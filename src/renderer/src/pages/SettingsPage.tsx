@@ -17,6 +17,7 @@ interface ConfigState {
     | 'deepseek-r1'
     | 'google-gemini-2.5-flash-lite'
   clipSelectionPlatform: 'youtube_shorts' | 'instagram_reels' | 'tiktok'
+  productionSelectorMode: 'legacy' | 'arc_v1' | 'llm_thread_v1'
   defaultExportFormat: '9:16' | '1:1' | '16:9'
   isValid: boolean
   errors: string[]
@@ -74,6 +75,7 @@ export function SettingsPage() {
     openRouterKey: '',
     model: 'google-gemini-2.5-flash',
     clipSelectionPlatform: 'youtube_shorts',
+    productionSelectorMode: 'arc_v1',
     defaultExportFormat: '9:16',
     isValid: false,
     errors: []
@@ -100,6 +102,7 @@ export function SettingsPage() {
           openRouterKey: data.apiConfig.openRouterKey || '',
           model: data.apiConfig.model || 'google-gemini-2.5-flash',
           clipSelectionPlatform: data.apiConfig.clipSelectionPlatform || 'youtube_shorts',
+          productionSelectorMode: data.userPreferences.productionSelectorMode || 'arc_v1',
           defaultExportFormat: data.userPreferences.defaultExportFormat || '9:16',
           isValid: data.isConfigured,
           errors: []
@@ -162,6 +165,7 @@ export function SettingsPage() {
       })
 
       await window.electronAPI?.updateUserPreferences({
+        productionSelectorMode: config.productionSelectorMode,
         defaultExportFormat: config.defaultExportFormat
       })
 
@@ -472,10 +476,33 @@ export function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-text-secondary">
-                        Clip Selection Platform
+	                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+	                    <div>
+	                      <label className="mb-2 block text-sm font-medium text-text-secondary">
+	                        Clip Selector
+	                      </label>
+	                      <select
+	                        value={config.productionSelectorMode}
+	                        onChange={(e) =>
+	                          setConfig((prev) => ({
+	                            ...prev,
+	                            productionSelectorMode: e.target.value as ConfigState['productionSelectorMode']
+	                          }))
+	                        }
+	                        className="input w-full"
+	                      >
+	                        <option value="llm_thread_v1">LLM Thread v1</option>
+	                        <option value="arc_v1">Arc v1</option>
+	                        <option value="legacy">Legacy</option>
+	                      </select>
+	                      <p className="mt-2 text-xs text-text-muted">
+	                        LLM Thread v1 discovers coherent transcript-line clips without hidden fallbacks.
+	                      </p>
+	                    </div>
+
+	                    <div>
+	                      <label className="mb-2 block text-sm font-medium text-text-secondary">
+	                        Clip Selection Platform
                       </label>
                       <select
                         value={config.clipSelectionPlatform}
