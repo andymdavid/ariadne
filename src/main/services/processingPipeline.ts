@@ -57,6 +57,8 @@ const LEGACY_SELECTION_RUN_VERSION = 'legacy_pipeline_v1'
 const LEGACY_SELECTION_SOURCE = 'legacy_pipeline'
 const ARC_SELECTION_RUN_VERSION = 'candidate_arc_ranker_v1'
 const ARC_SELECTION_SOURCE = 'candidate_arc_ranker'
+const LLM_THREAD_SELECTION_RUN_VERSION = 'llm_thread_selector_v1'
+const LLM_THREAD_SELECTION_SOURCE = 'llm_thread_selector'
 const DEFAULT_LOCAL_WHISPER_MODEL = 'turbo'
 
 class ProcessingPipeline {
@@ -1084,7 +1086,7 @@ class ProcessingPipeline {
     const apiConfig = configService.getApiConfig()
     const userPreferences = configService.getUserPreferences()
     const brandVoice = configService.getBrandVoice()
-    const productionSelectorMode = userPreferences.productionSelectorMode === 'legacy' ? 'legacy' : 'arc_v1'
+    const productionSelectorMode = this.normalizeProductionSelectorMode(userPreferences.productionSelectorMode)
 
     return {
       apiModelAlias: apiConfig.openRouterKey ? apiConfig.model : null,
@@ -1378,7 +1380,7 @@ class ProcessingPipeline {
     const now = new Date().toISOString()
     const clipCount = workerResult.analysis.potentialClips.length
     const existingRun = database.getPipelineSelectionRun(selectionRunId)
-    const configuredProductionMode = existingRun?.productionMode === 'legacy' ? 'legacy' : 'arc_v1'
+    const configuredProductionMode = this.normalizeProductionSelectorMode(existingRun?.productionMode)
     const productionMode = configuredProductionMode
     const selectionSource = this.resolveSelectionSourceFromWorkerResult(workerResult)
     const selectorVersion = this.resolveSelectionRunVersion(productionMode)
@@ -1457,11 +1459,17 @@ class ProcessingPipeline {
   }
 
   private resolveSelectionRunVersion(productionMode: PipelineRunConfigSnapshot['productionSelectorMode']) {
+    if (productionMode === 'llm_thread_v1') return LLM_THREAD_SELECTION_RUN_VERSION
     return productionMode === 'arc_v1' ? ARC_SELECTION_RUN_VERSION : LEGACY_SELECTION_RUN_VERSION
   }
 
   private resolveSelectionSourceFromProductionMode(productionMode: PipelineRunConfigSnapshot['productionSelectorMode']) {
+    if (productionMode === 'llm_thread_v1') return LLM_THREAD_SELECTION_SOURCE
     return productionMode === 'arc_v1' ? ARC_SELECTION_SOURCE : LEGACY_SELECTION_SOURCE
+  }
+
+  private normalizeProductionSelectorMode(mode: unknown): PipelineRunConfigSnapshot['productionSelectorMode'] {
+    return mode === 'legacy' || mode === 'llm_thread_v1' ? mode : 'arc_v1'
   }
 
   private resolveSelectionSourceFromWorkerResult(workerResult: PipelineWorkerCompletedEvent) {

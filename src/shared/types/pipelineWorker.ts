@@ -12,7 +12,7 @@ export interface PipelineRunConfigSnapshot {
   apiModelId: string | null
   clipSelectionPlatform: APIConfig['clipSelectionPlatform']
   openRouterConfigured: boolean
-  productionSelectorMode: 'legacy' | 'arc_v1'
+  productionSelectorMode: 'legacy' | 'arc_v1' | 'llm_thread_v1'
   enableLegacyResolvedClipProposal: boolean
   enableLegacyTranscriptLineAgent: boolean
   enableLegacyBoundaryProposal: boolean

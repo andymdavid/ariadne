@@ -96,7 +96,7 @@ interface ConfigSchema {
     // Deprecated legacy setting retained for config compatibility during migration.
     autoApproveThreshold: number
     maxClipsPerEpisode: number
-    productionSelectorMode: 'legacy' | 'arc_v1'
+    productionSelectorMode: 'legacy' | 'arc_v1' | 'llm_thread_v1'
     enableLegacyResolvedClipProposal: boolean
     enableLegacyTranscriptLineAgent: boolean
     enableLegacyBoundaryProposal: boolean
@@ -209,7 +209,7 @@ class ConfigService {
     const merged: ConfigSchema['userPreferences'] = {
       ...defaults,
       ...stored,
-      productionSelectorMode: stored.productionSelectorMode === 'legacy' ? 'legacy' : 'arc_v1',
+      productionSelectorMode: this.normalizeProductionSelectorMode(stored.productionSelectorMode),
       enableLegacyResolvedClipProposal: Boolean(stored.enableLegacyResolvedClipProposal),
       enableLegacyTranscriptLineAgent: Boolean(stored.enableLegacyTranscriptLineAgent),
       enableLegacyBoundaryProposal: Boolean(stored.enableLegacyBoundaryProposal),
@@ -222,6 +222,10 @@ class ConfigService {
     }
 
     return merged
+  }
+
+  private normalizeProductionSelectorMode(mode: unknown): ConfigSchema['userPreferences']['productionSelectorMode'] {
+    return mode === 'legacy' || mode === 'llm_thread_v1' ? mode : 'arc_v1'
   }
   
   updateUserPreferences(preferences: Partial<ConfigSchema['userPreferences']>): void {
