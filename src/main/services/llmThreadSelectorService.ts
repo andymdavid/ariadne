@@ -43,6 +43,7 @@ type CandidateEvaluation = {
   repairError: string | null
   deterministicRepairApplied: boolean
   deterministicRepairReason: string | null
+  deterministicRepairFailureCode: string | null
   clip: PipelineWorkerPotentialClip | null
 }
 
@@ -129,6 +130,7 @@ class LlmThreadSelectorService {
       let repairError: string | null = null
       let deterministicRepairApplied = false
       let deterministicRepairReason: string | null = null
+      let deterministicRepairFailureCode: string | null = null
 
       while (verification.status === 'needs_repair' && repairAttempts < MAX_REPAIR_ATTEMPTS) {
         repairAttempts += 1
@@ -197,6 +199,7 @@ class LlmThreadSelectorService {
           deterministicRepairReason = deterministicRepair.reason
         } else {
           deterministicRepairReason = deterministicRepair.reason
+          deterministicRepairFailureCode = deterministicRepair.failureCode
           repairError = [repairError, deterministicRepair.reason].filter(Boolean).join(' | ') || null
         }
       }
@@ -217,6 +220,7 @@ class LlmThreadSelectorService {
         repairError,
         deterministicRepairApplied,
         deterministicRepairReason,
+        deterministicRepairFailureCode,
         clip
       })
       input.onProgress?.(45 + ((index + 1) / Math.max(1, uniqueCandidates.length)) * 45)
@@ -374,6 +378,7 @@ class LlmThreadSelectorService {
     verification: VerificationResult
     variantsEvaluated: number
     reason: string
+    failureCode: string | null
   } {
     const sortedLines = [...timeline.lines].sort((left, right) => left.index - right.index)
     const startPosition = sortedLines.findIndex((line) => line.index === candidate.startLineIndex)
@@ -383,7 +388,8 @@ class LlmThreadSelectorService {
         repairedCandidate: null,
         verification,
         variantsEvaluated: 0,
-        reason: 'Deterministic repair skipped because the candidate line range was not found.'
+        reason: 'Deterministic repair skipped because the candidate line range was not found.',
+        failureCode: 'ungrounded_text'
       }
     }
 
@@ -394,7 +400,8 @@ class LlmThreadSelectorService {
         repairedCandidate: null,
         verification,
         variantsEvaluated: 0,
-        reason: 'Deterministic repair skipped because no semantic boundary issue was present.'
+        reason: 'Deterministic repair skipped because no semantic boundary issue was present.',
+        failureCode: 'semantic_repair_not_required'
       }
     }
 
@@ -439,7 +446,8 @@ class LlmThreadSelectorService {
           repairedCandidate,
           verification: repairedVerification,
           variantsEvaluated,
-          reason: `Expanded line range from ${candidate.startLineIndex}-${candidate.endLineIndex} to ${repairedCandidate.startLineIndex}-${repairedCandidate.endLineIndex}.`
+          reason: `Expanded line range from ${candidate.startLineIndex}-${candidate.endLineIndex} to ${repairedCandidate.startLineIndex}-${repairedCandidate.endLineIndex}.`,
+          failureCode: null
         }
       }
 
@@ -460,8 +468,22 @@ class LlmThreadSelectorService {
       repairedCandidate: null,
       verification,
       variantsEvaluated,
-      reason: `Deterministic line repair found no accepted range; best attempted range ${bestRange} still failed: ${bestIssues}.`
+      reason: `Deterministic line repair found no accepted range; best attempted range ${bestRange} still failed: ${bestIssues}.`,
+      failureCode: this.deterministicFailureCode(bestRejected ?? verification)
     }
+  }
+
+  private deterministicFailureCode(verification: VerificationResult) {
+    if (verification.issues.includes('duration_too_long')) return 'duration_too_long'
+    if (verification.issues.includes('duration_too_short')) return 'duration_too_short'
+    if (verification.issues.includes('missing_timing')) return 'missing_timing'
+    if (verification.issues.includes('ungrounded_text')) return 'ungrounded_text'
+    const hasLeadingIssue = verification.issues.includes('leading_continues_previous_thought')
+    const hasEndingIssue = verification.issues.includes('lookahead_continues_current_ending')
+    if (hasLeadingIssue && hasEndingIssue) return 'needs_parent_thread_expansion'
+    if (hasLeadingIssue) return 'leading_context_required'
+    if (hasEndingIssue) return 'unresolved_ending'
+    return 'no_clean_boundary'
   }
 
   private range(start: number, end: number) {
@@ -561,7 +583,8 @@ class LlmThreadSelectorService {
           repairAttempts: evaluation.repairAttempts,
           repairError: evaluation.repairError,
           deterministicRepairApplied: evaluation.deterministicRepairApplied,
-          deterministicRepairReason: evaluation.deterministicRepairReason
+          deterministicRepairReason: evaluation.deterministicRepairReason,
+          deterministicRepairFailureCode: evaluation.deterministicRepairFailureCode
         })
       })),
       metadata: {
@@ -605,6 +628,7 @@ class LlmThreadSelectorService {
           repairError: evaluation.repairError,
           deterministicRepairApplied: evaluation.deterministicRepairApplied,
           deterministicRepairReason: evaluation.deterministicRepairReason,
+          deterministicRepairFailureCode: evaluation.deterministicRepairFailureCode,
           originalLineRange: `${evaluation.originalCandidate.startLineIndex}-${evaluation.originalCandidate.endLineIndex}`,
           finalLineRange: `${evaluation.candidate.startLineIndex}-${evaluation.candidate.endLineIndex}`,
           title: evaluation.candidate.title

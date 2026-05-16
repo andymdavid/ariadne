@@ -928,7 +928,17 @@ Return JSON only.
       throw new Error(`No JSON found in thread repair response. Preview: ${this.previewResponse(content)}`)
     }
 
-    const parsed = JSON.parse(jsonString)
+    let parsed: any
+    try {
+      parsed = JSON.parse(jsonString)
+    } catch (error) {
+      const recovered = this.parseThreadRepairTextFallback(content, lines)
+      if (recovered) {
+        return recovered
+      }
+      const message = error instanceof Error ? error.message : 'Unknown JSON parse error'
+      throw new Error(`Invalid JSON in thread repair response: ${message}. Preview: ${this.previewResponse(content, 800)}`)
+    }
     const status = parsed.status === 'unrecoverable' ? 'unrecoverable' : 'repaired'
     const validLineIndexes = new Set(lines.map((line) => line.index))
     const startLineIndex = parsed.start_line_index == null ? null : Number(parsed.start_line_index)
@@ -1012,7 +1022,7 @@ Return JSON only.
     return null
   }
 
-  private previewResponse(content: string, maxLength = 360): string {
+  private previewResponse(content: string, maxLength = 800): string {
     return content.replace(/\s+/g, ' ').trim().slice(0, maxLength)
   }
 
@@ -2259,6 +2269,16 @@ Return JSON only.
       console.log('Strategy 2 SUCCESS: Found JSON-like content in code block')
       return match[1].trim()
     }
+
+    // Strategy 2b: Some models omit fences but prefix the object with a language label.
+    const labelStripped = content.trim().replace(/^json\s*/i, '').trim()
+    if (labelStripped.startsWith('{')) {
+      const balancedObject = this.extractFirstBalancedJSONObject(labelStripped)
+      if (balancedObject) {
+        console.log('Strategy 2b SUCCESS: Found JSON after language label')
+        return balancedObject
+      }
+    }
     
     // Strategy 3: Look for standalone JSON object (balanced braces)
     const jsonPattern = /(\{(?:[^{}]|{(?:[^{}]|{[^{}]*})*})*\})/g
@@ -2334,6 +2354,51 @@ Return JSON only.
     }
     
     console.log('All JSON extraction strategies failed')
+    return null
+  }
+
+  private extractFirstBalancedJSONObject(content: string): string | null {
+    const start = content.indexOf('{')
+    if (start === -1) {
+      return null
+    }
+
+    let depth = 0
+    let inString = false
+    let escaped = false
+    for (let index = start; index < content.length; index += 1) {
+      const character = content[index]
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (character === '\\') {
+        escaped = true
+        continue
+      }
+      if (character === '"') {
+        inString = !inString
+        continue
+      }
+      if (inString) {
+        continue
+      }
+      if (character === '{') {
+        depth += 1
+      } else if (character === '}') {
+        depth -= 1
+        if (depth === 0) {
+          const candidate = content.slice(start, index + 1)
+          try {
+            JSON.parse(candidate)
+            return candidate
+          } catch {
+            return null
+          }
+        }
+      }
+    }
+
     return null
   }
   
