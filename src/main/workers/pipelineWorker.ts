@@ -1655,7 +1655,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       const roughCutSelection = await coherentRoughCutService.selectRoughCuts({
         transcription,
         editorialUnits,
-        candidateArcs,
+        candidateArcs: selectionCandidateArcs,
         mediaDuration: command.mediaDuration,
         targetClipCount: resolveArcTargetClipCount(command.runConfigSnapshot.maxClipsPerEpisode, command.mediaDuration),
         aiService,

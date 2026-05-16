@@ -2,18 +2,26 @@ import type AIService from './aiService'
 import type { ClipBoundaryReview, TranscriptBoundaryLine } from './aiService'
 import type { PipelineWorkerPotentialClip, PipelineWorkerTranscription } from '@shared/types/pipelineWorker'
 import {
-  endsWithDanglingPhrase,
   endsWithTerminalPunctuation,
-  getLeadingBoundaryIssue,
   getTrailingBoundaryIssue,
   isCleanClipEnd,
   isCleanClipStart,
   isCleanLocalClipEnd,
-  looksLikeCompleteThought,
   startsLikeContinuation,
   stripLeadingBoundaryFiller,
 } from '../../shared/clipBoundaryQuality'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
+import {
+  buildClipWindowTextFromWords,
+  getClipOpeningPreview,
+  getClipStartBoundaryIssue,
+  getEndLookaheadIssue,
+  getStartLookbackIssue,
+  getWordsWithinWindow,
+  isRecoverableLeadInStart,
+  resolveClipEndWithTrailingPad,
+  shouldContinueThoughtAcrossBoundary
+} from './boundaryRepairPrimitives'
 
 const CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS = 10
 const CLIP_REFINEMENT_MAX_SEMANTIC_END_EXTENSION_SECONDS = 24
@@ -237,14 +245,6 @@ class FinalClipValidationService {
     }
   }
 
-  private extractClipText(transcription: PipelineWorkerTranscription, clip: PipelineWorkerPotentialClip) {
-    return transcription.segments
-      .filter((segment) => segment.end > clip.startTime && segment.start < clip.endTime)
-      .map((segment) => segment.text)
-      .join(' ')
-      .trim()
-  }
-
   private shouldContinueThoughtAcrossBoundary(
     currentText: string,
     nextText: string,
@@ -254,37 +254,7 @@ class FinalClipValidationService {
       return false
     }
 
-    if (endsWithTerminalPunctuation(currentText)) {
-      return false
-    }
-
-    if (endsWithDanglingPhrase(currentText)) {
-      return true
-    }
-
-    if (startsLikeContinuation(nextText)) {
-      return true
-    }
-
-    return !looksLikeCompleteThought(currentText)
-  }
-
-  private endsWithConversationalAcknowledgementBeforeContinuation(
-    currentText: string,
-    nextText: string,
-    gap: number
-  ) {
-    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
-      return false
-    }
-
-    const current = currentText.trim().toLowerCase()
-    const next = stripLeadingBoundaryFiller(nextText).trim()
-    if (!current || !next) {
-      return false
-    }
-
-    return /\b(yeah|yep|yes|right|okay|ok)\s*$/i.test(current)
+    return shouldContinueThoughtAcrossBoundary(currentText, nextText, gap, THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS)
   }
 
   private getLastOverlappingSegmentIndex(
@@ -368,16 +338,7 @@ class FinalClipValidationService {
     startTime: number,
     endTime: number
   ) {
-    return transcription.segments
-      .flatMap((segment) => segment.words ?? [])
-      .filter((word) =>
-        Number.isFinite(word.start) &&
-        Number.isFinite(word.end) &&
-        word.end > word.start &&
-        word.end > startTime &&
-        word.start < endTime
-      )
-      .sort((left, right) => left.start - right.start)
+    return getWordsWithinWindow(transcription, startTime, endTime)
   }
 
   private refineClipBoundaryToWords(
@@ -500,12 +461,7 @@ class FinalClipValidationService {
     transcription: PipelineWorkerTranscription,
     clip: PipelineWorkerPotentialClip
   ) {
-    const words = this.getWordsWithinWindow(transcription, clip.startTime, clip.endTime)
-    if (words.length > 0) {
-      return words.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-    }
-
-    return this.extractClipText(transcription, clip)
+    return buildClipWindowTextFromWords(transcription, clip)
   }
 
   private resolveClipEndWithTrailingPad(
@@ -513,22 +469,14 @@ class FinalClipValidationService {
     wordIndex: number,
     mediaDuration: number
   ) {
-    const word = words[wordIndex]
-    const nextWord = words[wordIndex + 1]
-    const gapToNextWord = nextWord ? nextWord.start - word.end : Number.POSITIVE_INFINITY
-    const trailingPad = Math.min(
-      CLIP_REFINEMENT_MAX_TRAILING_PAD_SECONDS,
-      gapToNextWord >= CLIP_REFINEMENT_TRAILING_PAD_SECONDS
-        ? Math.max(CLIP_REFINEMENT_TRAILING_PAD_SECONDS, gapToNextWord * 0.6)
-        : CLIP_REFINEMENT_TRAILING_PAD_SECONDS
-    )
-
-    let endTime = Math.min(mediaDuration, word.end + trailingPad)
-    if (nextWord) {
-      endTime = Math.min(endTime, Math.max(word.end, nextWord.start - CLIP_REFINEMENT_WORD_GUARD_SECONDS))
-    }
-
-    return endTime
+    return resolveClipEndWithTrailingPad({
+      words,
+      wordIndex,
+      mediaDuration,
+      trailingPadSeconds: CLIP_REFINEMENT_TRAILING_PAD_SECONDS,
+      maxTrailingPadSeconds: CLIP_REFINEMENT_MAX_TRAILING_PAD_SECONDS,
+      guardSeconds: CLIP_REFINEMENT_WORD_GUARD_SECONDS
+    })
   }
 
   private getClipLeadingWords(
@@ -564,90 +512,40 @@ class FinalClipValidationService {
     clip: PipelineWorkerPotentialClip,
     wordCount = 12
   ) {
-    return this.getClipLeadingWords(transcription, clip, wordCount)
-      .map((word) => word.word)
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+    return getClipOpeningPreview(transcription, clip, wordCount)
   }
 
   private getClipStartBoundaryIssue(
     transcription: PipelineWorkerTranscription,
     clip: PipelineWorkerPotentialClip
   ) {
-    const openingPreview = this.getClipOpeningPreview(transcription, clip)
-    const issue = getLeadingBoundaryIssue(openingPreview)
-    if (issue === 'leading_continuation' && this.isRecoverableLeadInStart(openingPreview)) {
-      return null
-    }
-    return issue
+    return getClipStartBoundaryIssue(transcription, clip)
   }
 
   private getClipStartLookbackIssue(
     transcription: PipelineWorkerTranscription,
     clip: PipelineWorkerPotentialClip
   ) {
-    const words = this.getWordsWithinWindow(
+    return getStartLookbackIssue({
       transcription,
-      Math.max(0, clip.startTime - BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS),
-      Math.min(clip.endTime, clip.startTime + 4)
-    )
-    const previousWords = words.filter((word) => word.end <= clip.startTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(-8)
-    const nextWords = words.filter((word) => word.start >= clip.startTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(0, 8)
-
-    if (previousWords.length === 0 || nextWords.length === 0) {
-      return null
-    }
-
-    const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
-    if (gap >= BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS) {
-      return null
-    }
-
-    const previousText = previousWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-    const nextText = nextWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-
-    if (this.shouldContinueThoughtAcrossBoundary(previousText, nextText, gap)) {
-      return 'leading_continues_previous_thought'
-    }
-
-    return null
+      span: clip,
+      lookbackSeconds: BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS,
+      guardSeconds: CLIP_REFINEMENT_WORD_GUARD_SECONDS,
+      hardBreakSeconds: BOUNDARY_OPTIMIZER_HARD_START_BREAK_SECONDS
+    })
   }
 
   private getClipEndLookaheadIssue(
     transcription: PipelineWorkerTranscription,
     clip: PipelineWorkerPotentialClip
   ) {
-    const words = this.getWordsWithinWindow(
+    return getEndLookaheadIssue({
       transcription,
-      Math.max(0, clip.endTime - 3),
-      Math.min(clip.endTime + 6, clip.endTime + CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS)
-    )
-    const previousWords = words.filter((word) => word.end <= clip.endTime + CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(-6)
-    const nextWords = words.filter((word) => word.start > clip.endTime - CLIP_REFINEMENT_WORD_GUARD_SECONDS).slice(0, 6)
-
-    if (previousWords.length === 0 || nextWords.length === 0) {
-      return null
-    }
-
-    const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
-    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
-      return null
-    }
-
-    const joined = [...previousWords, ...nextWords].map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim().toLowerCase()
-    const previousText = previousWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-    const nextText = nextWords.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-
-    if (
-      /\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w+\s+\w+/.test(joined) ||
-      this.endsWithConversationalAcknowledgementBeforeContinuation(previousText, nextText, gap) ||
-      this.shouldContinueThoughtAcrossBoundary(previousText, nextText, gap)
-    ) {
-      return 'lookahead_continues_current_ending'
-    }
-
-    return null
+      span: clip,
+      lookaheadSeconds: CLIP_REFINEMENT_MAX_END_EXTENSION_SECONDS,
+      guardSeconds: CLIP_REFINEMENT_WORD_GUARD_SECONDS,
+      hardBreakSeconds: THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS
+    })
   }
 
   private uniqueSortedAnchors(anchors: BoundaryAnchor[]) {
@@ -665,8 +563,7 @@ class FinalClipValidationService {
   }
 
   private isRecoverableLeadInStart(text: string) {
-    const normalized = text.trim().replace(/\s+/g, ' ').toLowerCase()
-    return /^(and\s+i\s+(think|mean|guess|would|can|was|have)|and\s+so\b|but\s+i\b)/.test(normalized)
+    return isRecoverableLeadInStart(text)
   }
 
   private getConnectedStartAnchor(

@@ -1,24 +1,27 @@
 import { randomUUID } from 'crypto'
 import {
-  endsWithDanglingPhrase,
-  endsWithTerminalPunctuation,
   getLeadingBoundaryIssue,
   getTrailingBoundaryIssue,
   isCleanClipEnd,
   isCleanClipStart,
   looksLikeCompleteThought,
-  startsLikeContinuation,
-  stripLeadingBoundaryFiller
+  startsLikeContinuation
 } from '../../shared/clipBoundaryQuality'
 import type { CandidateArc, EditorialUnit } from '../../shared/editorialUnits'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
+import {
+  extractTextFromWordsOrSegments,
+  getEndLookaheadIssue,
+  getStartLookbackIssue,
+  getWordsWithinWindow,
+  isRecoverableLeadInStart
+} from './boundaryRepairPrimitives'
 import type AIService from './aiService'
 import type { RoughCutVariantForJudging, RoughCutVariantJudgment } from './aiService'
 import type {
   PipelineWorkerPotentialClip,
   PipelineWorkerSelectionDecision,
-  PipelineWorkerTranscription,
-  PipelineWorkerWord
+  PipelineWorkerTranscription
 } from '@shared/types/pipelineWorker'
 
 type RoughCutMoment = {
@@ -618,14 +621,14 @@ class CoherentRoughCutService {
         time: line.start,
         type: line.start < input.draftSpan.startTime ? 'previous_line_start' : 'line_start'
       }))
-    const words = this.getWordsWithinWindow(input.transcription, minStart, Math.min(input.draftSpan.startTime + 10, input.draftSpan.endTime))
+    const words = getWordsWithinWindow(input.transcription, minStart, Math.min(input.draftSpan.startTime + 10, input.draftSpan.endTime))
     const wordStarts = words
       .filter((word, index) => {
         if (word.start < minStart || word.start > maxStart) return false
         const previous = words[index - 1]
         const gap = previous ? word.start - previous.end : Number.POSITIVE_INFINITY
         const leadingText = words.slice(index, index + 8).map((item) => item.word).join(' ')
-        return gap >= 0.22 || isCleanClipStart(leadingText) || this.isRecoverableLeadInStart(leadingText)
+        return gap >= 0.22 || isCleanClipStart(leadingText) || isRecoverableLeadInStart(leadingText)
       })
       .map((word) => ({
         time: word.start,
@@ -668,7 +671,7 @@ class CoherentRoughCutService {
         time: line.end,
         type: line.end > input.draftSpan.endTime ? 'next_line_end' : 'line_end'
       }))
-    const words = this.getWordsWithinWindow(input.transcription, Math.max(0, minEnd - 8), maxEnd)
+    const words = getWordsWithinWindow(input.transcription, Math.max(0, minEnd - 8), maxEnd)
     const wordEnds = words
       .filter((word) => word.end >= minEnd && word.end <= maxEnd)
       .map((word) => ({
@@ -861,153 +864,34 @@ class CoherentRoughCutService {
     }
   }
 
-  private getWordsWithinWindow(
-    transcription: PipelineWorkerTranscription,
-    startTime: number,
-    endTime: number
-  ): PipelineWorkerWord[] {
-    return transcription.segments
-      .flatMap((segment) => segment.words ?? [])
-      .filter((word) =>
-        Number.isFinite(word.start) &&
-        Number.isFinite(word.end) &&
-        word.end > startTime &&
-        word.start < endTime &&
-        String(word.word ?? '').trim().length > 0
-      )
-      .map((word) => ({
-        word: String(word.word ?? '').trim(),
-        start: Number(word.start),
-        end: Number(word.end)
-      }))
-      .sort((left, right) => left.start - right.start)
-  }
-
-  private wordsToText(words: PipelineWorkerWord[]) {
-    return words.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim()
-  }
-
-  private isRecoverableLeadInStart(text: string) {
-    const normalized = text.trim().replace(/\s+/g, ' ').toLowerCase()
-    return /^(and\s+i\s+(think|mean|guess|would|can|was|have)|and\s+so\b|but\s+i\b)/.test(normalized)
-  }
-
-  private shouldContinueThoughtAcrossBoundary(currentText: string, nextText: string, gap: number) {
-    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
-      return false
-    }
-
-    if (endsWithTerminalPunctuation(currentText)) {
-      return false
-    }
-
-    if (endsWithDanglingPhrase(currentText)) {
-      return true
-    }
-
-    if (startsLikeContinuation(nextText)) {
-      return true
-    }
-
-    return !looksLikeCompleteThought(currentText)
-  }
-
-  private endsWithConversationalAcknowledgementBeforeContinuation(currentText: string, nextText: string, gap: number) {
-    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
-      return false
-    }
-
-    const current = currentText.trim().toLowerCase()
-    const next = stripLeadingBoundaryFiller(nextText).trim()
-    if (!current || !next) {
-      return false
-    }
-
-    return /\b(yeah|yep|yes|right|okay|ok)\s*$/i.test(current)
-  }
-
   private getVariantStartLookbackIssue(
     transcription: PipelineWorkerTranscription,
     variant: BoundaryVariant
   ): string | null {
-    const words = this.getWordsWithinWindow(
+    return getStartLookbackIssue({
       transcription,
-      Math.max(0, variant.startTime - START_LOOKBACK_SECONDS),
-      Math.min(variant.endTime, variant.startTime + 4)
-    )
-    const previousWords = words.filter((word) => word.end <= variant.startTime + BOUNDARY_GUARD_SECONDS).slice(-8)
-    const nextWords = words.filter((word) => word.start >= variant.startTime - BOUNDARY_GUARD_SECONDS).slice(0, 8)
-
-    if (previousWords.length === 0 || nextWords.length === 0) {
-      return null
-    }
-
-    const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
-    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
-      return null
-    }
-
-    return this.shouldContinueThoughtAcrossBoundary(this.wordsToText(previousWords), this.wordsToText(nextWords), gap)
-      ? 'leading_continues_previous_thought'
-      : null
+      span: variant,
+      lookbackSeconds: START_LOOKBACK_SECONDS,
+      guardSeconds: BOUNDARY_GUARD_SECONDS,
+      hardBreakSeconds: THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS
+    })
   }
 
   private getVariantEndLookaheadIssue(
     transcription: PipelineWorkerTranscription,
     variant: BoundaryVariant
   ): string | null {
-    const words = this.getWordsWithinWindow(
+    return getEndLookaheadIssue({
       transcription,
-      Math.max(0, variant.endTime - 3),
-      Math.min(variant.endTime + END_LOOKAHEAD_SECONDS, transcription.segments[transcription.segments.length - 1]?.end ?? variant.endTime + END_LOOKAHEAD_SECONDS)
-    )
-    const previousWords = words.filter((word) => word.end <= variant.endTime + BOUNDARY_GUARD_SECONDS).slice(-6)
-    const nextWords = words.filter((word) => word.start > variant.endTime - BOUNDARY_GUARD_SECONDS).slice(0, 6)
-
-    if (previousWords.length === 0 || nextWords.length === 0) {
-      return null
-    }
-
-    const gap = nextWords[0].start - previousWords[previousWords.length - 1].end
-    if (gap >= THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS) {
-      return null
-    }
-
-    const previousText = this.wordsToText(previousWords)
-    const nextText = this.wordsToText(nextWords)
-    const joined = this.wordsToText([...previousWords, ...nextWords]).toLowerCase()
-
-    return (
-      /\b(depending on|based on|because of|in terms of|when it comes to|as a result of|one of|part of)\s+(the|a|an|this|that|these|those|my|your|our|their)?\s*\w+\s+\w+/.test(joined) ||
-      this.endsWithConversationalAcknowledgementBeforeContinuation(previousText, nextText, gap) ||
-      this.shouldContinueThoughtAcrossBoundary(previousText, nextText, gap)
-    )
-      ? 'lookahead_continues_current_ending'
-      : null
+      span: variant,
+      lookaheadSeconds: END_LOOKAHEAD_SECONDS,
+      guardSeconds: BOUNDARY_GUARD_SECONDS,
+      hardBreakSeconds: THOUGHT_UNIT_HARD_BREAK_GAP_SECONDS
+    })
   }
 
   private extractText(transcription: PipelineWorkerTranscription, startTime: number, endTime: number) {
-    const words = transcription.segments
-      .flatMap((segment) => segment.words ?? [])
-      .filter((word) =>
-        Number.isFinite(word.start) &&
-        Number.isFinite(word.end) &&
-        word.end > startTime &&
-        word.start < endTime
-      )
-      .map((word) => String(word.word ?? '').trim())
-      .filter(Boolean)
-
-    if (words.length > 0) {
-      return words.join(' ').replace(/\s+/g, ' ').trim()
-    }
-
-    return transcription.segments
-      .filter((segment) => segment.end > startTime && segment.start < endTime)
-      .map((segment) => segment.text)
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+    return extractTextFromWordsOrSegments(transcription, startTime, endTime)
   }
 
   private resolveEditOperation(draftSpan: DraftSpan, startTime: number, endTime: number) {
