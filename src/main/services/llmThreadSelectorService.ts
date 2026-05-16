@@ -8,7 +8,8 @@ import type AIService from './aiService'
 import type {
   ThreadCandidateSelection,
   ThreadDiscoveryDiagnostics,
-  ThreadDiscoveryLine
+  ThreadDiscoveryLine,
+  ThreadRepairFeedback
 } from './aiService'
 import type {
   PipelineWorkerPotentialClip,
@@ -162,8 +163,9 @@ class LlmThreadSelectorService {
       let deterministicRepairApplied = false
       let deterministicRepairReason: string | null = null
       let deterministicRepairFailureCode: string | null = null
+      let previousRepairFeedback: ThreadRepairFeedback | null = null
 
-      while (verification.status === 'needs_repair' && repairAttempts < MAX_REPAIR_ATTEMPTS) {
+      while (this.canAttemptLlmRepair(verification) && repairAttempts < MAX_REPAIR_ATTEMPTS) {
         repairAttempts += 1
         mechanicalVariantsGenerated += 1
         if (mechanicalVariantsGenerated > VARIANT_GUARD_LIMIT) {
@@ -184,7 +186,8 @@ class LlmThreadSelectorService {
             issues: verification.issues,
             surroundingLines: this.getSurroundingLines(input.timeline.lines, currentCandidate).map((line) => this.toDiscoveryLine(line)),
             minDurationSeconds: MIN_CLIP_SECONDS,
-            maxDurationSeconds: MAX_CLIP_SECONDS
+            maxDurationSeconds: MAX_CLIP_SECONDS,
+            previousRepairFeedback
           })
 
           if (repair.status === 'unrecoverable' || repair.startLineIndex === null || repair.endLineIndex === null) {
@@ -199,6 +202,7 @@ class LlmThreadSelectorService {
             reason: `${currentCandidate.reason} Repair: ${repair.reason}`
           }
           verification = this.verifyCandidate(input.timeline, input.transcription, currentCandidate)
+          previousRepairFeedback = this.toRepairFeedback(currentCandidate, verification)
         } catch (error) {
           repairError = error instanceof Error ? error.message : 'Unknown LLM repair error'
           llmRepairError = repairError
@@ -206,7 +210,7 @@ class LlmThreadSelectorService {
         }
       }
 
-      if (verification.status === 'needs_repair') {
+      if (this.canAttemptDeterministicRepair(verification)) {
         const deterministicRepair = this.applyDeterministicLineRepair(
           input.timeline,
           input.transcription,
@@ -239,7 +243,7 @@ class LlmThreadSelectorService {
         }
       }
 
-      if (verification.status === 'needs_repair') {
+      if (verification.status !== 'accepted' && (repairAttempts >= MAX_REPAIR_ATTEMPTS || repairError)) {
         llmRepairAttemptsExhausted = true
       }
 
@@ -398,6 +402,31 @@ class LlmThreadSelectorService {
     }
   }
 
+  private canAttemptLlmRepair(verification: VerificationResult) {
+    if (verification.status === 'accepted') return false
+    if (verification.status === 'needs_repair') return true
+    const hardIssues = verification.issueClasses.hardMechanicalInvalid
+    return hardIssues.length > 0 &&
+      hardIssues.every((issue) => issue === 'duration_too_long' || issue === 'duration_too_short')
+  }
+
+  private canAttemptDeterministicRepair(verification: VerificationResult) {
+    if (verification.status === 'accepted') return false
+    if (verification.status === 'needs_repair') return true
+    return verification.issues.includes('duration_too_long') &&
+      (verification.issues.includes('leading_continues_previous_thought') ||
+        verification.issues.includes('lookahead_continues_current_ending'))
+  }
+
+  private toRepairFeedback(candidate: ThreadCandidateSelection, verification: VerificationResult): ThreadRepairFeedback {
+    return {
+      attemptedStartLineIndex: candidate.startLineIndex,
+      attemptedEndLineIndex: candidate.endLineIndex,
+      attemptedDurationSeconds: verification.duration,
+      issues: verification.issues
+    }
+  }
+
   private getSurroundingLines(lines: CanonicalTranscriptLine[], candidate: ThreadCandidateSelection) {
     const startIndex = Math.max(0, candidate.startLineIndex - 8)
     const endIndex = Math.min(lines.length - 1, candidate.endLineIndex + 8)
@@ -432,6 +461,19 @@ class LlmThreadSelectorService {
 
     const needsEarlierStart = verification.issues.includes('leading_continues_previous_thought')
     const needsLaterEnd = verification.issues.includes('lookahead_continues_current_ending')
+    if (verification.issues.includes('duration_too_long')) {
+      return this.contractOverlongLineRange(
+        timeline,
+        transcription,
+        candidate,
+        verification,
+        sortedLines,
+        startPosition,
+        endPosition,
+        remainingVariantBudget
+      )
+    }
+
     if (!needsEarlierStart && !needsLaterEnd) {
       return {
         repairedCandidate: null,
@@ -506,6 +548,89 @@ class LlmThreadSelectorService {
       verification,
       variantsEvaluated,
       reason: `Deterministic line repair found no accepted range; best attempted range ${bestRange} still failed: ${bestIssues}.`,
+      failureCode: this.deterministicFailureCode(bestRejected ?? verification)
+    }
+  }
+
+  private contractOverlongLineRange(
+    timeline: CanonicalConversationalTimeline,
+    transcription: PipelineWorkerTranscription,
+    candidate: ThreadCandidateSelection,
+    verification: VerificationResult,
+    sortedLines: CanonicalTranscriptLine[],
+    startPosition: number,
+    endPosition: number,
+    remainingVariantBudget: number
+  ): {
+    repairedCandidate: ThreadCandidateSelection | null
+    verification: VerificationResult
+    variantsEvaluated: number
+    reason: string
+    failureCode: string | null
+  } {
+    const attempts: Array<{ startPosition: number; endPosition: number; duration: number; movement: number }> = []
+    for (let proposedStartPosition = startPosition; proposedStartPosition <= endPosition; proposedStartPosition += 1) {
+      for (let proposedEndPosition = endPosition; proposedEndPosition >= proposedStartPosition; proposedEndPosition -= 1) {
+        const startLine = sortedLines[proposedStartPosition]
+        const endLine = sortedLines[proposedEndPosition]
+        if (startLine.startTime === null || endLine.endTime === null) continue
+        const duration = endLine.endTime - startLine.startTime
+        if (duration < MIN_CLIP_SECONDS || duration > MAX_CLIP_SECONDS) continue
+        attempts.push({
+          startPosition: proposedStartPosition,
+          endPosition: proposedEndPosition,
+          duration,
+          movement: Math.abs(startPosition - proposedStartPosition) + Math.abs(endPosition - proposedEndPosition)
+        })
+      }
+    }
+
+    attempts.sort((left, right) => {
+      const durationDifference = right.duration - left.duration
+      return Math.abs(durationDifference) > 0.001 ? durationDifference : left.movement - right.movement
+    })
+
+    let variantsEvaluated = 0
+    let bestRejected: VerificationResult | null = null
+    let bestRejectedCandidate: ThreadCandidateSelection | null = null
+    for (const attempt of attempts) {
+      if (variantsEvaluated >= remainingVariantBudget) break
+      variantsEvaluated += 1
+      const repairedCandidate: ThreadCandidateSelection = {
+        ...candidate,
+        startLineIndex: sortedLines[attempt.startPosition].index,
+        endLineIndex: sortedLines[attempt.endPosition].index,
+        reason: `${candidate.reason} Deterministic contraction kept the repaired parent thread within duration limits.`
+      }
+      const repairedVerification = this.verifyCandidate(timeline, transcription, repairedCandidate)
+      if (repairedVerification.status === 'accepted') {
+        return {
+          repairedCandidate,
+          verification: repairedVerification,
+          variantsEvaluated,
+          reason: `Contracted overlong range from ${candidate.startLineIndex}-${candidate.endLineIndex} to ${repairedCandidate.startLineIndex}-${repairedCandidate.endLineIndex}.`,
+          failureCode: null
+        }
+      }
+
+      if (
+        !bestRejected ||
+        this.verificationScore(repairedVerification) > this.verificationScore(bestRejected)
+      ) {
+        bestRejected = repairedVerification
+        bestRejectedCandidate = repairedCandidate
+      }
+    }
+
+    const bestRange = bestRejectedCandidate
+      ? `${bestRejectedCandidate.startLineIndex}-${bestRejectedCandidate.endLineIndex}`
+      : `${candidate.startLineIndex}-${candidate.endLineIndex}`
+    const bestIssues = bestRejected?.issues.join(', ') || verification.issues.join(', ') || 'unknown issue'
+    return {
+      repairedCandidate: null,
+      verification,
+      variantsEvaluated,
+      reason: `Deterministic contraction found no accepted range; best attempted range ${bestRange} still failed: ${bestIssues}.`,
       failureCode: this.deterministicFailureCode(bestRejected ?? verification)
     }
   }

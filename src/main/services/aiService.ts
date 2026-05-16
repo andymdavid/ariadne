@@ -164,6 +164,13 @@ export interface ThreadRepairSelection {
   reason: string
 }
 
+export interface ThreadRepairFeedback {
+  attemptedStartLineIndex: number
+  attemptedEndLineIndex: number
+  attemptedDurationSeconds: number | null
+  issues: string[]
+}
+
 export interface TranscriptDataWithWords {
   text: string
   segments: Array<{
@@ -601,6 +608,7 @@ class AIService {
     surroundingLines: ThreadDiscoveryLine[]
     minDurationSeconds: number
     maxDurationSeconds: number
+    previousRepairFeedback?: ThreadRepairFeedback | null
   }): Promise<ThreadRepairSelection> {
     const response = await this.callOpenRouter({
       model: this.getModelId(this.config.model),
@@ -875,6 +883,7 @@ Return one JSON object only. The first character must be "{" and the last charac
     surroundingLines: ThreadDiscoveryLine[]
     minDurationSeconds: number
     maxDurationSeconds: number
+    previousRepairFeedback?: ThreadRepairFeedback | null
   }) {
     const lineText = input.surroundingLines.map((line) => (
       `LINE ${line.index} [${line.startTime?.toFixed(2) ?? 'no-start'}-${line.endTime?.toFixed(2) ?? 'no-end'}]${line.speaker ? ` ${line.speaker}:` : ''} ${line.text}`
@@ -888,10 +897,16 @@ ISSUES:
 ${input.issues.join(', ')}
 
 TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
+${input.previousRepairFeedback ? `
+PREVIOUS_REPAIR_FAILED:
+${JSON.stringify(input.previousRepairFeedback, null, 2)}
+Use this feedback. If the previous repair was too long, choose a shorter coherent excerpt inside or near that parent thread. If it still needed previous context, move the start earlier. If it still ended unresolved, move the end later without exceeding max duration.
+` : ''}
 
 TASK:
 Repair this rough cut by choosing a better start_line_index and end_line_index from the surrounding lines.
 If the candidate is embedded in a larger thread, expand to the parent conversational thread.
+If the parent thread is too long, select the strongest self-contained excerpt within it rather than returning an overlong range.
 If it cannot be repaired within duration limits, mark it unrecoverable.
 
 OUTPUT JSON:
