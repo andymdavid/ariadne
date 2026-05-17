@@ -1144,6 +1144,10 @@ Return one JSON object only. The first character must be "{" and the last charac
   private parseThreadCoherenceReviewResponse(content: string): ThreadCoherenceReview {
     const jsonString = this.extractJSON(content)
     if (!jsonString) {
+      const recovered = this.parseThreadCoherenceReviewTextFallback(content)
+      if (recovered) {
+        return recovered
+      }
       throw new Error(`No JSON found in thread coherence review response. Preview: ${this.previewResponse(content)}`)
     }
 
@@ -1151,17 +1155,59 @@ Return one JSON object only. The first character must be "{" and the last charac
     try {
       parsed = JSON.parse(jsonString)
     } catch (error) {
+      const recovered = this.parseThreadCoherenceReviewTextFallback(content)
+      if (recovered) {
+        return recovered
+      }
       const message = error instanceof Error ? error.message : 'Unknown JSON parse error'
       throw new Error(`Invalid JSON in thread coherence review response: ${message}. Preview: ${this.previewResponse(content)}`)
     }
 
+    return this.normalizeThreadCoherenceReview(parsed)
+  }
+
+  private normalizeThreadCoherenceReview(parsed: any): ThreadCoherenceReview {
+    const fatalIssues = parsed.fatal_issues ?? parsed.fatalIssues
     return {
       status: parsed.status === 'accepted' ? 'accepted' : 'rejected',
       reason: String(parsed.reason || 'No coherence review rationale provided.').trim(),
-      fatalIssues: Array.isArray(parsed.fatal_issues)
-        ? parsed.fatal_issues.map((issue: unknown) => String(issue)).filter(Boolean)
+      fatalIssues: Array.isArray(fatalIssues)
+        ? fatalIssues.map((issue: unknown) => String(issue)).filter(Boolean)
         : [],
       confidence: Math.max(0, Math.min(1, Number(parsed.confidence ?? 0.5)))
+    }
+  }
+
+  private parseThreadCoherenceReviewTextFallback(content: string): ThreadCoherenceReview | null {
+    const normalized = content
+      .replace(/```json/gi, ' ')
+      .replace(/```/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!normalized) {
+      return null
+    }
+
+    const statusMatch = normalized.match(/["']?status["']?\s*[:=]\s*["']?(accepted|rejected)["']?/i)
+    if (!statusMatch) {
+      return null
+    }
+
+    const reasonMatch = normalized.match(/["']?reason["']?\s*[:=]\s*["']([^"']{1,1200})/i)
+    const confidenceMatch = normalized.match(/["']?confidence["']?\s*[:=]\s*([01](?:\.\d+)?|\.\d+)/i)
+    const fatalIssuesMatch = normalized.match(/["']?fatal[_\s-]*issues["']?\s*[:=]\s*\[([^\]]*)\]/i)
+    const fatalIssues = fatalIssuesMatch
+      ? fatalIssuesMatch[1]
+        .split(',')
+        .map((issue) => issue.replace(/["']/g, '').trim())
+        .filter(Boolean)
+      : []
+
+    return {
+      status: statusMatch[1].toLowerCase() === 'accepted' ? 'accepted' : 'rejected',
+      reason: reasonMatch?.[1]?.trim() || `Recovered coherence review from partial response: ${this.previewResponse(content)}`,
+      fatalIssues,
+      confidence: confidenceMatch ? Math.max(0, Math.min(1, Number(confidenceMatch[1]))) : 0.5
     }
   }
 
