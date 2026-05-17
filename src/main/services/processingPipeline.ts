@@ -244,10 +244,44 @@ class ProcessingPipeline {
           message: 'Reusing cached transcript...'
         })
 
+        let heavyStageAudioPath = filePath
+        if (
+          runConfigSnapshot.productionSelectorMode === 'llm_thread_v1' &&
+          runConfigSnapshot.enableOpenRouterAudioTranscriptGuide
+        ) {
+          try {
+            const guideAudioPath = await mediaWorkerSupervisor.extractAudio(
+              filePath,
+              undefined,
+              (progress) => {
+                this.sendProgress(window, {
+                  jobId: workflowJobId,
+                  stage: 'extracting',
+                  progress: 15 + (progress * 0.15),
+                  stageProgress: progress,
+                  message: 'Extracting audio for semantic transcript guide...'
+                })
+              },
+              {
+                workflowJobId,
+                stepRunId: `${workflowJobId}-audio-guide-extract`,
+                scope: 'pipeline_audio_guide_extract'
+              }
+            )
+            this.createPipelineArtifact(workflowJobId, projectId, episodeId, null, guideAudioPath, 'extracted_audio', {
+              sourceFilePath: filePath,
+              purpose: 'openrouter_audio_transcript_guide'
+            })
+            heavyStageAudioPath = guideAudioPath
+          } catch (error) {
+            console.warn('Failed to extract cached-run audio guide artifact; continuing without it', error)
+          }
+        }
+
         currentStep = null
         workerResult = await this.runHeavyPipelineStages(
           workflowJobId,
-          filePath,
+          heavyStageAudioPath,
           mediaInfo.duration,
           'clip_generation',
           { transcription: cachedTranscript.transcription },
