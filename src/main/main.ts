@@ -365,7 +365,7 @@ async function downloadWithMediaExtractor(sourceUrl: string) {
   }
 }
 
-async function runProcessingJob(filePath: string, projectName?: string) {
+async function runProcessingJob(filePath: string, projectName?: string, transcriptFilePath?: string | null) {
   if (activeProcessingJob || processingPipeline.hasLiveWorker()) {
     throw new Error(`Processing already in progress for job ${activeProcessingJob?.jobId || 'recovered-job'}`);
   }
@@ -374,7 +374,9 @@ async function runProcessingJob(filePath: string, projectName?: string) {
   activeProcessingJob = { jobId, filePath };
 
   try {
-    return await processingPipeline.processEpisode(filePath, projectName, mainWindow!, jobId);
+    return await processingPipeline.processEpisode(filePath, projectName, mainWindow!, jobId, {
+      uploadedTranscriptPath: transcriptFilePath ?? null
+    });
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : 'Processing failed');
   } finally {
@@ -600,13 +602,31 @@ ipcMain.handle('select-file', async () => {
   return null;
 });
 
+ipcMain.handle('select-transcript-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile'],
+    filters: [
+      {
+        name: 'Transcript Files',
+        extensions: ['txt', 'srt', 'vtt'],
+      },
+    ],
+  });
+
+  if (!result.canceled && result.filePaths.length > 0) {
+    allowedMediaPaths.add(result.filePaths[0]);
+    return result.filePaths[0];
+  }
+  return null;
+});
+
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
 
 // Processing handlers
 ipcMain.handle('process-episode', async (_event, request: ProcessEpisodeRequestDTO): Promise<ProcessEpisodeResponseDTO> => {
-  return runProcessingJob(request.filePath, request.projectName)
+  return runProcessingJob(request.filePath, request.projectName, request.transcriptFilePath)
 });
 
 ipcMain.handle('process-source', async (_event, request: ProcessSourceRequestDTO): Promise<ProcessSourceResponseDTO> => {

@@ -16,6 +16,7 @@ export type PipelineJobStatus =
 export interface ProcessEpisodeRequestDTO {
   filePath: string
   projectName?: string
+  transcriptFilePath?: string | null
 }
 
 export type ProcessEpisodeResponseDTO = ProcessingResultPayload

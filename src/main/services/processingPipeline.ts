@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto'
 import { existsSync, statSync } from 'fs'
-import { basename, join } from 'path'
+import { basename, extname, join } from 'path'
 import { BrowserWindow } from 'electron'
 import { database } from '../database/database'
 import { configService } from './configService'
@@ -127,7 +127,10 @@ class ProcessingPipeline {
     filePath: string,
     projectName?: string,
     window?: BrowserWindow,
-    jobId?: string
+    jobId?: string,
+    options: {
+      uploadedTranscriptPath?: string | null
+    } = {}
   ): Promise<ProcessingResult> {
     const workflowJobId = jobId || randomUUID()
     console.log('Starting processEpisode with file:', filePath)
@@ -138,7 +141,7 @@ class ProcessingPipeline {
     let currentStep: PipelineStepKey | null = null
     
     try {
-      this.initializeWorkflowJob(workflowJobId, filePath, projectName)
+      this.initializeWorkflowJob(workflowJobId, filePath, projectName, options)
       this.createPipelineStepRuns(workflowJobId)
       
       // Step 1: Create project and episode records
@@ -155,7 +158,7 @@ class ProcessingPipeline {
       projectId = await this.createProject(projectName || basename(filePath))
       episodeId = await this.createEpisode(projectId, filePath)
       this.updateWorkflowJobContext(workflowJobId, projectId, episodeId)
-      const runConfigSnapshot = this.buildPipelineRunConfigSnapshot()
+      const runConfigSnapshot = this.buildPipelineRunConfigSnapshot(options)
       selectionRunId = this.startPipelineSelectionRun(workflowJobId, episodeId, runConfigSnapshot)
       this.createPipelineArtifact(workflowJobId, projectId, episodeId, null, filePath, 'source_media', {
         imported: filePath.includes(`${join(require('os').homedir(), '')}`) ? false : undefined,
@@ -1045,9 +1048,16 @@ class ProcessingPipeline {
     window?.webContents.send('processing-update', progress)
   }
 
-  private initializeWorkflowJob(workflowJobId: string, filePath: string, projectName?: string) {
+  private initializeWorkflowJob(
+    workflowJobId: string,
+    filePath: string,
+    projectName?: string,
+    options: {
+      uploadedTranscriptPath?: string | null
+    } = {}
+  ) {
     const now = new Date().toISOString()
-    const configSnapshot = this.buildPipelineRunConfigSnapshot()
+    const configSnapshot = this.buildPipelineRunConfigSnapshot(options)
     database.createWorkflowJob({
       id: workflowJobId,
       jobType: 'pipeline',
@@ -1062,7 +1072,8 @@ class ProcessingPipeline {
       message: 'Queued for processing',
       inputJson: JSON.stringify({
         filePath,
-        projectName: projectName || basename(filePath)
+        projectName: projectName || basename(filePath),
+        uploadedTranscriptPath: options.uploadedTranscriptPath ?? null
       }),
       configSnapshotJson: JSON.stringify(configSnapshot),
       leaseOwner: null,
@@ -1078,15 +1089,19 @@ class ProcessingPipeline {
     this.recordEvent(workflowJobId, null, 'pipeline_job', 'job_created', 'Pipeline job created', {
       filePath,
       projectName: projectName || basename(filePath),
+      uploadedTranscriptPath: options.uploadedTranscriptPath ?? null,
       configSnapshot
     }, now)
   }
 
-  private buildPipelineRunConfigSnapshot(): PipelineRunConfigSnapshot {
+  private buildPipelineRunConfigSnapshot(options: {
+    uploadedTranscriptPath?: string | null
+  } = {}): PipelineRunConfigSnapshot {
     const apiConfig = configService.getApiConfig()
     const userPreferences = configService.getUserPreferences()
     const brandVoice = configService.getBrandVoice()
     const productionSelectorMode = this.normalizeProductionSelectorMode(userPreferences.productionSelectorMode)
+    const uploadedTranscriptPath = options.uploadedTranscriptPath ?? null
 
     return {
       apiModelAlias: apiConfig.openRouterKey ? apiConfig.model : null,
@@ -1106,8 +1121,20 @@ class ProcessingPipeline {
       candidateGeneratorVersion: 'clip_candidate_service_v6',
       rankingPromptVersion: 'candidate_ranking_v1',
       rankingImplementationVersion: 'ai_service_v4',
-      contentPromptVersion: 'content_package_v1'
+      contentPromptVersion: 'content_package_v1',
+      uploadedTranscriptPath,
+      uploadedTranscriptFileName: uploadedTranscriptPath ? basename(uploadedTranscriptPath) : null,
+      uploadedTranscriptKind: this.resolveUploadedTranscriptKind(uploadedTranscriptPath)
     }
+  }
+
+  private resolveUploadedTranscriptKind(filePath: string | null): PipelineRunConfigSnapshot['uploadedTranscriptKind'] {
+    if (!filePath) return null
+    const extension = extname(filePath).toLowerCase()
+    if (extension === '.txt') return 'txt'
+    if (extension === '.srt') return 'srt'
+    if (extension === '.vtt') return 'vtt'
+    return null
   }
 
   private getResolvedModelId(model: NonNullable<PipelineRunConfigSnapshot['apiModelAlias']>) {

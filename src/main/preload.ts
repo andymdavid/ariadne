@@ -75,6 +75,7 @@ console.log('Preload script executing...');
 const electronAPI = {
   // File operations
   selectFile: () => ipcRenderer.invoke('select-file'),
+  selectTranscriptFile: () => ipcRenderer.invoke('select-transcript-file'),
   
   // App info
   getVersion: () => ipcRenderer.invoke('get-app-version'),
@@ -83,10 +84,10 @@ const electronAPI = {
   platform: process.platform,
   
   // Processing operations
-  processEpisode: (filePath: string, projectName?: string) => 
+  processEpisode: (filePath: string, projectName?: string, transcriptFilePath?: string | null) => 
     ipcRenderer.invoke(
       'process-episode',
-      { filePath, projectName } satisfies ProcessEpisodeRequestDTO
+      { filePath, projectName, transcriptFilePath } satisfies ProcessEpisodeRequestDTO
     ) as Promise<ProcessEpisodeResponseDTO>,
   processSource: (source: string, projectName?: string) =>
     ipcRenderer.invoke(
@@ -399,11 +400,12 @@ declare global {
     electronAPI: {
       // File operations
       selectFile: () => Promise<string | null>;
+      selectTranscriptFile: () => Promise<string | null>;
       getVersion: () => Promise<string>;
       platform: string;
       
       // Processing operations
-      processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
+      processEpisode: (filePath: string, projectName?: string, transcriptFilePath?: string | null) => Promise<ProcessEpisodeResponseDTO>;
       processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
       getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
       getPipelineRun: (jobId: string) => Promise<GetPipelineRunResponseDTO>;

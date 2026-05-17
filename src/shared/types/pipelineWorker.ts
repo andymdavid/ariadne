@@ -29,6 +29,9 @@ export interface PipelineRunConfigSnapshot {
   rankingPromptVersion: string
   rankingImplementationVersion: string
   contentPromptVersion: string
+  uploadedTranscriptPath?: string | null
+  uploadedTranscriptFileName?: string | null
+  uploadedTranscriptKind?: 'txt' | 'srt' | 'vtt' | null
 }
 
 export interface PipelineWorkerWord {

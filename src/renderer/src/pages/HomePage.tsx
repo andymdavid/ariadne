@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { IoAddCircleOutline, IoCloudUploadOutline, IoClose, IoLinkOutline } from 'react-icons/io5'
+import { IoAddCircleOutline, IoCloudUploadOutline, IoClose, IoDocumentTextOutline, IoLinkOutline } from 'react-icons/io5'
 import type { ProcessingCompleteEventDTO } from '@shared/types/pipelineIpc'
 import { useProcessingStore } from '../stores/processingStore'
 import { useProjectStore, type SavedProject } from '../stores/projectStore'
@@ -66,6 +66,7 @@ export function HomePage() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [sourceLink, setSourceLink] = useState('')
   const [sourceError, setSourceError] = useState('')
+  const [selectedTranscriptPath, setSelectedTranscriptPath] = useState<string | null>(null)
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
   const [recentProjects, setRecentProjects] = useState<SavedProject[]>([])
   const navigate = useNavigate()
@@ -102,7 +103,7 @@ export function HomePage() {
     }
   }
 
-  const startProcessing = async (filePath: string) => {
+  const startProcessing = async (filePath: string, transcriptFilePath: string | null = selectedTranscriptPath) => {
     setSourceError('')
     reset()
     setActiveJobId(undefined)
@@ -146,7 +147,7 @@ export function HomePage() {
         }, PROCESSING_TIMEOUT_MS)
       })
 
-      const processRequest = window.electronAPI.processEpisode(filePath, projectName).catch((startError) => {
+      const processRequest = window.electronAPI.processEpisode(filePath, projectName, transcriptFilePath).catch((startError) => {
         throw startError
       })
 
@@ -171,6 +172,21 @@ export function HomePage() {
       })
       setProcessing(false)
     }
+  }
+
+  const handleTranscriptSelect = async () => {
+    try {
+      const filePath = await window.electronAPI?.selectTranscriptFile?.()
+      if (filePath) {
+        setSelectedTranscriptPath(filePath)
+      }
+    } catch (error) {
+      console.error('Error selecting transcript file:', error)
+    }
+  }
+
+  const clearTranscriptSelection = () => {
+    setSelectedTranscriptPath(null)
   }
 
   const startSourceProcessing = async (source: string) => {
@@ -348,7 +364,32 @@ export function HomePage() {
                     <IoCloudUploadOutline size={16} />
                     Upload
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleTranscriptSelect}
+                    className="inline-flex items-center gap-2 hover:text-text-primary transition-colors"
+                  >
+                    <IoDocumentTextOutline size={16} />
+                    Attach transcript
+                  </button>
                 </div>
+
+                {selectedTranscriptPath ? (
+                  <div className="mt-3 flex items-center justify-between rounded border border-[#262626] bg-[#121212] px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="text-text-primary">Transcript attached</div>
+                      <div className="truncate text-text-muted">{selectedTranscriptPath.split('/').pop()}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearTranscriptSelection}
+                      className="app-icon-button"
+                      aria-label="Remove transcript"
+                    >
+                      <IoClose size={14} />
+                    </button>
+                  </div>
+                ) : null}
 
                 <button type="button" onClick={handleGenerate} className="app-action-primary mt-5 w-full justify-center">
                   Get clips in 1 click

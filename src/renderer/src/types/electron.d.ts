@@ -53,7 +53,8 @@ declare global {
       platform: string;
       
       // Processing operations
-      processEpisode: (filePath: string, projectName?: string) => Promise<ProcessEpisodeResponseDTO>;
+      selectTranscriptFile: () => Promise<string | null>;
+      processEpisode: (filePath: string, projectName?: string, transcriptFilePath?: string | null) => Promise<ProcessEpisodeResponseDTO>;
       processSource: (source: string, projectName?: string) => Promise<ProcessSourceResponseDTO>;
       getActivePipelineJob: (episodeId?: string, projectId?: string) => Promise<GetActivePipelineJobResponseDTO>;
       getPipelineRun: (jobId: string) => Promise<GetPipelineRunResponseDTO>;
