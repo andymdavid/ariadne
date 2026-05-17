@@ -22,6 +22,7 @@
     "build:clip-fixture": "node scripts/build-clip-fixture.js",
     "eval:clips": "node scripts/evaluate-clip-selection.js",
     "eval:editorial-units": "node scripts/evaluate-editorial-units.js",
+    "debug:llm-thread-run": "node scripts/report-llm-thread-run.js",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.main.json --noEmit",
