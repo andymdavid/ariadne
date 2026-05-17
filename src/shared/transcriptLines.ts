@@ -33,6 +33,10 @@ export type TranscriptLineDraft = {
   }
 }
 
+export type TranscriptLineBuildOptions = {
+  preserveSegmentBoundaries?: boolean
+}
+
 const HARD_BREAK_GAP_SECONDS = 1.1
 const SOFT_BREAK_GAP_SECONDS = 0.42
 const MICRO_BREAK_GAP_SECONDS = 0.2
@@ -78,6 +82,32 @@ const buildSegmentFallbackLines = (segments: TranscriptLineSegmentInput[]): Tran
       sourceStrategy: 'segment_fallback_lines_v1' as const,
       boundaryQuality: buildBoundaryQuality(segment.text, false)
     }))
+
+const buildWordBackedSegmentLines = (segments: TranscriptLineSegmentInput[]): TranscriptLineDraft[] =>
+  segments
+    .filter((segment) => segment.text.trim())
+    .sort((left, right) => left.start - right.start)
+    .map((segment, index) => {
+      const words = (segment.words ?? [])
+        .map((word) => ({
+          word: String(word.word ?? '').trim(),
+          start: Number(word.start ?? segment.start),
+          end: Number(word.end ?? segment.end)
+        }))
+        .filter((word) => word.word && Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start)
+      const text = normalizeLineText(segment.text)
+      const forcedBreak = !looksLikeCompleteThought(text)
+
+      return {
+        lineIndex: index,
+        start: words[0]?.start ?? segment.start,
+        end: words[words.length - 1]?.end ?? segment.end,
+        text,
+        words,
+        sourceStrategy: forcedBreak ? 'word_forced_lines_v1' as const : 'word_thought_lines_v1' as const,
+        boundaryQuality: buildBoundaryQuality(text, forcedBreak)
+      }
+    })
 
 const shouldBreakLine = (
   currentWords: TranscriptLineWord[],
@@ -146,11 +176,16 @@ const shouldBreakLine = (
 }
 
 export const buildTranscriptLinesFromSegments = (
-  segments: TranscriptLineSegmentInput[]
+  segments: TranscriptLineSegmentInput[],
+  options: TranscriptLineBuildOptions = {}
 ): TranscriptLineDraft[] => {
   const words = flattenWords(segments)
   if (words.length === 0) {
     return buildSegmentFallbackLines(segments)
+  }
+
+  if (options.preserveSegmentBoundaries) {
+    return buildWordBackedSegmentLines(segments)
   }
 
   const lines: TranscriptLineDraft[] = []

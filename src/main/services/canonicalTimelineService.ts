@@ -21,7 +21,9 @@ class CanonicalTimelineService {
     mediaDuration: number
   }): CanonicalConversationalTimeline {
     const segments = this.normalizeSegments(input.transcription.segments)
-    const transcriptLines = buildTranscriptLinesFromSegments(input.transcription.segments)
+    const transcriptLines = buildTranscriptLinesFromSegments(input.transcription.segments, {
+      preserveSegmentBoundaries: true
+    })
     const canonicalWords: CanonicalTimedWord[] = []
     const wordIdByKey = new Map<string, string>()
 
@@ -87,7 +89,7 @@ class CanonicalTimelineService {
         semanticTextSource: 'whisper',
         timingSource: canonicalWords.length > 0 ? 'whisper' : 'none',
         speakerSource: null,
-        sourceStrategy: 'whisper_transcript_lines_v1'
+        sourceStrategy: 'whisper_segment_lines_v1'
       },
       quality: {
         lineCount: lines.length,
