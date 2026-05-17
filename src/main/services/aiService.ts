@@ -40,6 +40,15 @@ export interface CleanedTranscriptUnit {
   reason: string
 }
 
+export interface StructuredConversationLine {
+  startSegmentId: number
+  endSegmentId: number
+  speaker: string | null
+  text: string
+  boundaryType: 'setup' | 'claim' | 'example' | 'payoff' | 'transition' | 'aside' | 'unknown'
+  completeThought: boolean
+}
+
 export interface TranscriptBoundaryLine {
   lineIndex: number
   start: number
@@ -384,6 +393,49 @@ class AIService {
     const units = this.parseTranscriptCleanupResponse(response.content, segments)
     onProgress?.(100)
     return units
+  }
+
+  async structureTranscriptForEditing(
+    transcriptData: TranscriptDataWithWords,
+    onProgress?: (progress: number) => void
+  ): Promise<StructuredConversationLine[]> {
+    onProgress?.(10)
+
+    const segments = transcriptData.segments
+      .filter((segment) => segment.text.trim().length > 0)
+      .sort((left, right) => left.start - right.start)
+
+    if (segments.length === 0) {
+      return []
+    }
+
+    const prompt = this.buildConversationStructuringPrompt(segments)
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are an expert podcast transcript editor.',
+            'Structure raw ASR transcript segments into readable conversational lines for clip selection.',
+            'Preserve meaning, keep line ranges grounded to provided segment IDs, and do not invent timestamps.',
+            'Speaker labels may be inferred only when the turn change is clear; otherwise use null.',
+            'Return valid JSON only.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 8000,
+      temperature: 0.1
+    })
+
+    onProgress?.(80)
+    const lines = this.parseConversationStructuringResponse(response.content, segments)
+    onProgress?.(100)
+    return lines
   }
 
   async proposeResolvedClips(
@@ -939,6 +991,50 @@ Return one JSON object only. The first character must be "{" and the last charac
     `.trim()
   }
 
+  private buildConversationStructuringPrompt(
+    segments: Array<{ id: number; start: number; end: number; text: string }>
+  ) {
+    const segmentText = segments.map((segment) => (
+      `SEGMENT ${segment.id} [${segment.start.toFixed(2)}-${segment.end.toFixed(2)}]: ${segment.text}`
+    )).join('\n')
+
+    return `
+TASK:
+Convert these raw ASR segments into conversational transcript lines for rough-cut selection.
+
+Goals:
+- create readable line units that usually correspond to a sentence, speaker turn, claim, example, or payoff
+- keep each output line grounded to consecutive input segment IDs
+- preserve the original meaning and order
+- do not invent timestamps or segment IDs
+- infer simple speaker labels only when a turn change is clear; otherwise use null
+- prefer shorter usable editing atoms over broad topic blocks
+- avoid output lines that start by completing a previous line when you can include the setup
+- avoid output lines that end before the sentence or thought lands
+
+OUTPUT JSON:
+{
+  "lines": [
+    {
+      "start_segment_id": 0,
+      "end_segment_id": 2,
+      "speaker": "Speaker 1",
+      "text": "Clean readable transcript text for this conversational line.",
+      "boundary_type": "claim",
+      "complete_thought": true
+    }
+  ]
+}
+
+Allowed boundary_type values: setup, claim, example, payoff, transition, aside, unknown.
+
+RAW_SEGMENTS:
+${segmentText}
+
+Return one JSON object only. The first character must be "{" and the last character must be "}".
+    `.trim()
+  }
+
   private buildThreadRepairPrompt(input: {
     candidate: ThreadCandidateSelection
     issues: string[]
@@ -1104,6 +1200,58 @@ Return one JSON object only. The first character must be "{" and the last charac
         invalidReasons
       }
     }
+  }
+
+  private parseConversationStructuringResponse(
+    content: string,
+    segments: Array<{ id: number; start: number; end: number; text: string }>
+  ): StructuredConversationLine[] {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error(`No JSON found in conversation structuring response. Preview: ${this.previewResponse(content)}`)
+    }
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(jsonString)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown JSON parse error'
+      throw new Error(`Invalid JSON in conversation structuring response: ${message}. Preview: ${this.previewResponse(content)}`)
+    }
+
+    const validSegmentIds = new Set(segments.map((segment) => Number(segment.id)))
+    const allowedBoundaryTypes = new Set(['setup', 'claim', 'example', 'payoff', 'transition', 'aside', 'unknown'])
+    const rawLines = Array.isArray(parsed.lines) ? parsed.lines : []
+
+    return rawLines
+      .map((line: any): StructuredConversationLine | null => {
+        const startSegmentId = Number(line.start_segment_id ?? line.startSegmentId)
+        const endSegmentId = Number(line.end_segment_id ?? line.endSegmentId)
+        if (
+          !Number.isFinite(startSegmentId) ||
+          !Number.isFinite(endSegmentId) ||
+          !validSegmentIds.has(startSegmentId) ||
+          !validSegmentIds.has(endSegmentId) ||
+          endSegmentId < startSegmentId
+        ) {
+          return null
+        }
+
+        const boundaryType = String(line.boundary_type ?? line.boundaryType ?? 'unknown')
+        return {
+          startSegmentId,
+          endSegmentId,
+          speaker: line.speaker == null || String(line.speaker).trim() === ''
+            ? null
+            : String(line.speaker).trim(),
+          text: String(line.text || '').replace(/\s+/g, ' ').trim(),
+          boundaryType: allowedBoundaryTypes.has(boundaryType)
+            ? boundaryType as StructuredConversationLine['boundaryType']
+            : 'unknown',
+          completeThought: Boolean(line.complete_thought ?? line.completeThought)
+        }
+      })
+      .filter((line: StructuredConversationLine | null): line is StructuredConversationLine => Boolean(line && line.text))
   }
 
   private parseThreadRepairResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadRepairSelection {

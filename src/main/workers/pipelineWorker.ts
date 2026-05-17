@@ -14,6 +14,9 @@ import { llmThreadSelectorService } from '../services/llmThreadSelectorService'
 import LocalWhisperService from '../services/localWhisperService'
 import type { AudioChunk } from '../services/clipSelectionTypes'
 import type {
+  CanonicalConversationalTimeline
+} from '../../shared/canonicalTimeline'
+import type {
   PipelineWorkerCandidate,
   PipelineWorkerCommand,
   PipelineWorkerCompletedEvent,
@@ -1445,6 +1448,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   let candidateArcs = editorialUnits.length > 0
     ? generateCandidateArcs(editorialUnits)
     : []
+  let llmThreadTimeline: CanonicalConversationalTimeline | null = null
+  let conversationStructuringMetadata: Record<string, unknown> | null = null
   let boundaryViableCandidateArcs: CandidateArc[] = candidateArcs
   let boundaryPreflightRejectedArcIds: string[] = []
   let clipSelectionSourceMetadata: Record<string, unknown> = {}
@@ -1591,7 +1596,40 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     let transcriptNormalizationVersion = 'word_thought_lines_v1'
     let transcriptCleanupMetadata: Record<string, unknown> | null = null
 
-    if (aiService) {
+    if (aiService && command.runConfigSnapshot.productionSelectorMode === 'llm_thread_v1') {
+      try {
+        const structuredLines = await aiService.structureTranscriptForEditing(
+          transcription,
+          (progress) => {
+            postProgress(command.workflowJobId, currentStage, Math.min(progress * 0.35, 35), 'Structuring transcript for editing...')
+          }
+        )
+        if (structuredLines.length > 0) {
+          llmThreadTimeline = canonicalTimelineService.buildFromStructuredConversation({
+            transcription,
+            mediaDuration: command.mediaDuration,
+            structuredLines
+          })
+          conversationStructuringMetadata = {
+            executor: 'ai_conversation_structuring',
+            implementationVersion: 'conversation_structuring_v1',
+            structuredLineCount: structuredLines.length,
+            speakerLabels: Array.from(new Set(structuredLines.map((line) => line.speaker).filter(Boolean))),
+            completeThoughtLineCount: structuredLines.filter((line) => line.completeThought).length,
+            preview: structuredLines.slice(0, 8)
+          }
+        }
+      } catch (error) {
+        conversationStructuringMetadata = {
+          executor: 'ai_conversation_structuring',
+          implementationVersion: 'conversation_structuring_v1',
+          failureReason: error instanceof Error ? error.message : 'Unknown conversation structuring error'
+        }
+        console.warn('Conversation structuring failed, falling back to timed Whisper segment lines', error)
+      }
+    }
+
+    if (aiService && command.runConfigSnapshot.productionSelectorMode !== 'llm_thread_v1') {
       try {
         const cleanedUnits = await aiService.cleanupTranscript(
           transcription,
@@ -1675,6 +1713,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         transcriptTimingQuality,
         transcriptNormalizationVersion,
         transcriptCleanup: transcriptCleanupMetadata,
+        conversationStructuring: conversationStructuringMetadata,
         editorialUnitBuilderVersion: 'editorial_units_v1',
         editorialUnits: summarizeEditorialUnits(editorialUnits),
         candidateArcGeneratorVersion: 'candidate_arcs_v1',
@@ -1698,7 +1737,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
       llmThreadSelectorUsed = true
       if (aiService) {
         postProgress(command.workflowJobId, currentStage, 5, 'Discovering conversational threads...')
-        const timeline = canonicalTimelineService.buildFromWhisperTranscription({
+        const timeline = llmThreadTimeline ?? canonicalTimelineService.buildFromWhisperTranscription({
           transcription,
           mediaDuration: command.mediaDuration
         })

@@ -4,6 +4,7 @@ import type {
   CanonicalTimedWord,
   CanonicalTranscriptLine
 } from '../../shared/canonicalTimeline'
+import type { StructuredConversationLine } from './aiService'
 import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 import type { PipelineWorkerTranscriptSegment, PipelineWorkerTranscription } from '@shared/types/pipelineWorker'
 
@@ -98,6 +99,111 @@ class CanonicalTimelineService {
         wordTimingCoverage: estimatedWordCount > 0 ? Math.min(1, canonicalWords.length / estimatedWordCount) : 0,
         hasSpeakers: false,
         issues
+      }
+    }
+  }
+
+  buildFromStructuredConversation(input: {
+    transcription: PipelineWorkerTranscription
+    mediaDuration: number
+    structuredLines: StructuredConversationLine[]
+  }): CanonicalConversationalTimeline {
+    const segments = this.normalizeSegments(input.transcription.segments)
+    const canonicalWords: CanonicalTimedWord[] = []
+    const wordIdByKey = new Map<string, string>()
+
+    for (const segment of input.transcription.segments) {
+      for (const word of segment.words ?? []) {
+        if (!word.word.trim() || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.end <= word.start) {
+          continue
+        }
+
+        const id = `word_${canonicalWords.length + 1}`
+        canonicalWords.push({
+          id,
+          lineId: null,
+          word: word.word.trim(),
+          startTime: Number(word.start),
+          endTime: Number(word.end),
+          speaker: null,
+          timingSource: 'whisper'
+        })
+        wordIdByKey.set(this.wordKey(word.word, word.start, word.end), id)
+      }
+    }
+
+    const lines: CanonicalTranscriptLine[] = input.structuredLines
+      .map((structuredLine, index): CanonicalTranscriptLine | null => {
+        const coveredSegments = segments.filter((segment) =>
+          segment.id >= structuredLine.startSegmentId &&
+          segment.id <= structuredLine.endSegmentId
+        )
+        if (coveredSegments.length === 0) {
+          return null
+        }
+
+        const wordIds = coveredSegments
+          .flatMap((segment) => segment.words ?? [])
+          .map((word) => wordIdByKey.get(this.wordKey(word.word, word.start, word.end)))
+          .filter((id): id is string => Boolean(id))
+        const firstSegment = coveredSegments[0]
+        const lastSegment = coveredSegments[coveredSegments.length - 1]
+        const lineId = `structured_line_${index}`
+
+        for (const wordId of wordIds) {
+          const canonicalWord = canonicalWords.find((word) => word.id === wordId)
+          if (canonicalWord) {
+            canonicalWord.lineId = lineId
+            canonicalWord.speaker = structuredLine.speaker
+          }
+        }
+
+        return {
+          id: lineId,
+          index,
+          startTime: wordIds.length > 0
+            ? canonicalWords.find((word) => word.id === wordIds[0])?.startTime ?? firstSegment.start
+            : firstSegment.start,
+          endTime: wordIds.length > 0
+            ? canonicalWords.find((word) => word.id === wordIds[wordIds.length - 1])?.endTime ?? lastSegment.end
+            : lastSegment.end,
+          speaker: structuredLine.speaker,
+          text: structuredLine.text,
+          wordIds,
+          semanticSource: 'whisper',
+          timingSource: wordIds.length > 0 ? 'whisper' : 'none'
+        }
+      })
+      .filter((line): line is CanonicalTranscriptLine => Boolean(line))
+
+    if (lines.length === 0) {
+      return this.buildFromWhisperTranscription({
+        transcription: input.transcription,
+        mediaDuration: input.mediaDuration
+      })
+    }
+
+    const linesWithTiming = lines.filter((line) => line.startTime !== null && line.endTime !== null).length
+    const estimatedWordCount = input.transcription.text.split(/\s+/).filter(Boolean).length
+    return {
+      mediaDuration: input.mediaDuration,
+      segments,
+      lines,
+      words: canonicalWords,
+      sourceMetadata: {
+        transcriptInputMode: 'whisper_generated',
+        semanticTextSource: 'whisper',
+        timingSource: canonicalWords.length > 0 ? 'whisper' : 'none',
+        speakerSource: null,
+        sourceStrategy: 'conversation_structuring_v1'
+      },
+      quality: {
+        lineCount: lines.length,
+        timedWordCount: canonicalWords.length,
+        linesWithTiming,
+        wordTimingCoverage: estimatedWordCount > 0 ? Math.min(1, canonicalWords.length / estimatedWordCount) : 0,
+        hasSpeakers: lines.some((line) => Boolean(line.speaker)),
+        issues: []
       }
     }
   }
