@@ -18,6 +18,7 @@ export interface PipelineRunConfigSnapshot {
   enableLegacyBoundaryProposal: boolean
   enableLegacyCandidateRanking: boolean
   enableHeuristicSupplementation: boolean
+  enableOpenRouterAudioTranscriptGuide: boolean
   maxClipsPerEpisode: number
   brandVoiceExampleCount: number
   brandVoicePreferences: {

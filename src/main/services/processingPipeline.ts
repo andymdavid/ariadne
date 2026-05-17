@@ -1114,6 +1114,7 @@ class ProcessingPipeline {
       enableLegacyBoundaryProposal: Boolean(userPreferences.enableLegacyBoundaryProposal),
       enableLegacyCandidateRanking: Boolean(userPreferences.enableLegacyCandidateRanking),
       enableHeuristicSupplementation: Boolean(userPreferences.enableHeuristicSupplementation),
+      enableOpenRouterAudioTranscriptGuide: userPreferences.enableOpenRouterAudioTranscriptGuide !== false,
       maxClipsPerEpisode: Number.isFinite(userPreferences.maxClipsPerEpisode) ? userPreferences.maxClipsPerEpisode : 25,
       brandVoiceExampleCount: brandVoice.examples.length,
       brandVoicePreferences: brandVoice.preferences,

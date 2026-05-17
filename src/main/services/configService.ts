@@ -102,6 +102,7 @@ interface ConfigSchema {
     enableLegacyBoundaryProposal: boolean
     enableLegacyCandidateRanking: boolean
     enableHeuristicSupplementation: boolean
+    enableOpenRouterAudioTranscriptGuide: boolean
   }
   recentProjects: Array<{
     id: string
@@ -132,7 +133,8 @@ function createDefaultUserPreferences(): ConfigSchema['userPreferences'] {
     enableLegacyTranscriptLineAgent: false,
     enableLegacyBoundaryProposal: false,
     enableLegacyCandidateRanking: false,
-    enableHeuristicSupplementation: false
+    enableHeuristicSupplementation: false,
+    enableOpenRouterAudioTranscriptGuide: true
   }
 }
 
@@ -214,7 +216,8 @@ class ConfigService {
       enableLegacyTranscriptLineAgent: Boolean(stored.enableLegacyTranscriptLineAgent),
       enableLegacyBoundaryProposal: Boolean(stored.enableLegacyBoundaryProposal),
       enableLegacyCandidateRanking: Boolean(stored.enableLegacyCandidateRanking),
-      enableHeuristicSupplementation: Boolean(stored.enableHeuristicSupplementation)
+      enableHeuristicSupplementation: Boolean(stored.enableHeuristicSupplementation),
+      enableOpenRouterAudioTranscriptGuide: stored.enableOpenRouterAudioTranscriptGuide !== false
     }
 
     if (JSON.stringify(stored) !== JSON.stringify(merged)) {

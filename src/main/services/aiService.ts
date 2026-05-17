@@ -145,7 +145,7 @@ export interface ThreadDiscoveryDiagnostics {
 }
 
 export interface ThreadSemanticGuide {
-  source: 'uploaded_txt'
+  source: 'uploaded_txt' | 'openrouter_audio'
   fileName: string | null
   textPreview: string
   speakerLabels: string[]
@@ -298,6 +298,7 @@ class AIService {
 
   async structureTranscriptForEditing(
     transcriptData: TranscriptDataWithWords,
+    semanticGuide?: ThreadSemanticGuide | null,
     onProgress?: (progress: number) => void
   ): Promise<StructuredConversationLine[]> {
     onProgress?.(10)
@@ -310,7 +311,7 @@ class AIService {
       return []
     }
 
-    const prompt = this.buildConversationStructuringPrompt(segments)
+    const prompt = this.buildConversationStructuringPrompt(segments, semanticGuide)
     const response = await this.callOpenRouter({
       model: this.getModelId(this.config.model),
       messages: [
@@ -337,6 +338,65 @@ class AIService {
     const lines = this.parseConversationStructuringResponse(response.content, segments)
     onProgress?.(100)
     return lines
+  }
+
+  async transcribeAudioForSemanticGuide(input: {
+    fileName: string
+    audioBase64: string
+    audioFormat: string
+    mediaDuration: number
+  }): Promise<ThreadSemanticGuide> {
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are a careful podcast transcription assistant.',
+            'Transcribe audio for semantic editing only.',
+            'Use speaker labels when turns are clear. Do not invent timestamps.',
+            'Return one valid JSON object only.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: [
+                `Audio file: ${input.fileName}`,
+                `Approximate duration: ${Math.round(input.mediaDuration)} seconds`,
+                '',
+                'Return JSON with this shape:',
+                '{"transcript_text":"plain transcript","speaker_labeled_transcript":"Speaker 1: ...\\nSpeaker 2: ...","speakers":["Speaker 1"],"notes":"brief confidence notes"}',
+                '',
+                'Focus on readable conversational text and speaker turns. Do not include timestamps.'
+              ].join('\n')
+            },
+            {
+              type: 'input_audio',
+              input_audio: {
+                data: input.audioBase64,
+                format: input.audioFormat
+              },
+              inputAudio: {
+                data: input.audioBase64,
+                format: input.audioFormat
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 10000,
+      temperature: 0.05
+    })
+
+    const guide = this.parseAudioSemanticGuideResponse(response.content, input.fileName)
+    if (guide.textPreview.trim().length === 0) {
+      throw new Error('OpenRouter audio transcript guide returned no transcript text')
+    }
+
+    return guide
   }
 
   async proposeResolvedClips(
@@ -892,12 +952,73 @@ Return one JSON object only. The first character must be "{" and the last charac
     `.trim()
   }
 
+  private parseAudioSemanticGuideResponse(content: string, fileName: string): ThreadSemanticGuide {
+    const jsonString = this.extractJSON(content)
+    let transcriptText = content.trim()
+    let speakerLabels: string[] = []
+
+    if (jsonString) {
+      try {
+        const parsed = JSON.parse(jsonString) as {
+          transcript_text?: unknown
+          transcriptText?: unknown
+          speaker_labeled_transcript?: unknown
+          speakerLabeledTranscript?: unknown
+          speakers?: unknown
+        }
+        const labeled = typeof parsed.speaker_labeled_transcript === 'string'
+          ? parsed.speaker_labeled_transcript
+          : typeof parsed.speakerLabeledTranscript === 'string'
+            ? parsed.speakerLabeledTranscript
+            : ''
+        const plain = typeof parsed.transcript_text === 'string'
+          ? parsed.transcript_text
+          : typeof parsed.transcriptText === 'string'
+            ? parsed.transcriptText
+            : ''
+        transcriptText = (labeled || plain || transcriptText).trim()
+        if (Array.isArray(parsed.speakers)) {
+          speakerLabels = parsed.speakers
+            .map((speaker) => String(speaker ?? '').trim())
+            .filter(Boolean)
+            .slice(0, 12)
+        }
+      } catch {
+        transcriptText = content.trim()
+      }
+    }
+
+    if (speakerLabels.length === 0) {
+      speakerLabels = Array.from(new Set(
+        transcriptText
+          .split('\n')
+          .map((line) => line.match(/^\s*([^:\n]{1,48})\s*:\s+\S/))
+          .filter((match): match is RegExpMatchArray => Boolean(match))
+          .map((match) => match[1].trim())
+          .filter((label) => !/^\d+$/.test(label))
+      )).slice(0, 12)
+    }
+
+    return {
+      source: 'openrouter_audio',
+      fileName,
+      textPreview: transcriptText.slice(0, 12000),
+      speakerLabels
+    }
+  }
+
   private buildConversationStructuringPrompt(
-    segments: Array<{ id: number; start: number; end: number; text: string }>
+    segments: Array<{ id: number; start: number; end: number; text: string }>,
+    semanticGuide?: ThreadSemanticGuide | null
   ) {
     const segmentText = segments.map((segment) => (
       `SEGMENT ${segment.id} [${segment.start.toFixed(2)}-${segment.end.toFixed(2)}]: ${segment.text}`
     )).join('\n')
+    const guideText = semanticGuide?.textPreview?.trim()
+    const guideSource = semanticGuide?.source ?? 'unknown'
+    const guideSpeakers = semanticGuide?.speakerLabels?.length
+      ? semanticGuide.speakerLabels.join(', ')
+      : 'unknown'
 
     return `
 TASK:
@@ -912,6 +1033,15 @@ Goals:
 - prefer shorter usable editing atoms over broad topic blocks
 - avoid output lines that start by completing a previous line when you can include the setup
 - avoid output lines that end before the sentence or thought lands
+${guideText ? `
+SEMANTIC_GUIDE:
+This guide may have cleaner wording and speaker labels, but it has no trusted timestamps.
+Use it only to clarify speaker turns and sentence boundaries. Ground every output line to RAW_SEGMENTS.
+Source: ${guideSource}
+Speakers: ${guideSpeakers}
+
+${guideText}
+` : ''}
 
 OUTPUT JSON:
 {

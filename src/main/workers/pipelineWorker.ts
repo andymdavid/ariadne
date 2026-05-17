@@ -1,6 +1,6 @@
 import { promises as fs, existsSync } from 'fs'
 import { randomUUID } from 'crypto'
-import { basename, join, dirname } from 'path'
+import { basename, join, dirname, extname } from 'path'
 import { tmpdir } from 'os'
 import AIService, { ResolvedClipProposal, ThreadSemanticGuide, TranscriptBoundaryLine, WordSpanClipSelection } from '../services/aiService'
 import { arcSelectionService } from '../services/arcSelectionService'
@@ -50,6 +50,7 @@ const TRANSCRIPT_MIN_WORD_TIMING_COVERAGE = 0.7
 const TRANSCRIPT_MAX_INVALID_WORD_TIMING_RATIO = 0.02
 const TRANSCRIPT_MAX_NON_MONOTONIC_WORD_TIMING_RATIO = 0.005
 const UPLOADED_TRANSCRIPT_GUIDE_MAX_CHARS = 12000
+const OPENROUTER_AUDIO_GUIDE_MAX_BYTES = 22 * 1024 * 1024
 
 type TranscriptTimingQuality = {
   status: 'pass' | 'warn' | 'fail'
@@ -127,6 +128,87 @@ async function loadUploadedTranscriptGuide(command: StartPipelineWorkerCommand):
   } catch (error) {
     console.warn('Failed to load uploaded transcript guide', error)
     return null
+  }
+}
+
+async function loadOpenRouterAudioTranscriptGuide(
+  command: StartPipelineWorkerCommand,
+  aiService: AIService
+): Promise<{ guide: ThreadSemanticGuide | null; metadata: Record<string, unknown> }> {
+  if (
+    command.runConfigSnapshot.productionSelectorMode !== 'llm_thread_v1' ||
+    !command.runConfigSnapshot.enableOpenRouterAudioTranscriptGuide
+  ) {
+    return {
+      guide: null,
+      metadata: {
+        attempted: false,
+        reason: 'disabled'
+      }
+    }
+  }
+
+  try {
+    const stats = await fs.stat(command.audioPath)
+    if (stats.size > OPENROUTER_AUDIO_GUIDE_MAX_BYTES) {
+      return {
+        guide: null,
+        metadata: {
+          attempted: false,
+          reason: 'audio_file_too_large',
+          audioBytes: stats.size,
+          maxBytes: OPENROUTER_AUDIO_GUIDE_MAX_BYTES
+        }
+      }
+    }
+
+    const audioFormat = resolveOpenRouterAudioFormat(command.audioPath)
+    const audioBuffer = await fs.readFile(command.audioPath)
+    const guide = await aiService.transcribeAudioForSemanticGuide({
+      fileName: basename(command.audioPath),
+      audioBase64: audioBuffer.toString('base64'),
+      audioFormat,
+      mediaDuration: command.mediaDuration
+    })
+
+    return {
+      guide,
+      metadata: {
+        attempted: true,
+        succeeded: true,
+        source: guide.source,
+        model: command.runConfigSnapshot.apiModelId,
+        audioFormat,
+        audioBytes: stats.size,
+        transcriptPreviewChars: guide.textPreview.length,
+        speakerLabels: guide.speakerLabels
+      }
+    }
+  } catch (error) {
+    return {
+      guide: null,
+      metadata: {
+        attempted: true,
+        succeeded: false,
+        failureReason: error instanceof Error ? error.message : 'Unknown OpenRouter audio transcript guide error'
+      }
+    }
+  }
+}
+
+function resolveOpenRouterAudioFormat(filePath: string) {
+  const extension = extname(filePath).toLowerCase().replace('.', '')
+  switch (extension) {
+    case 'wav':
+    case 'mp3':
+    case 'aiff':
+    case 'aac':
+    case 'ogg':
+    case 'flac':
+    case 'm4a':
+      return extension
+    default:
+      return 'wav'
   }
 }
 
@@ -1417,6 +1499,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     useLegacySelectorStack || command.runConfigSnapshot.enableHeuristicSupplementation
   const allowWordSpanSelectorFallback = useLegacySelectorStack
   const uploadedTranscriptGuide = await loadUploadedTranscriptGuide(command)
+  let semanticGuide: ThreadSemanticGuide | null = uploadedTranscriptGuide
+  let openRouterAudioTranscriptGuideMetadata: Record<string, unknown> | null = null
 
   if (startStageIndex <= stageOrder.indexOf('transcription')) {
     currentStage = 'transcription'
@@ -1547,11 +1631,19 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     let transcriptCleanupMetadata: Record<string, unknown> | null = null
 
     if (aiService && command.runConfigSnapshot.productionSelectorMode === 'llm_thread_v1') {
+      if (!semanticGuide) {
+        postProgress(command.workflowJobId, currentStage, 5, 'Transcribing audio for semantic guidance...')
+        const audioGuideResult = await loadOpenRouterAudioTranscriptGuide(command, aiService)
+        semanticGuide = audioGuideResult.guide
+        openRouterAudioTranscriptGuideMetadata = audioGuideResult.metadata
+      }
+
       try {
         const structuredLines = await aiService.structureTranscriptForEditing(
           transcription,
+          semanticGuide,
           (progress) => {
-            postProgress(command.workflowJobId, currentStage, Math.min(progress * 0.35, 35), 'Structuring transcript for editing...')
+            postProgress(command.workflowJobId, currentStage, Math.min(10 + progress * 0.3, 40), 'Structuring transcript for editing...')
           }
         )
         if (structuredLines.length > 0) {
@@ -1608,6 +1700,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         transcriptNormalizationVersion,
         transcriptCleanup: transcriptCleanupMetadata,
         conversationStructuring: conversationStructuringMetadata,
+        openRouterAudioTranscriptGuide: openRouterAudioTranscriptGuideMetadata,
         editorialUnitBuilderVersion: 'editorial_units_v1',
         editorialUnits: summarizeEditorialUnits(editorialUnits),
         candidateArcGeneratorVersion: 'candidate_arcs_v1',
@@ -1640,7 +1733,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           transcription,
           aiService,
           targetClipCount: command.runConfigSnapshot.maxClipsPerEpisode,
-          semanticGuide: uploadedTranscriptGuide,
+          semanticGuide,
           onProgress: (progress) => {
             postProgress(command.workflowJobId, currentStage, Math.min(5 + progress * 0.85, 92), 'Discovering conversational threads...')
           }
