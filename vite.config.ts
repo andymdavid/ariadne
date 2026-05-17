@@ -18,6 +18,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    allowedHosts: [
+      'late-ink-pool.lara.runwingman.com',
+      '.host.otherstuff.ai'
+    ],
   },
   resolve: {
     alias: {
