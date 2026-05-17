@@ -592,7 +592,8 @@ class AIService {
           role: 'system',
           content: [
             'You are a senior podcast editor selecting coherent rough cuts from transcript lines.',
-            'Find all usable conversational threads above the quality bar, including candidates that may need small boundary repair.',
+            'Find usable bounded excerpts above the quality bar, not broad topic summaries.',
+            'A good excerpt may live inside a larger conversation, but its selected line range must have its own understandable opening and landing.',
             'Return line indexes only. Do not invent timestamps.',
             'Return one valid JSON object only, with no Markdown, no code fence, and no explanatory prose.'
           ].join(' ')
@@ -873,7 +874,7 @@ TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
 DISCOVERY_MODE: ${input.broadDiscovery ? 'broad_repairable_threads' : 'standard_coherent_threads'}
 
 TASK:
-Find all usable or repairable coherent rough-cut threads in these transcript lines.
+Find all usable or repairable coherent rough-cut excerpts in these transcript lines.
 
 A usable rough cut:
 - starts where a listener has enough context
@@ -881,11 +882,18 @@ A usable rough cut:
 - ends after the thought lands
 - may be loose or padded
 - should not be selected just to fill a quota
+- may be a bounded sub-arc inside a longer topic
 
 A repairable candidate:
 - has a strong conversational thread but may need nearby start/end line adjustment
 - should set self_contained to false when it needs boundary repair
 - should explain the missing context or payoff in expected_context / expected_payoff
+
+Avoid broad topic windows that begin mid-explanation and end while the same explanation continues.
+If a whole topic is too long, select a smaller self-contained excerpt with a local setup and payoff.
+Prefer natural pivots, questions, claims, examples, objections, and conclusions as boundaries.
+Do not select a range whose first line starts by completing the previous line.
+Do not select a range whose final line leaves an obvious sentence or thought unfinished.
 
 Do not return a fixed number. Return every usable or repairable candidate above the bar, or return an empty list only when the chunk has no coherent thread worth repairing.
 Choose transcript line indexes only.
@@ -943,8 +951,9 @@ Use this feedback. If the previous repair was too long, choose a shorter coheren
 
 TASK:
 Repair this rough cut by choosing a better start_line_index and end_line_index from the surrounding lines.
-If the candidate is embedded in a larger thread, expand to the parent conversational thread.
-If the parent thread is too long, select the strongest self-contained excerpt within it rather than returning an overlong range.
+If the candidate is embedded in a larger thread, first identify the parent conversational thread, then choose the strongest self-contained excerpt inside or near it.
+Do not return a broad parent range just because it contains context.
+If the parent thread is too long, select a narrower excerpt with its own local setup and payoff rather than returning an overlong range.
 If it cannot be repaired within duration limits, mark it unrecoverable.
 
 OUTPUT JSON:
