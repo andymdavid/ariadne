@@ -6,6 +6,7 @@ import {
 } from './boundaryRepairPrimitives'
 import type AIService from './aiService'
 import type {
+  ThreadCoherenceReview,
   ThreadCandidateSelection,
   ThreadDiscoveryDiagnostics,
   ThreadDiscoveryLine,
@@ -46,6 +47,8 @@ type CandidateEvaluation = {
   deterministicRepairApplied: boolean
   deterministicRepairReason: string | null
   deterministicRepairFailureCode: string | null
+  coherenceReview: ThreadCoherenceReview | null
+  coherenceReviewError: string | null
   clip: PipelineWorkerPotentialClip | null
 }
 
@@ -76,6 +79,9 @@ export type LlmThreadSelectorResult = {
     mechanicalVariantsGenerated: number
     discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }>
     discoveryRetryAttempted: boolean
+    coherenceReviewsAttempted: number
+    coherenceReviewsAccepted: number
+    llmCoherenceReviewError: string | null
     zeroOutputStage: string | null
     rejectedPreview: Array<Record<string, unknown>>
     selectedPreview: Array<Record<string, unknown>>
@@ -150,8 +156,10 @@ class LlmThreadSelectorService {
     const uniqueCandidates = this.dedupeCandidates(discovered)
     const evaluations: CandidateEvaluation[] = []
     let llmRepairError: string | null = null
+    let llmCoherenceReviewError: string | null = null
     let llmRepairAttemptsExhausted = false
     let mechanicalVariantsGenerated = 0
+    let coherenceReviewsAttempted = 0
 
     for (let index = 0; index < uniqueCandidates.length; index += 1) {
       const candidate = uniqueCandidates[index]
@@ -164,6 +172,8 @@ class LlmThreadSelectorService {
       let deterministicRepairReason: string | null = null
       let deterministicRepairFailureCode: string | null = null
       let previousRepairFeedback: ThreadRepairFeedback | null = null
+      let coherenceReview: ThreadCoherenceReview | null = null
+      let coherenceReviewError: string | null = null
 
       while (this.canAttemptLlmRepair(verification) && repairAttempts < MAX_REPAIR_ATTEMPTS) {
         repairAttempts += 1
@@ -176,6 +186,8 @@ class LlmThreadSelectorService {
             mechanicalVariantsGenerated,
             discoveryDiagnostics,
             discoveryRetryAttempted,
+            coherenceReviewsAttempted,
+            llmCoherenceReviewError,
             zeroOutputStage: 'selector_unhealthy_variant_explosion'
           })
         }
@@ -227,6 +239,8 @@ class LlmThreadSelectorService {
             mechanicalVariantsGenerated,
             discoveryDiagnostics,
             discoveryRetryAttempted,
+            coherenceReviewsAttempted,
+            llmCoherenceReviewError,
             zeroOutputStage: 'selector_unhealthy_variant_explosion'
           })
         }
@@ -240,6 +254,34 @@ class LlmThreadSelectorService {
           deterministicRepairReason = deterministicRepair.reason
           deterministicRepairFailureCode = deterministicRepair.failureCode
           repairError = [repairError, deterministicRepair.reason].filter(Boolean).join(' | ') || null
+        }
+      }
+
+      if (this.canAskModelToConfirmCoherence(verification)) {
+        coherenceReviewsAttempted += 1
+        try {
+          coherenceReview = await input.aiService.reviewThreadCandidateCoherence({
+            candidate: currentCandidate,
+            issues: verification.issues,
+            selectedLines: this.getSelectedLines(input.timeline.lines, currentCandidate).map((line) => this.toDiscoveryLine(line)),
+            surroundingLines: this.getSurroundingLines(input.timeline.lines, currentCandidate).map((line) => this.toDiscoveryLine(line)),
+            minDurationSeconds: MIN_CLIP_SECONDS,
+            maxDurationSeconds: MAX_CLIP_SECONDS
+          })
+          if (coherenceReview.status === 'accepted') {
+            verification = this.verification(
+              'accepted',
+              verification.startTime,
+              verification.endTime,
+              verification.duration,
+              verification.issues,
+              verification.issueClasses.hardMechanicalInvalid,
+              verification.issueClasses.semanticRepairNeeded
+            )
+          }
+        } catch (error) {
+          coherenceReviewError = error instanceof Error ? error.message : 'Unknown LLM coherence review error'
+          llmCoherenceReviewError = coherenceReviewError
         }
       }
 
@@ -260,6 +302,8 @@ class LlmThreadSelectorService {
         deterministicRepairApplied,
         deterministicRepairReason,
         deterministicRepairFailureCode,
+        coherenceReview,
+        coherenceReviewError,
         clip
       })
       input.onProgress?.(45 + ((index + 1) / Math.max(1, uniqueCandidates.length)) * 45)
@@ -272,6 +316,8 @@ class LlmThreadSelectorService {
       mechanicalVariantsGenerated,
       discoveryDiagnostics,
       discoveryRetryAttempted,
+      coherenceReviewsAttempted,
+      llmCoherenceReviewError,
       zeroOutputStage: null,
       targetClipCount: input.targetClipCount
     })
@@ -431,6 +477,19 @@ class LlmThreadSelectorService {
     const startIndex = Math.max(0, candidate.startLineIndex - 8)
     const endIndex = Math.min(lines.length - 1, candidate.endLineIndex + 8)
     return lines.filter((line) => line.index >= startIndex && line.index <= endIndex)
+  }
+
+  private getSelectedLines(lines: CanonicalTranscriptLine[], candidate: ThreadCandidateSelection) {
+    return lines.filter((line) => line.index >= candidate.startLineIndex && line.index <= candidate.endLineIndex)
+  }
+
+  private canAskModelToConfirmCoherence(verification: VerificationResult) {
+    if (verification.status !== 'needs_repair') return false
+    if (verification.issueClasses.hardMechanicalInvalid.length > 0) return false
+    return verification.duration !== null &&
+      verification.duration >= MIN_CLIP_SECONDS &&
+      verification.duration <= MAX_CLIP_SECONDS &&
+      verification.issueClasses.semanticRepairNeeded.length > 0
   }
 
   private applyDeterministicLineRepair(
@@ -697,6 +756,8 @@ class LlmThreadSelectorService {
       mechanicalVariantsGenerated: number
       discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }>
       discoveryRetryAttempted: boolean
+      coherenceReviewsAttempted: number
+      llmCoherenceReviewError: string | null
       zeroOutputStage: string | null
       targetClipCount?: number
     }
@@ -748,7 +809,9 @@ class LlmThreadSelectorService {
           repairError: evaluation.repairError,
           deterministicRepairApplied: evaluation.deterministicRepairApplied,
           deterministicRepairReason: evaluation.deterministicRepairReason,
-          deterministicRepairFailureCode: evaluation.deterministicRepairFailureCode
+          deterministicRepairFailureCode: evaluation.deterministicRepairFailureCode,
+          coherenceReview: evaluation.coherenceReview,
+          coherenceReviewError: evaluation.coherenceReviewError
         })
       })),
       metadata: {
@@ -775,6 +838,9 @@ class LlmThreadSelectorService {
         mechanicalVariantsGenerated: options.mechanicalVariantsGenerated,
         discoveryDiagnostics: options.discoveryDiagnostics,
         discoveryRetryAttempted: options.discoveryRetryAttempted,
+        coherenceReviewsAttempted: options.coherenceReviewsAttempted,
+        coherenceReviewsAccepted: evaluations.filter((evaluation) => evaluation.coherenceReview?.status === 'accepted' && evaluation.clip).length,
+        llmCoherenceReviewError: options.llmCoherenceReviewError,
         zeroOutputStage,
         selectedPreview: selected.slice(0, 5).map((evaluation) => ({
           candidateId: evaluation.candidate.id,
@@ -783,6 +849,7 @@ class LlmThreadSelectorService {
           originalLineRange: `${evaluation.originalCandidate.startLineIndex}-${evaluation.originalCandidate.endLineIndex}`,
           finalLineRange: `${evaluation.candidate.startLineIndex}-${evaluation.candidate.endLineIndex}`,
           deterministicRepairApplied: evaluation.deterministicRepairApplied,
+          coherenceReview: evaluation.coherenceReview,
           confidence: evaluation.candidate.confidence,
           title: evaluation.candidate.title
         })),
@@ -795,6 +862,8 @@ class LlmThreadSelectorService {
           deterministicRepairApplied: evaluation.deterministicRepairApplied,
           deterministicRepairReason: evaluation.deterministicRepairReason,
           deterministicRepairFailureCode: evaluation.deterministicRepairFailureCode,
+          coherenceReview: evaluation.coherenceReview,
+          coherenceReviewError: evaluation.coherenceReviewError,
           originalLineRange: `${evaluation.originalCandidate.startLineIndex}-${evaluation.originalCandidate.endLineIndex}`,
           finalLineRange: `${evaluation.candidate.startLineIndex}-${evaluation.candidate.endLineIndex}`,
           title: evaluation.candidate.title

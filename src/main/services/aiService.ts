@@ -171,6 +171,13 @@ export interface ThreadRepairFeedback {
   issues: string[]
 }
 
+export interface ThreadCoherenceReview {
+  status: 'accepted' | 'rejected'
+  reason: string
+  fatalIssues: string[]
+  confidence: number
+}
+
 export interface TranscriptDataWithWords {
   text: string
   segments: Array<{
@@ -634,6 +641,37 @@ class AIService {
     return this.parseThreadRepairResponse(response.content, input.surroundingLines)
   }
 
+  async reviewThreadCandidateCoherence(input: {
+    candidate: ThreadCandidateSelection
+    issues: string[]
+    selectedLines: ThreadDiscoveryLine[]
+    surroundingLines: ThreadDiscoveryLine[]
+    minDurationSeconds: number
+    maxDurationSeconds: number
+  }): Promise<ThreadCoherenceReview> {
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are a senior podcast editor judging whether a rough-cut transcript line range is coherent enough for review.',
+            'Accept loose or slightly padded rough cuts. Reject broken cuts that require missing previous context or end before the thought lands.',
+            'Return one valid JSON object only, with no Markdown, no code fence, and no explanatory prose.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: this.buildThreadCoherenceReviewPrompt(input)
+        }
+      ],
+      max_tokens: 1200,
+      temperature: 0.1
+    })
+
+    return this.parseThreadCoherenceReviewResponse(response.content)
+  }
+
   /**
    * Propose clip boundaries directly using AI (not limited to pre-computed candidates)
    * This gives the AI freedom to propose arbitrary start/end times based on word-level timing
@@ -932,6 +970,63 @@ Return one JSON object only. The first character must be "{" and the last charac
     `.trim()
   }
 
+  private buildThreadCoherenceReviewPrompt(input: {
+    candidate: ThreadCandidateSelection
+    issues: string[]
+    selectedLines: ThreadDiscoveryLine[]
+    surroundingLines: ThreadDiscoveryLine[]
+    minDurationSeconds: number
+    maxDurationSeconds: number
+  }) {
+    const selectedLineText = input.selectedLines.map((line) => (
+      `LINE ${line.index} [${line.startTime?.toFixed(2) ?? 'no-start'}-${line.endTime?.toFixed(2) ?? 'no-end'}]${line.speaker ? ` ${line.speaker}:` : ''} ${line.text}`
+    )).join('\n')
+    const surroundingLineText = input.surroundingLines.map((line) => (
+      `LINE ${line.index} [${line.startTime?.toFixed(2) ?? 'no-start'}-${line.endTime?.toFixed(2) ?? 'no-end'}]${line.speaker ? ` ${line.speaker}:` : ''} ${line.text}`
+    )).join('\n')
+
+    return `
+CURRENT_CANDIDATE:
+${JSON.stringify(input.candidate, null, 2)}
+
+MECHANICAL_WARNINGS:
+${input.issues.join(', ')}
+
+TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
+
+TASK:
+Judge whether SELECTED_LINES are coherent enough to show as a rough cut.
+The warnings are heuristics, not a final decision.
+
+Accept when:
+- the selected lines include enough context for a listener
+- one conversational thread is preserved
+- the ending lands well enough for a rough cut
+- filler, padding, or imperfect pacing is acceptable
+
+Reject when:
+- the opening depends on a previous sentence or prompt not included
+- the ending clearly needs the next line to make sense
+- the range is only the middle of a larger thought
+
+OUTPUT JSON:
+{
+  "status": "accepted",
+  "reason": "Why this is coherent enough or why it is broken.",
+  "fatal_issues": [],
+  "confidence": 0.82
+}
+
+SELECTED_LINES:
+${selectedLineText}
+
+SURROUNDING_CONTEXT:
+${surroundingLineText}
+
+Return one JSON object only. The first character must be "{" and the last character must be "}".
+    `.trim()
+  }
+
   private parseThreadCandidateResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadDiscoveryResult {
     const jsonString = this.extractJSON(content)
     if (!jsonString) {
@@ -1043,6 +1138,30 @@ Return one JSON object only. The first character must be "{" and the last charac
       startLineIndex,
       endLineIndex,
       reason: String(parsed.reason || 'Repaired line range.').trim()
+    }
+  }
+
+  private parseThreadCoherenceReviewResponse(content: string): ThreadCoherenceReview {
+    const jsonString = this.extractJSON(content)
+    if (!jsonString) {
+      throw new Error(`No JSON found in thread coherence review response. Preview: ${this.previewResponse(content)}`)
+    }
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(jsonString)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown JSON parse error'
+      throw new Error(`Invalid JSON in thread coherence review response: ${message}. Preview: ${this.previewResponse(content)}`)
+    }
+
+    return {
+      status: parsed.status === 'accepted' ? 'accepted' : 'rejected',
+      reason: String(parsed.reason || 'No coherence review rationale provided.').trim(),
+      fatalIssues: Array.isArray(parsed.fatal_issues)
+        ? parsed.fatal_issues.map((issue: unknown) => String(issue)).filter(Boolean)
+        : [],
+      confidence: Math.max(0, Math.min(1, Number(parsed.confidence ?? 0.5)))
     }
   }
 
