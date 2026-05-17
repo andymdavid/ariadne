@@ -2,7 +2,7 @@ import { promises as fs, existsSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { basename, join, dirname } from 'path'
 import { tmpdir } from 'os'
-import AIService, { CleanedTranscriptUnit, ResolvedClipProposal, SemanticTranscriptUnit, ThreadSemanticGuide, TranscriptBoundaryLine, WordSpanClipSelection } from '../services/aiService'
+import AIService, { ResolvedClipProposal, ThreadSemanticGuide, TranscriptBoundaryLine, WordSpanClipSelection } from '../services/aiService'
 import { arcSelectionService } from '../services/arcSelectionService'
 import ClipSelectionAgentService, { ClipSelectionAgentError } from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
@@ -912,56 +912,6 @@ function buildCanonicalEditorialTimelineSegments(
   }))
 }
 
-function buildSegmentsFromThoughtUnits(
-  transcription: PipelineWorkerTranscription,
-  units: SemanticTranscriptUnit[]
-): PipelineWorkerTranscription['segments'] {
-  return units
-    .map((unit, index) => {
-      const covered = transcription.segments
-        .filter((segment) => segment.id >= unit.startSegmentId && segment.id <= unit.endSegmentId)
-        .sort((left, right) => left.start - right.start)
-
-      if (covered.length === 0) {
-        return null
-      }
-
-      return {
-        id: index,
-        start: covered[0].start,
-        end: covered[covered.length - 1].end,
-        text: covered.map((segment) => segment.text.trim()).join(' ').replace(/\s+/g, ' ').trim(),
-        words: covered.flatMap((segment) => segment.words ?? [])
-      }
-    })
-    .filter((segment): segment is NonNullable<typeof segment> => Boolean(segment))
-}
-
-function buildSegmentsFromCleanedUnits(
-  transcription: PipelineWorkerTranscription,
-  units: CleanedTranscriptUnit[]
-): PipelineWorkerTranscription['segments'] {
-  return units
-    .map((unit, index) => {
-      const covered = transcription.segments
-        .filter((segment) => segment.id >= unit.startSegmentId && segment.id <= unit.endSegmentId)
-        .sort((left, right) => left.start - right.start)
-
-      if (covered.length === 0) {
-        return null
-      }
-
-      return {
-        id: index,
-        start: covered[0].start,
-        end: covered[covered.length - 1].end,
-        text: unit.cleanText,
-        words: covered.flatMap((segment) => segment.words ?? [])
-      }
-    })
-    .filter((segment): segment is NonNullable<typeof segment> => Boolean(segment))
-}
-
 function endsWithTerminalPunctuation(text: string) {
   return /[.!?]["']?\s*$/.test(text.trim())
 }
@@ -1626,62 +1576,6 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           failureReason: error instanceof Error ? error.message : 'Unknown conversation structuring error'
         }
         console.warn('Conversation structuring failed, falling back to timed Whisper segment lines', error)
-      }
-    }
-
-    if (aiService && command.runConfigSnapshot.productionSelectorMode !== 'llm_thread_v1') {
-      try {
-        const cleanedUnits = await aiService.cleanupTranscript(
-          transcription,
-          (progress) => {
-            postProgress(command.workflowJobId, currentStage, Math.min(progress * 0.35, 35), 'Cleaning transcript into editorial units...')
-          }
-        )
-        const cleanedSegments = buildSegmentsFromCleanedUnits(transcription, cleanedUnits)
-        if (cleanedSegments.length > 0) {
-          normalizedSegments = cleanedSegments
-          editorialTimelineSegments = buildCanonicalEditorialTimelineSegments(transcription, cleanedSegments)
-          semanticTranscriptSegments = editorialTimelineSegments
-          transcriptNormalizationVersion = 'cleaned_editorial_units_v1'
-          transcriptCleanupMetadata = {
-            executor: 'ai_transcript_cleanup',
-            unitCount: cleanedUnits.length,
-            highPotentialUnitCount: cleanedUnits.filter((unit) => unit.clipPotential === 'high').length,
-            completeThoughtUnitCount: cleanedUnits.filter((unit) => unit.completeThought).length,
-            continuesNextUnitCount: cleanedUnits.filter((unit) => unit.continuesNext).length,
-            preview: cleanedUnits.slice(0, 5)
-          }
-        }
-      } catch (cleanupError) {
-        console.warn('Transcript cleanup failed, falling back to semantic segmentation', cleanupError)
-
-        try {
-          const thoughtUnits = await aiService.segmentTranscriptIntoThoughts(
-            transcription,
-            (progress) => {
-              postProgress(command.workflowJobId, currentStage, Math.min(35 + progress * 0.2, 55), 'Segmenting transcript into complete thoughts...')
-            }
-          )
-          const aiNormalizedSegments = buildSegmentsFromThoughtUnits(transcription, thoughtUnits)
-          if (aiNormalizedSegments.length > 0) {
-            normalizedSegments = aiNormalizedSegments
-            editorialTimelineSegments = buildCanonicalEditorialTimelineSegments(transcription, aiNormalizedSegments)
-            semanticTranscriptSegments = editorialTimelineSegments
-            transcriptNormalizationVersion = 'semantic_thought_units_v1'
-            transcriptCleanupMetadata = {
-              executor: 'semantic_thought_segmentation_fallback',
-              cleanupFailureReason: cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup error',
-              unitCount: thoughtUnits.length
-            }
-          }
-        } catch (error) {
-          transcriptCleanupMetadata = {
-            executor: 'heuristic_transcript_normalization_fallback',
-            cleanupFailureReason: cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup error',
-            semanticSegmentationFailureReason: error instanceof Error ? error.message : 'Unknown semantic segmentation error'
-          }
-          console.warn('Semantic transcript segmentation failed, falling back to heuristic normalization', error)
-        }
       }
     }
 
