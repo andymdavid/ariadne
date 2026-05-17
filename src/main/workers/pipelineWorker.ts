@@ -1,8 +1,8 @@
 import { promises as fs, existsSync } from 'fs'
 import { randomUUID } from 'crypto'
-import { join, dirname } from 'path'
+import { basename, join, dirname } from 'path'
 import { tmpdir } from 'os'
-import AIService, { CleanedTranscriptUnit, ResolvedClipProposal, SemanticTranscriptUnit, TranscriptBoundaryLine, WordSpanClipSelection } from '../services/aiService'
+import AIService, { CleanedTranscriptUnit, ResolvedClipProposal, SemanticTranscriptUnit, ThreadSemanticGuide, TranscriptBoundaryLine, WordSpanClipSelection } from '../services/aiService'
 import { arcSelectionService } from '../services/arcSelectionService'
 import ClipSelectionAgentService, { ClipSelectionAgentError } from '../services/clipSelectionAgentService'
 import clipCandidateService from '../services/clipCandidateService'
@@ -46,6 +46,7 @@ const RESOLVED_CLIP_MIN_DURATION_SECONDS = 25
 const TRANSCRIPT_MIN_WORD_TIMING_COVERAGE = 0.7
 const TRANSCRIPT_MAX_INVALID_WORD_TIMING_RATIO = 0.02
 const TRANSCRIPT_MAX_NON_MONOTONIC_WORD_TIMING_RATIO = 0.005
+const UPLOADED_TRANSCRIPT_GUIDE_MAX_CHARS = 12000
 
 type TranscriptTimingQuality = {
   status: 'pass' | 'warn' | 'fail'
@@ -90,6 +91,40 @@ type ClipApprovalFunnelReport = {
   resolvedClipRecoverySucceeded: boolean
   topRejectedRoughCutMoments: Array<Record<string, unknown>>
   topFinalValidationRejections: Array<Record<string, unknown>>
+}
+
+async function loadUploadedTranscriptGuide(command: StartPipelineWorkerCommand): Promise<ThreadSemanticGuide | null> {
+  const transcriptPath = command.runConfigSnapshot.uploadedTranscriptPath
+  if (!transcriptPath || command.runConfigSnapshot.uploadedTranscriptKind !== 'txt') {
+    return null
+  }
+
+  try {
+    const rawText = await fs.readFile(transcriptPath, 'utf8')
+    const normalizedText = rawText.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+    if (!normalizedText) {
+      return null
+    }
+
+    const speakerLabels = Array.from(new Set(
+      normalizedText
+        .split('\n')
+        .map((line) => line.match(/^\s*([^:\n]{1,48})\s*:\s+\S/))
+        .filter((match): match is RegExpMatchArray => Boolean(match))
+        .map((match) => match[1].trim())
+        .filter((label) => !/^\d+$/.test(label))
+    )).slice(0, 12)
+
+    return {
+      source: 'uploaded_txt',
+      fileName: command.runConfigSnapshot.uploadedTranscriptFileName ?? basename(transcriptPath),
+      textPreview: normalizedText.slice(0, UPLOADED_TRANSCRIPT_GUIDE_MAX_CHARS),
+      speakerLabels
+    }
+  } catch (error) {
+    console.warn('Failed to load uploaded transcript guide', error)
+    return null
+  }
 }
 
 function resolveArcTargetClipCount(maxClipsPerEpisode: number, mediaDuration: number) {
@@ -1426,6 +1461,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   const allowHeuristicSupplementation =
     useLegacySelectorStack || command.runConfigSnapshot.enableHeuristicSupplementation
   const allowWordSpanSelectorFallback = useLegacySelectorStack
+  const uploadedTranscriptGuide = await loadUploadedTranscriptGuide(command)
 
   if (startStageIndex <= stageOrder.indexOf('transcription')) {
     currentStage = 'transcription'
@@ -1671,6 +1707,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           transcription,
           aiService,
           targetClipCount: command.runConfigSnapshot.maxClipsPerEpisode,
+          semanticGuide: uploadedTranscriptGuide,
           onProgress: (progress) => {
             postProgress(command.workflowJobId, currentStage, Math.min(5 + progress * 0.85, 92), 'Discovering conversational threads...')
           }

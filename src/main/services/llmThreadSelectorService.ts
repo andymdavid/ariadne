@@ -10,7 +10,8 @@ import type {
   ThreadCandidateSelection,
   ThreadDiscoveryDiagnostics,
   ThreadDiscoveryLine,
-  ThreadRepairFeedback
+  ThreadRepairFeedback,
+  ThreadSemanticGuide
 } from './aiService'
 import type {
   PipelineWorkerPotentialClip,
@@ -68,6 +69,12 @@ export type LlmThreadSelectorResult = {
     semanticTextSource: string
     timingSource: string
     speakerSource: string | null
+    uploadedTranscriptGuide: {
+      source: string
+      fileName: string | null
+      speakerLabels: string[]
+      textPreviewLength: number
+    } | null
     chunksProcessed: number
     threadCandidatesDiscovered: number
     threadCandidatesAccepted: number
@@ -101,6 +108,7 @@ class LlmThreadSelectorService {
     transcription: PipelineWorkerTranscription
     aiService: AIService
     targetClipCount: number
+    semanticGuide?: ThreadSemanticGuide | null
     onProgress?: (progress: number) => void
   }): Promise<LlmThreadSelectorResult> {
     const chunks = this.buildLineChunks(input.timeline.lines)
@@ -119,7 +127,8 @@ class LlmThreadSelectorService {
           mediaDuration: input.timeline.mediaDuration,
           minDurationSeconds: MIN_CLIP_SECONDS,
           maxDurationSeconds: MAX_CLIP_SECONDS,
-          lines: chunk.map((line) => this.toDiscoveryLine(line))
+          lines: chunk.map((line) => this.toDiscoveryLine(line)),
+          semanticGuide: input.semanticGuide ?? null
         })
         discoveryDiagnostics.push({ chunkId, ...discovery.diagnostics })
         let candidates = discovery.candidates
@@ -132,7 +141,8 @@ class LlmThreadSelectorService {
             minDurationSeconds: MIN_CLIP_SECONDS,
             maxDurationSeconds: MAX_CLIP_SECONDS,
             lines: chunk.map((line) => this.toDiscoveryLine(line)),
-            broadDiscovery: true
+            broadDiscovery: true,
+            semanticGuide: input.semanticGuide ?? null
           })
           discoveryDiagnostics.push({ chunkId: `${chunkId}_broad_retry`, ...retry.diagnostics })
           candidates = retry.candidates
@@ -318,8 +328,9 @@ class LlmThreadSelectorService {
       discoveryRetryAttempted,
       coherenceReviewsAttempted,
       llmCoherenceReviewError,
-      zeroOutputStage: null,
-      targetClipCount: input.targetClipCount
+          zeroOutputStage: null,
+          targetClipCount: input.targetClipCount,
+          semanticGuide: input.semanticGuide ?? null
     })
   }
 
@@ -760,6 +771,7 @@ class LlmThreadSelectorService {
       llmCoherenceReviewError: string | null
       zeroOutputStage: string | null
       targetClipCount?: number
+      semanticGuide?: ThreadSemanticGuide | null
     }
   ): LlmThreadSelectorResult {
     const targetClipCount = options.targetClipCount ?? 25
@@ -827,6 +839,14 @@ class LlmThreadSelectorService {
         semanticTextSource: timeline.sourceMetadata.semanticTextSource,
         timingSource: timeline.sourceMetadata.timingSource,
         speakerSource: timeline.sourceMetadata.speakerSource,
+        uploadedTranscriptGuide: options.semanticGuide
+          ? {
+            source: options.semanticGuide.source,
+            fileName: options.semanticGuide.fileName,
+            speakerLabels: options.semanticGuide.speakerLabels,
+            textPreviewLength: options.semanticGuide.textPreview.length
+          }
+          : null,
         chunksProcessed: this.buildLineChunks(timeline.lines).length,
         threadCandidatesDiscovered: evaluations.length,
         threadCandidatesAccepted: selected.length,

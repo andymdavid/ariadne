@@ -152,6 +152,13 @@ export interface ThreadDiscoveryDiagnostics {
   invalidReasons: string[]
 }
 
+export interface ThreadSemanticGuide {
+  source: 'uploaded_txt'
+  fileName: string | null
+  textPreview: string
+  speakerLabels: string[]
+}
+
 export interface ThreadDiscoveryResult {
   candidates: ThreadCandidateSelection[]
   diagnostics: ThreadDiscoveryDiagnostics
@@ -571,6 +578,7 @@ class AIService {
     maxDurationSeconds: number
     lines: ThreadDiscoveryLine[]
     broadDiscovery?: boolean
+    semanticGuide?: ThreadSemanticGuide | null
   }): Promise<ThreadDiscoveryResult> {
     if (input.lines.length === 0) {
       return {
@@ -862,6 +870,7 @@ Return JSON only. No explanations outside the JSON structure.
     maxDurationSeconds: number
     lines: ThreadDiscoveryLine[]
     broadDiscovery?: boolean
+    semanticGuide?: ThreadSemanticGuide | null
   }) {
     const lineText = input.lines.map((line) => (
       `LINE ${line.index} [${line.startTime?.toFixed(2) ?? 'no-start'}-${line.endTime?.toFixed(2) ?? 'no-end'}]${line.speaker ? ` ${line.speaker}:` : ''} ${line.text}`
@@ -872,6 +881,13 @@ CHUNK_ID: ${input.chunkId}
 MEDIA_DURATION: ${input.mediaDuration.toFixed(2)}s
 TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
 DISCOVERY_MODE: ${input.broadDiscovery ? 'broad_repairable_threads' : 'standard_coherent_threads'}
+${input.semanticGuide ? `
+UPLOADED_TRANSCRIPT_GUIDE:
+Source file: ${input.semanticGuide.fileName ?? 'uploaded transcript'}
+Detected speakers: ${input.semanticGuide.speakerLabels.length > 0 ? input.semanticGuide.speakerLabels.join(', ') : 'none detected'}
+Use this as semantic/speaker guidance only. Choose line indexes from TRANSCRIPT_LINES, because those are timing-grounded.
+${input.semanticGuide.textPreview}
+` : ''}
 
 TASK:
 Find all usable or repairable coherent rough-cut excerpts in these transcript lines.
