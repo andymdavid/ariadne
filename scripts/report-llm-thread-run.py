@@ -153,6 +153,21 @@ def report_selection_run(conn, run):
     ).fetchall()
     summary = safe_json(run['summary_json'], {})
     metadata = summary.get('metadata') or summary.get('selectionMetadata') or summary
+    clip_ranking_step = conn.execute(
+        '''
+        SELECT *
+        FROM workflow_step_runs
+        WHERE job_id = ? AND step_key = 'clip_ranking'
+        ORDER BY updated_at DESC
+        LIMIT 1
+        ''',
+        (run['workflow_job_id'],),
+    ).fetchone()
+    if clip_ranking_step:
+        step_output = safe_json(clip_ranking_step['output_json'], {})
+        step_metadata = step_output.get('metadata') or {}
+        if step_metadata:
+            metadata = {**metadata, **step_metadata}
     print_header('LLM Thread Selection Run Report')
     print(f'Selection run: {run["id"]}')
     print(f'Workflow job:  {run["workflow_job_id"]}')
@@ -161,6 +176,8 @@ def report_selection_run(conn, run):
     print(f'Status:        {run["status"]}')
     print(f'Created:       {run["created_at"]}')
     print(f'Completed:     {run["completed_at"]}')
+    if clip_ranking_step:
+        print(f'Clip ranking step: {clip_ranking_step["status"]} updated {clip_ranking_step["updated_at"]}')
     print('')
     print_summary(metadata, len(decisions), len(clips))
     print_discovery(metadata)
