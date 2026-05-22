@@ -396,7 +396,7 @@ class LlmThreadSelectorService {
       const reviewableWithWarningsClip = !clip && this.canSurfaceWithWarnings(currentCandidate, verification, coherenceReview, coherenceReviewError)
         ? this.buildClip(currentCandidate, verification, 'reviewable_with_warnings')
         : null
-      const boundaryWarningStatus = this.resolveBoundaryWarningStatus(verification, coherenceReview, reviewableWithWarningsClip)
+      const boundaryWarningStatus = this.resolveBoundaryWarningStatus(verification, coherenceReview, clip, reviewableWithWarningsClip)
 
       evaluations.push({
         originalCandidate,
@@ -881,13 +881,27 @@ class LlmThreadSelectorService {
   private resolveBoundaryWarningStatus(
     verification: VerificationResult,
     coherenceReview: ThreadCoherenceReview | null,
+    acceptedClip: PipelineWorkerPotentialClip | null,
     reviewableWithWarningsClip: PipelineWorkerPotentialClip | null
   ): CandidateEvaluation['boundaryWarningStatus'] {
-    if (coherenceReview?.boundaryWarningStatus) {
-      return coherenceReview.boundaryWarningStatus
-    }
     if (reviewableWithWarningsClip) {
       return 'reviewable_with_warnings'
+    }
+    if (acceptedClip) {
+      if (verification.issues.length === 0) {
+        return 'none'
+      }
+      if (verification.issues.includes('leading_continues_previous_thought') &&
+        !verification.issues.includes('lookahead_continues_current_ending')) {
+        return 'soft_start_accepted'
+      }
+      if (coherenceReview?.boundaryWarningStatus === 'repaired') {
+        return 'repaired'
+      }
+      return 'accepted_with_override'
+    }
+    if (coherenceReview?.boundaryWarningStatus) {
+      return coherenceReview.boundaryWarningStatus
     }
     if (verification.issues.length === 0) {
       return 'none'
