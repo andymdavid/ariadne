@@ -1143,6 +1143,9 @@ class ProcessingPipeline {
       clipSelectionPlatform: apiConfig.clipSelectionPlatform,
       openRouterConfigured: Boolean(apiConfig.openRouterKey),
       productionSelectorMode,
+      enableExplicitFallbacks: Boolean(userPreferences.enableExplicitFallbacks),
+      enableTranscriptUpload: Boolean(userPreferences.enableTranscriptUpload),
+      enableTxtGuidedAlignment: Boolean(userPreferences.enableTxtGuidedAlignment),
       enableLegacyResolvedClipProposal: Boolean(userPreferences.enableLegacyResolvedClipProposal),
       enableLegacyTranscriptLineAgent: Boolean(userPreferences.enableLegacyTranscriptLineAgent),
       enableLegacyBoundaryProposal: Boolean(userPreferences.enableLegacyBoundaryProposal),
@@ -1456,6 +1459,24 @@ class ProcessingPipeline {
         actualSelectionSource: selectionSource,
         selectorVersion,
         productionMode,
+        selectionMetadata: workerResult.selectionMetadata ?? {},
+        configuredSelectorMode: workerResult.selectionMetadata?.configuredSelectorMode ?? configuredProductionMode,
+        primarySelectorMode: workerResult.selectionMetadata?.primarySelectorMode ?? productionMode,
+        finalSelectionSource: workerResult.selectionMetadata?.finalSelectionSource ?? selectionSource,
+        fallbackAttempted: workerResult.selectionMetadata?.fallbackAttempted ?? false,
+        fallbackSource: workerResult.selectionMetadata?.fallbackSource ?? null,
+        fallbackReason: workerResult.selectionMetadata?.fallbackReason ?? null,
+        zeroOutputStage: workerResult.selectionMetadata?.zeroOutputStage ?? null,
+        zeroOutputSubreason: workerResult.selectionMetadata?.zeroOutputSubreason ?? null,
+        transcriptInputMode: workerResult.selectionMetadata?.transcriptInputMode ?? null,
+        semanticTextSource: workerResult.selectionMetadata?.semanticTextSource ?? null,
+        timingSource: workerResult.selectionMetadata?.timingSource ?? null,
+        speakerSource: workerResult.selectionMetadata?.speakerSource ?? null,
+        threadCandidatesDiscovered: workerResult.selectionMetadata?.threadCandidatesDiscovered ?? 0,
+        threadCandidatesRepaired: workerResult.selectionMetadata?.threadCandidatesRepaired ?? 0,
+        mechanicalVariantsGenerated: workerResult.selectionMetadata?.mechanicalVariantsGenerated ?? 0,
+        finalClipsAccepted: workerResult.selectionMetadata?.finalClipsAccepted ?? clipCount,
+        finalClipsRejected: workerResult.selectionMetadata?.finalClipsRejected ?? 0,
         workflowJobId,
         episodeId,
         clipCount,
@@ -1490,9 +1511,9 @@ class ProcessingPipeline {
     }
 
     const now = new Date().toISOString()
-    const productionMode = existingRun.productionMode || 'legacy'
-    const selectorVersion = this.resolveSelectionRunVersion(productionMode === 'arc_v1' ? 'arc_v1' : 'legacy')
-    const selectionSource = this.resolveSelectionSourceFromProductionMode(productionMode === 'arc_v1' ? 'arc_v1' : 'legacy')
+    const productionMode = this.normalizeProductionSelectorMode(existingRun.productionMode)
+    const selectorVersion = this.resolveSelectionRunVersion(productionMode)
+    const selectionSource = this.resolveSelectionSourceFromProductionMode(productionMode)
     database.updatePipelineSelectionRun(selectionRunId, {
       status: 'failed',
       productionMode,
@@ -1535,6 +1556,11 @@ class ProcessingPipeline {
   }
 
   private resolveSelectionSourceFromWorkerResult(workerResult: PipelineWorkerCompletedEvent) {
+    const finalSelectionSource = workerResult.selectionMetadata?.finalSelectionSource
+    if (typeof finalSelectionSource === 'string' && finalSelectionSource.length > 0) {
+      return finalSelectionSource
+    }
+
     const metadataSelectionSource = workerResult.selectionMetadata?.selectionSource
     if (typeof metadataSelectionSource === 'string' && metadataSelectionSource.length > 0) {
       return metadataSelectionSource

@@ -1487,16 +1487,17 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
   let clipSelectionSourceMetadata: Record<string, unknown> = {}
   let llmThreadSelectorUsed = false
   const useLegacySelectorStack = command.runConfigSnapshot.productionSelectorMode === 'legacy'
+  const enableExplicitFallbacks = useLegacySelectorStack || command.runConfigSnapshot.enableExplicitFallbacks
   const allowLegacyResolvedClipProposal =
-    useLegacySelectorStack || command.runConfigSnapshot.enableLegacyResolvedClipProposal
+    useLegacySelectorStack || (enableExplicitFallbacks && command.runConfigSnapshot.enableLegacyResolvedClipProposal)
   const allowLegacyTranscriptLineAgent =
-    useLegacySelectorStack || command.runConfigSnapshot.enableLegacyTranscriptLineAgent
+    useLegacySelectorStack || (enableExplicitFallbacks && command.runConfigSnapshot.enableLegacyTranscriptLineAgent)
   const allowLegacyBoundaryProposal =
-    useLegacySelectorStack || command.runConfigSnapshot.enableLegacyBoundaryProposal
+    useLegacySelectorStack || (enableExplicitFallbacks && command.runConfigSnapshot.enableLegacyBoundaryProposal)
   const allowLegacyCandidateRanking =
-    useLegacySelectorStack || command.runConfigSnapshot.enableLegacyCandidateRanking
+    useLegacySelectorStack || (enableExplicitFallbacks && command.runConfigSnapshot.enableLegacyCandidateRanking)
   const allowHeuristicSupplementation =
-    useLegacySelectorStack || command.runConfigSnapshot.enableHeuristicSupplementation
+    useLegacySelectorStack || (enableExplicitFallbacks && command.runConfigSnapshot.enableHeuristicSupplementation)
   const allowWordSpanSelectorFallback = useLegacySelectorStack
   const uploadedTranscriptGuide = await loadUploadedTranscriptGuide(command)
   let semanticGuide: ThreadSemanticGuide | null = uploadedTranscriptGuide
@@ -1778,8 +1779,20 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           fallbackAttempted: false,
           fallbackSource: null,
           fallbackReason: null,
+          transcriptInputMode: 'whisper_generated',
+          semanticTextSource: 'whisper',
+          timingSource: 'whisper',
+          speakerSource: null,
+          threadCandidatesDiscovered: 0,
+          threadCandidatesRepaired: 0,
+          mechanicalVariantsGenerated: 0,
+          mechanicalVariantCeiling: 2000,
+          finalClipsAccepted: 0,
+          finalClipsRejected: 0,
           llmDiscoveryError: 'OpenRouter is not configured.',
-          zeroOutputStage: 'llm_discovery_failed'
+          llmDiscoveryFailureCategory: 'configuration_error',
+          zeroOutputStage: 'llm_discovery_failed',
+          zeroOutputSubreason: 'openrouter_not_configured'
         }
 
         postStageCompleted(command.workflowJobId, currentStage, {
@@ -2486,7 +2499,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     let decisionValidationResult = initialBoundaryFinalization
     let recoveredFromBoundaryFallback = false
 
-    if (boundaryFinalization.clips.length === 0 && boundaryViableCandidateArcs.length > 0) {
+    if (boundaryFinalization.clips.length === 0 && boundaryViableCandidateArcs.length > 0 && enableExplicitFallbacks) {
       fallbackRecoverySelection = buildFallbackArcRecoverySelection(boundaryViableCandidateArcs, selectionDecisions)
       fallbackBoundaryFinalization = await finalClipValidationService.finalizeClipBoundaries(
         transcription,
@@ -2709,6 +2722,58 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         contentPackages
       })
     }
+  }
+
+  const coherentRoughCutsMetadata = clipSelectionSourceMetadata.coherentRoughCutsReport &&
+    typeof clipSelectionSourceMetadata.coherentRoughCutsReport === 'object'
+    ? clipSelectionSourceMetadata.coherentRoughCutsReport as Record<string, unknown>
+    : null
+  const mechanicalVariantsGenerated = Number(
+    clipSelectionSourceMetadata.mechanicalVariantsGenerated ??
+    coherentRoughCutsMetadata?.boundaryVariantsGenerated ??
+    0
+  )
+
+  clipSelectionSourceMetadata = {
+    configuredSelectorMode: command.runConfigSnapshot.productionSelectorMode,
+    primarySelectorMode: command.runConfigSnapshot.productionSelectorMode,
+    finalSelectionSource: typeof clipSelectionSourceMetadata.finalSelectionSource === 'string'
+      ? clipSelectionSourceMetadata.finalSelectionSource
+      : typeof clipSelectionSourceMetadata.selectionSource === 'string'
+        ? clipSelectionSourceMetadata.selectionSource
+        : command.runConfigSnapshot.productionSelectorMode,
+    fallbackAttempted: Boolean(
+      clipSelectionSourceMetadata.fallbackAttempted ||
+      clipSelectionSourceMetadata.fallbackBoundaryRecoveryAttempted ||
+      clipSelectionSourceMetadata.resolvedClipRecoveryAttempted ||
+      clipSelectionSourceMetadata.wordSpanSelectorAttempted
+    ),
+    fallbackSource: typeof clipSelectionSourceMetadata.fallbackSource === 'string'
+      ? clipSelectionSourceMetadata.fallbackSource
+      : clipSelectionSourceMetadata.resolvedClipRecoveryAttempted
+        ? 'resolved_clip_recovery'
+        : clipSelectionSourceMetadata.wordSpanSelectorAttempted
+          ? 'word_span_clip_selector'
+          : null,
+    fallbackReason: typeof clipSelectionSourceMetadata.fallbackReason === 'string'
+      ? clipSelectionSourceMetadata.fallbackReason
+      : typeof clipSelectionSourceMetadata.wordSpanSelectorFailureReason === 'string'
+        ? clipSelectionSourceMetadata.wordSpanSelectorFailureReason
+        : typeof clipSelectionSourceMetadata.resolvedClipRecoveryFailureReason === 'string'
+          ? clipSelectionSourceMetadata.resolvedClipRecoveryFailureReason
+          : null,
+    transcriptInputMode: clipSelectionSourceMetadata.transcriptInputMode ?? 'whisper_generated',
+    semanticTextSource: clipSelectionSourceMetadata.semanticTextSource ?? 'whisper',
+    timingSource: clipSelectionSourceMetadata.timingSource ?? 'whisper',
+    speakerSource: clipSelectionSourceMetadata.speakerSource ?? null,
+    threadCandidatesDiscovered: Number(clipSelectionSourceMetadata.threadCandidatesDiscovered ?? 0),
+    threadCandidatesRepaired: Number(clipSelectionSourceMetadata.threadCandidatesRepaired ?? 0),
+    mechanicalVariantsGenerated,
+    finalClipsAccepted: Number(clipSelectionSourceMetadata.finalClipsAccepted ?? analysis.potentialClips.length),
+    finalClipsRejected: Number(clipSelectionSourceMetadata.finalClipsRejected ?? 0),
+    zeroOutputStage: clipSelectionSourceMetadata.zeroOutputStage ?? (analysis.potentialClips.length > 0 ? null : 'unknown'),
+    zeroOutputSubreason: clipSelectionSourceMetadata.zeroOutputSubreason ?? null,
+    ...clipSelectionSourceMetadata
   }
 
   const completedEvent: PipelineWorkerCompletedEvent = {

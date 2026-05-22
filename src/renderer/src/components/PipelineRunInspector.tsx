@@ -78,6 +78,37 @@ type ClipApprovalFunnelReport = {
   topFinalValidationRejections?: Array<Record<string, unknown>>
 }
 
+type LlmThreadSelectionReport = {
+  configuredSelectorMode?: string
+  primarySelectorMode?: string
+  finalSelectionSource?: string
+  fallbackAttempted?: boolean
+  fallbackSource?: string | null
+  fallbackReason?: string | null
+  transcriptInputMode?: string
+  semanticTextSource?: string
+  timingSource?: string
+  speakerSource?: string | null
+  threadCandidatesDiscovered?: number
+  threadCandidatesAccepted?: number
+  threadCandidatesRepaired?: number
+  threadCandidatesRejected?: number
+  mechanicalVariantsGenerated?: number
+  mechanicalVariantCeiling?: number
+  finalClipsAccepted?: number
+  finalClipsRejected?: number
+  zeroOutputStage?: string | null
+  zeroOutputSubreason?: string | null
+  llmDiscoveryError?: string | null
+  llmDiscoveryFailureCategory?: string | null
+  llmRepairError?: string | null
+  llmRepairFailureCategory?: string | null
+  llmCoherenceReviewError?: string | null
+  llmCoherenceReviewFailureCategory?: string | null
+  selectedPreview?: Array<Record<string, unknown>>
+  rejectedPreview?: Array<Record<string, unknown>>
+}
+
 function formatDateTime(value: string | null) {
   if (!value) {
     return 'Not finished'
@@ -283,6 +314,14 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
     typeof clipRankingMetadata.clipApprovalFunnel === 'object'
     ? clipRankingMetadata.clipApprovalFunnel as ClipApprovalFunnelReport
     : null
+  const llmThreadReport = clipRankingMetadata?.configuredSelectorMode === 'llm_thread_v1' ||
+    clipRankingMetadata?.implementationVersion === 'llm_thread_v1'
+    ? clipRankingMetadata as LlmThreadSelectionReport
+    : selectionSummary?.configuredSelectorMode === 'llm_thread_v1'
+      ? (selectionSummary.selectionMetadata && typeof selectionSummary.selectionMetadata === 'object'
+        ? selectionSummary.selectionMetadata as LlmThreadSelectionReport
+        : selectionSummary as LlmThreadSelectionReport)
+      : null
   const selectedDecisions = (selectedSelection?.decisions ?? [])
     .filter((decision) => decision.decision !== 'rejected')
     .sort((left, right) => (left.rankOrder ?? Number.MAX_SAFE_INTEGER) - (right.rankOrder ?? Number.MAX_SAFE_INTEGER))
@@ -440,6 +479,67 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                 <div className="inspector-subcard mt-3 text-[11px] text-text-muted">
                   <div>Selection summary</div>
                   <div className="mt-1 text-text-primary">{summarizeDetail(selectionSummary) ?? 'No summary recorded'}</div>
+                </div>
+              )}
+
+              {llmThreadReport && (
+                <div className="inspector-subcard mt-3 text-[11px]">
+                  <div className="mb-2 uppercase tracking-[0.2em] text-text-muted">LLM Thread Selector</div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    <span>Configured Mode</span>
+                    <span className="text-right text-text-primary">{llmThreadReport.configuredSelectorMode ?? 'n/a'}</span>
+                    <span>Primary Mode</span>
+                    <span className="text-right text-text-primary">{llmThreadReport.primarySelectorMode ?? 'n/a'}</span>
+                    <span>Final Source</span>
+                    <span className="text-right text-text-primary">{llmThreadReport.finalSelectionSource ?? 'n/a'}</span>
+                    <span>Fallback</span>
+                    <span className="text-right text-text-primary">
+                      {llmThreadReport.fallbackAttempted ? `${llmThreadReport.fallbackSource ?? 'attempted'}` : 'none'}
+                    </span>
+                    <span>Transcript</span>
+                    <span className="text-right text-text-primary">{llmThreadReport.transcriptInputMode ?? 'n/a'}</span>
+                    <span>Semantic Source</span>
+                    <span className="text-right text-text-primary">{llmThreadReport.semanticTextSource ?? 'n/a'}</span>
+                    <span>Timing Source</span>
+                    <span className="text-right text-text-primary">{llmThreadReport.timingSource ?? 'n/a'}</span>
+                    <span>Thread Candidates</span>
+                    <span className="text-right text-text-primary">{String(llmThreadReport.threadCandidatesDiscovered ?? 0)}</span>
+                    <span>Repaired</span>
+                    <span className="text-right text-text-primary">{String(llmThreadReport.threadCandidatesRepaired ?? 0)}</span>
+                    <span>Variants</span>
+                    <span className="text-right text-text-primary">
+                      {String(llmThreadReport.mechanicalVariantsGenerated ?? 0)}
+                      {llmThreadReport.mechanicalVariantCeiling ? ` / ${llmThreadReport.mechanicalVariantCeiling}` : ''}
+                    </span>
+                    <span>Final Clips</span>
+                    <span className="text-right text-text-primary">
+                      {String(llmThreadReport.finalClipsAccepted ?? 0)} accepted / {String(llmThreadReport.finalClipsRejected ?? 0)} rejected
+                    </span>
+                    <span>Zero Reason</span>
+                    <span className="text-right text-text-primary">{llmThreadReport.zeroOutputStage ?? 'none'}</span>
+                    <span>Subreason</span>
+                    <span className="text-right text-text-primary">{llmThreadReport.zeroOutputSubreason ?? 'none'}</span>
+                  </div>
+                  {(llmThreadReport.llmDiscoveryError || llmThreadReport.llmRepairError || llmThreadReport.llmCoherenceReviewError) && (
+                    <div className="mt-2 text-text-muted">
+                      {[
+                        llmThreadReport.llmDiscoveryError ? `discovery(${llmThreadReport.llmDiscoveryFailureCategory ?? 'unknown'}): ${llmThreadReport.llmDiscoveryError}` : null,
+                        llmThreadReport.llmRepairError ? `repair(${llmThreadReport.llmRepairFailureCategory ?? 'unknown'}): ${llmThreadReport.llmRepairError}` : null,
+                        llmThreadReport.llmCoherenceReviewError ? `coherence(${llmThreadReport.llmCoherenceReviewFailureCategory ?? 'unknown'}): ${llmThreadReport.llmCoherenceReviewError}` : null
+                      ].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
+                  {((llmThreadReport.selectedPreview?.length ?? 0) > 0 || (llmThreadReport.rejectedPreview?.length ?? 0) > 0) && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-text-muted">Thread candidate detail</summary>
+                      <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[10px] text-text-muted">
+                        {JSON.stringify({
+                          selectedPreview: llmThreadReport.selectedPreview ?? [],
+                          rejectedPreview: llmThreadReport.rejectedPreview ?? []
+                        }, null, 2)}
+                      </pre>
+                    </details>
+                  )}
                 </div>
               )}
 

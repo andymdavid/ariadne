@@ -13,6 +13,9 @@ export interface PipelineRunConfigSnapshot {
   clipSelectionPlatform: APIConfig['clipSelectionPlatform']
   openRouterConfigured: boolean
   productionSelectorMode: 'legacy' | 'arc_v1' | 'llm_thread_v1'
+  enableExplicitFallbacks: boolean
+  enableTranscriptUpload: boolean
+  enableTxtGuidedAlignment: boolean
   enableLegacyResolvedClipProposal: boolean
   enableLegacyTranscriptLineAgent: boolean
   enableLegacyBoundaryProposal: boolean
@@ -33,6 +36,35 @@ export interface PipelineRunConfigSnapshot {
   uploadedTranscriptPath?: string | null
   uploadedTranscriptFileName?: string | null
   uploadedTranscriptKind?: 'txt' | 'srt' | 'vtt' | null
+}
+
+export type SelectionZeroOutputStage =
+  | 'llm_discovery_no_candidates'
+  | 'llm_discovery_failed'
+  | 'repair_failed'
+  | 'mechanical_validation_failed'
+  | 'portfolio_suppression'
+  | 'fallback_unavailable'
+  | 'unknown'
+
+export interface SelectionRunMetadata {
+  configuredSelectorMode: PipelineRunConfigSnapshot['productionSelectorMode']
+  primarySelectorMode: PipelineRunConfigSnapshot['productionSelectorMode']
+  finalSelectionSource: string
+  fallbackAttempted: boolean
+  fallbackSource: string | null
+  fallbackReason: string | null
+  transcriptInputMode: string
+  semanticTextSource: string
+  timingSource: string
+  speakerSource: string | null
+  threadCandidatesDiscovered: number
+  threadCandidatesRepaired: number
+  mechanicalVariantsGenerated: number
+  finalClipsAccepted: number
+  finalClipsRejected: number
+  zeroOutputStage: SelectionZeroOutputStage | null
+  zeroOutputSubreason?: string | null
 }
 
 export interface PipelineWorkerWord {

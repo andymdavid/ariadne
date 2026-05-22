@@ -195,6 +195,36 @@ type MetadataSignals = {
   themePhrase: string
 }
 
+export type AIServiceErrorCategory =
+  | 'timeout'
+  | 'network_failure'
+  | 'http_error'
+  | 'invalid_response'
+  | 'schema_parse_failure'
+  | 'configuration_error'
+  | 'unknown'
+
+export class AIServiceError extends Error {
+  category: AIServiceErrorCategory
+  statusCode?: number
+  causeMessage?: string
+
+  constructor(message: string, category: AIServiceErrorCategory, options: {
+    statusCode?: number
+    causeMessage?: string
+    cause?: unknown
+  } = {}) {
+    super(message)
+    this.name = 'AIServiceError'
+    this.category = category
+    this.statusCode = options.statusCode
+    this.causeMessage = options.causeMessage
+    if (options.cause) {
+      ;(this as Error & { cause?: unknown }).cause = options.cause
+    }
+  }
+}
+
 class AIService {
   private config: APIConfig
   
@@ -2475,38 +2505,69 @@ Return JSON only.
   
   private async callOpenRouter(payload: any): Promise<any> {
     if (!this.config.openRouterKey) {
-      throw new Error('OpenRouter API key not configured')
+      throw new AIServiceError('OpenRouter API key not configured', 'configuration_error')
     }
     
     console.log('Calling OpenRouter API with model:', payload.model)
-    
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.config.openRouterKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://ariadne.app',
-        'X-Title': 'Ariadne'
-      },
-      body: JSON.stringify(payload)
-    })
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 90000)
+    let response: Response
+    try {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.config.openRouterKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://ariadne.app',
+          'X-Title': 'Ariadne'
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      })
+    } catch (error) {
+      const isAbort = error instanceof Error && error.name === 'AbortError'
+      throw new AIServiceError(
+        isAbort ? 'OpenRouter request timed out' : `OpenRouter network failure: ${error instanceof Error ? error.message : 'Unknown fetch error'}`,
+        isAbort ? 'timeout' : 'network_failure',
+        {
+          cause: error,
+          causeMessage: error instanceof Error ? error.message : String(error)
+        }
+      )
+    } finally {
+      clearTimeout(timeout)
+    }
     
     if (!response.ok) {
       const errorText = await response.text()
       console.error('OpenRouter API error response:', response.status, errorText)
-      throw new Error(`OpenRouter API error: ${response.status} ${errorText}`)
+      throw new AIServiceError(`OpenRouter API error: ${response.status} ${errorText}`, 'http_error', {
+        statusCode: response.status,
+        causeMessage: errorText
+      })
     }
     
-    const data = await response.json() as any
+    let data: any
+    try {
+      data = await response.json() as any
+    } catch (error) {
+      throw new AIServiceError('OpenRouter returned invalid JSON', 'invalid_response', {
+        cause: error,
+        causeMessage: error instanceof Error ? error.message : String(error)
+      })
+    }
     
     if (data.error) {
       console.error('OpenRouter API error:', data.error)
-      throw new Error(`OpenRouter API error: ${data.error.message}`)
+      throw new AIServiceError(`OpenRouter API error: ${data.error.message}`, 'http_error', {
+        causeMessage: JSON.stringify(data.error)
+      })
     }
     
     if (!data.choices || !data.choices[0] || !data.choices[0].message) {
       console.error('Invalid OpenRouter response structure:', data)
-      throw new Error('Invalid API response structure')
+      throw new AIServiceError('Invalid API response structure', 'invalid_response')
     }
     
     const message = data.choices[0].message

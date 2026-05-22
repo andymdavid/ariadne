@@ -4,7 +4,7 @@ import {
   getEndLookaheadIssue,
   getStartLookbackIssue
 } from './boundaryRepairPrimitives'
-import type AIService from './aiService'
+import AIService, { AIServiceError } from './aiService'
 import type {
   ThreadCoherenceReview,
   ThreadCandidateSelection,
@@ -18,6 +18,7 @@ import type {
   PipelineWorkerSelectionDecision,
   PipelineWorkerTranscription
 } from '@shared/types/pipelineWorker'
+import type { SelectionZeroOutputStage } from '@shared/types/pipelineWorker'
 
 type VerificationIssue =
   | 'missing_timing'
@@ -81,15 +82,22 @@ export type LlmThreadSelectorResult = {
     threadCandidatesRepaired: number
     threadCandidatesRejected: number
     llmDiscoveryError: string | null
+    llmDiscoveryFailureCategory: string | null
     llmRepairError: string | null
+    llmRepairFailureCategory: string | null
     llmRepairAttemptsExhausted: boolean
     mechanicalVariantsGenerated: number
+    mechanicalVariantCeiling: number
     discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }>
     discoveryRetryAttempted: boolean
     coherenceReviewsAttempted: number
     coherenceReviewsAccepted: number
     llmCoherenceReviewError: string | null
+    llmCoherenceReviewFailureCategory: string | null
     zeroOutputStage: string | null
+    zeroOutputSubreason: string | null
+    finalClipsAccepted: number
+    finalClipsRejected: number
     rejectedPreview: Array<Record<string, unknown>>
     selectedPreview: Array<Record<string, unknown>>
   }
@@ -116,6 +124,7 @@ class LlmThreadSelectorService {
     const discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }> = []
     let discoveryRetryAttempted = false
     let llmDiscoveryError: string | null = null
+    let llmDiscoveryFailureCategory: string | null = null
 
     input.onProgress?.(10)
     for (let index = 0; index < chunks.length; index += 1) {
@@ -151,6 +160,7 @@ class LlmThreadSelectorService {
         discovered.push(...candidates)
       } catch (error) {
         llmDiscoveryError = error instanceof Error ? error.message : 'Unknown LLM discovery error'
+        llmDiscoveryFailureCategory = this.resolveAiFailureCategory(error)
         discoveryDiagnostics.push({
           chunkId,
           responsePreview: '',
@@ -166,7 +176,9 @@ class LlmThreadSelectorService {
     const uniqueCandidates = this.dedupeCandidates(discovered)
     const evaluations: CandidateEvaluation[] = []
     let llmRepairError: string | null = null
+    let llmRepairFailureCategory: string | null = null
     let llmCoherenceReviewError: string | null = null
+    let llmCoherenceReviewFailureCategory: string | null = null
     let llmRepairAttemptsExhausted = false
     let mechanicalVariantsGenerated = 0
     let coherenceReviewsAttempted = 0
@@ -198,7 +210,11 @@ class LlmThreadSelectorService {
             discoveryRetryAttempted,
             coherenceReviewsAttempted,
             llmCoherenceReviewError,
-            zeroOutputStage: 'selector_unhealthy_variant_explosion'
+            llmDiscoveryFailureCategory,
+            llmRepairFailureCategory,
+            llmCoherenceReviewFailureCategory,
+            zeroOutputStage: 'mechanical_validation_failed',
+            zeroOutputSubreason: 'selector_unhealthy_variant_explosion'
           })
         }
 
@@ -228,6 +244,7 @@ class LlmThreadSelectorService {
         } catch (error) {
           repairError = error instanceof Error ? error.message : 'Unknown LLM repair error'
           llmRepairError = repairError
+          llmRepairFailureCategory = this.resolveAiFailureCategory(error)
           break
         }
       }
@@ -251,7 +268,11 @@ class LlmThreadSelectorService {
             discoveryRetryAttempted,
             coherenceReviewsAttempted,
             llmCoherenceReviewError,
-            zeroOutputStage: 'selector_unhealthy_variant_explosion'
+            llmDiscoveryFailureCategory,
+            llmRepairFailureCategory,
+            llmCoherenceReviewFailureCategory,
+            zeroOutputStage: 'mechanical_validation_failed',
+            zeroOutputSubreason: 'selector_unhealthy_variant_explosion'
           })
         }
 
@@ -292,6 +313,7 @@ class LlmThreadSelectorService {
         } catch (error) {
           coherenceReviewError = error instanceof Error ? error.message : 'Unknown LLM coherence review error'
           llmCoherenceReviewError = coherenceReviewError
+          llmCoherenceReviewFailureCategory = this.resolveAiFailureCategory(error)
         }
       }
 
@@ -328,10 +350,20 @@ class LlmThreadSelectorService {
       discoveryRetryAttempted,
       coherenceReviewsAttempted,
       llmCoherenceReviewError,
-          zeroOutputStage: null,
-          targetClipCount: input.targetClipCount,
-          semanticGuide: input.semanticGuide ?? null
+      llmDiscoveryFailureCategory,
+      llmRepairFailureCategory,
+      llmCoherenceReviewFailureCategory,
+      zeroOutputStage: null,
+      zeroOutputSubreason: null,
+      targetClipCount: input.targetClipCount,
+      semanticGuide: input.semanticGuide ?? null
     })
+  }
+
+  private resolveAiFailureCategory(error: unknown) {
+    if (error instanceof AIServiceError) return error.category
+    const message = error instanceof Error ? error.message : String(error ?? '')
+    return /json|parse|schema|invalid .*response/i.test(message) ? 'schema_parse_failure' : null
   }
 
   private buildLineChunks(lines: CanonicalTranscriptLine[]) {
@@ -762,14 +794,18 @@ class LlmThreadSelectorService {
     evaluations: CandidateEvaluation[],
     options: {
       llmDiscoveryError: string | null
+      llmDiscoveryFailureCategory: string | null
       llmRepairError: string | null
+      llmRepairFailureCategory: string | null
       llmRepairAttemptsExhausted: boolean
       mechanicalVariantsGenerated: number
       discoveryDiagnostics: Array<ThreadDiscoveryDiagnostics & { chunkId: string }>
       discoveryRetryAttempted: boolean
       coherenceReviewsAttempted: number
       llmCoherenceReviewError: string | null
-      zeroOutputStage: string | null
+      llmCoherenceReviewFailureCategory: string | null
+      zeroOutputStage: SelectionZeroOutputStage | null
+      zeroOutputSubreason: string | null
       targetClipCount?: number
       semanticGuide?: ThreadSemanticGuide | null
     }
@@ -779,9 +815,14 @@ class LlmThreadSelectorService {
       .filter((evaluation) => evaluation.clip)
       .sort((left, right) => right.candidate.confidence - left.candidate.confidence)
     const selected = this.suppressOverlaps(accepted, targetClipCount)
-    const selectedIds = new Set(selected.map((evaluation) => evaluation.candidate.id))
+    const finalization = this.finalizeMechanicalClips(timeline, selected.map((evaluation) => ({
+      evaluation,
+      clip: evaluation.clip!
+    })))
+    const selectedIds = new Set(finalization.accepted.map((item) => item.evaluation.candidate.id))
+    const mechanicalRejectionByCandidateId = new Map(finalization.rejected.map((item) => [item.evaluation.candidate.id, item.reason]))
     const zeroOutputStage = options.zeroOutputStage ??
-      (selected.length > 0
+      (finalization.accepted.length > 0
         ? null
         : options.llmDiscoveryError
           ? 'llm_discovery_failed'
@@ -789,10 +830,18 @@ class LlmThreadSelectorService {
             ? 'llm_discovery_no_candidates'
             : options.llmRepairAttemptsExhausted || options.llmRepairError
               ? 'repair_failed'
-              : 'mechanical_validation_failed')
+              : accepted.length > 0 && finalization.accepted.length === 0
+                ? 'mechanical_validation_failed'
+                : selected.length === 0 && accepted.length > 0
+                  ? 'portfolio_suppression'
+                  : 'mechanical_validation_failed')
+    const zeroOutputSubreason = options.zeroOutputSubreason ??
+      (finalization.accepted.length === 0 && finalization.rejected.length > 0
+        ? finalization.rejected[0]?.reason ?? null
+        : null)
 
     return {
-      clips: selected.map((evaluation) => evaluation.clip!),
+      clips: finalization.accepted.map((item) => item.clip),
       decisions: evaluations.map((evaluation, index) => ({
         id: evaluation.clip?.selectionDecisionId ?? randomUUID(),
         candidateArcId: null,
@@ -800,10 +849,12 @@ class LlmThreadSelectorService {
         rankOrder: index + 1,
         modelScore: evaluation.candidate.confidence * 10,
         finalScore: evaluation.clip?.shareabilityScore ?? 0,
-        rejectionCode: evaluation.clip ? undefined : 'llm_thread_verification_failed',
-        reason: evaluation.clip
+        rejectionCode: selectedIds.has(evaluation.candidate.id)
+          ? undefined
+          : mechanicalRejectionByCandidateId.get(evaluation.candidate.id) ?? 'llm_thread_verification_failed',
+        reason: selectedIds.has(evaluation.candidate.id)
           ? evaluation.candidate.reason
-          : `Rejected by llm_thread_v1: ${evaluation.verification.issues.join(', ') || evaluation.repairError || 'not selected'}`,
+          : `Rejected by llm_thread_v1: ${mechanicalRejectionByCandidateId.get(evaluation.candidate.id) ?? (evaluation.verification.issues.join(', ') || evaluation.repairError || 'not selected')}`,
         validatorResultJson: JSON.stringify({
           stage: 'llm_thread_v1',
           originalCandidate: evaluation.originalCandidate,
@@ -849,47 +900,148 @@ class LlmThreadSelectorService {
           : null,
         chunksProcessed: this.buildLineChunks(timeline.lines).length,
         threadCandidatesDiscovered: evaluations.length,
-        threadCandidatesAccepted: selected.length,
+        threadCandidatesAccepted: finalization.accepted.length,
         threadCandidatesRepaired: evaluations.filter((evaluation) => (evaluation.repairAttempts > 0 || evaluation.deterministicRepairApplied) && evaluation.clip).length,
-        threadCandidatesRejected: evaluations.filter((evaluation) => !evaluation.clip).length,
+        threadCandidatesRejected: evaluations.filter((evaluation) => !evaluation.clip).length + finalization.rejected.length,
         llmDiscoveryError: options.llmDiscoveryError,
+        llmDiscoveryFailureCategory: options.llmDiscoveryFailureCategory,
         llmRepairError: options.llmRepairError,
+        llmRepairFailureCategory: options.llmRepairFailureCategory,
         llmRepairAttemptsExhausted: options.llmRepairAttemptsExhausted,
         mechanicalVariantsGenerated: options.mechanicalVariantsGenerated,
+        mechanicalVariantCeiling: VARIANT_GUARD_LIMIT,
         discoveryDiagnostics: options.discoveryDiagnostics,
         discoveryRetryAttempted: options.discoveryRetryAttempted,
         coherenceReviewsAttempted: options.coherenceReviewsAttempted,
-        coherenceReviewsAccepted: evaluations.filter((evaluation) => evaluation.coherenceReview?.status === 'accepted' && evaluation.clip).length,
+        coherenceReviewsAccepted: evaluations.filter((evaluation) => evaluation.coherenceReview?.status === 'accepted' && selectedIds.has(evaluation.candidate.id)).length,
         llmCoherenceReviewError: options.llmCoherenceReviewError,
+        llmCoherenceReviewFailureCategory: options.llmCoherenceReviewFailureCategory,
         zeroOutputStage,
-        selectedPreview: selected.slice(0, 5).map((evaluation) => ({
-          candidateId: evaluation.candidate.id,
-          startTime: evaluation.clip?.startTime,
-          endTime: evaluation.clip?.endTime,
-          originalLineRange: `${evaluation.originalCandidate.startLineIndex}-${evaluation.originalCandidate.endLineIndex}`,
-          finalLineRange: `${evaluation.candidate.startLineIndex}-${evaluation.candidate.endLineIndex}`,
-          deterministicRepairApplied: evaluation.deterministicRepairApplied,
-          coherenceReview: evaluation.coherenceReview,
-          confidence: evaluation.candidate.confidence,
-          title: evaluation.candidate.title
+        zeroOutputSubreason,
+        finalClipsAccepted: finalization.accepted.length,
+        finalClipsRejected: evaluations.length - finalization.accepted.length,
+        selectedPreview: finalization.accepted.slice(0, 5).map((item) => ({
+          candidateId: item.evaluation.candidate.id,
+          startTime: item.clip.startTime,
+          endTime: item.clip.endTime,
+          originalLineRange: `${item.evaluation.originalCandidate.startLineIndex}-${item.evaluation.originalCandidate.endLineIndex}`,
+          finalLineRange: `${item.evaluation.candidate.startLineIndex}-${item.evaluation.candidate.endLineIndex}`,
+          mechanicalFinalizer: item.finalizer,
+          deterministicRepairApplied: item.evaluation.deterministicRepairApplied,
+          coherenceReview: item.evaluation.coherenceReview,
+          confidence: item.evaluation.candidate.confidence,
+          title: item.evaluation.candidate.title
         })),
-        rejectedPreview: evaluations.filter((evaluation) => !evaluation.clip).slice(0, 8).map((evaluation) => ({
-          candidateId: evaluation.candidate.id,
-          issues: evaluation.verification.issues,
-          issueClasses: evaluation.verification.issueClasses,
-          repairAttempts: evaluation.repairAttempts,
-          repairError: evaluation.repairError,
-          deterministicRepairApplied: evaluation.deterministicRepairApplied,
-          deterministicRepairReason: evaluation.deterministicRepairReason,
-          deterministicRepairFailureCode: evaluation.deterministicRepairFailureCode,
-          coherenceReview: evaluation.coherenceReview,
-          coherenceReviewError: evaluation.coherenceReviewError,
-          originalLineRange: `${evaluation.originalCandidate.startLineIndex}-${evaluation.originalCandidate.endLineIndex}`,
-          finalLineRange: `${evaluation.candidate.startLineIndex}-${evaluation.candidate.endLineIndex}`,
-          title: evaluation.candidate.title
-        }))
+        rejectedPreview: [
+          ...finalization.rejected.map((item) => ({
+            candidateId: item.evaluation.candidate.id,
+            issues: [item.reason],
+            issueClasses: item.evaluation.verification.issueClasses,
+            repairAttempts: item.evaluation.repairAttempts,
+            repairError: item.evaluation.repairError,
+            deterministicRepairApplied: item.evaluation.deterministicRepairApplied,
+            deterministicRepairReason: item.evaluation.deterministicRepairReason,
+            deterministicRepairFailureCode: item.evaluation.deterministicRepairFailureCode,
+            coherenceReview: item.evaluation.coherenceReview,
+            coherenceReviewError: item.evaluation.coherenceReviewError,
+            originalLineRange: `${item.evaluation.originalCandidate.startLineIndex}-${item.evaluation.originalCandidate.endLineIndex}`,
+            finalLineRange: `${item.evaluation.candidate.startLineIndex}-${item.evaluation.candidate.endLineIndex}`,
+            title: item.evaluation.candidate.title,
+            mechanicalFinalizer: item.finalizer
+          })),
+          ...evaluations.filter((evaluation) => !evaluation.clip).map((evaluation) => ({
+            candidateId: evaluation.candidate.id,
+            issues: evaluation.verification.issues,
+            issueClasses: evaluation.verification.issueClasses,
+            repairAttempts: evaluation.repairAttempts,
+            repairError: evaluation.repairError,
+            deterministicRepairApplied: evaluation.deterministicRepairApplied,
+            deterministicRepairReason: evaluation.deterministicRepairReason,
+            deterministicRepairFailureCode: evaluation.deterministicRepairFailureCode,
+            coherenceReview: evaluation.coherenceReview,
+            coherenceReviewError: evaluation.coherenceReviewError,
+            originalLineRange: `${evaluation.originalCandidate.startLineIndex}-${evaluation.originalCandidate.endLineIndex}`,
+            finalLineRange: `${evaluation.candidate.startLineIndex}-${evaluation.candidate.endLineIndex}`,
+            title: evaluation.candidate.title
+          }))
+        ].slice(0, 8)
       }
     }
+  }
+
+  private finalizeMechanicalClips(
+    timeline: CanonicalConversationalTimeline,
+    items: Array<{ evaluation: CandidateEvaluation; clip: PipelineWorkerPotentialClip }>
+  ) {
+    const wordByLineId = new Map<string, typeof timeline.words>()
+    for (const line of timeline.lines) {
+      wordByLineId.set(line.id, [])
+    }
+    for (const word of timeline.words) {
+      if (!word.lineId) continue
+      const words = wordByLineId.get(word.lineId)
+      if (words) words.push(word)
+    }
+
+    const accepted: Array<{
+      evaluation: CandidateEvaluation
+      clip: PipelineWorkerPotentialClip
+      finalizer: Record<string, unknown>
+    }> = []
+    const rejected: Array<{
+      evaluation: CandidateEvaluation
+      reason: string
+      finalizer: Record<string, unknown>
+    }> = []
+
+    for (const item of items) {
+      const selectedLines = this.getSelectedLines(timeline.lines, item.evaluation.candidate)
+      const selectedWords = selectedLines.flatMap((line) => wordByLineId.get(line.id) ?? [])
+      const firstWord = selectedWords[0]
+      const lastWord = selectedWords[selectedWords.length - 1]
+
+      if (!firstWord || !lastWord) {
+        rejected.push({
+          evaluation: item.evaluation,
+          reason: 'mechanical_finalizer_missing_word_grounding',
+          finalizer: { status: 'rejected', reason: 'missing_word_grounding' }
+        })
+        continue
+      }
+
+      const startTime = Math.max(0, firstWord.startTime)
+      const endTime = Math.min(timeline.mediaDuration, lastWord.endTime + 0.22)
+      const duration = Number((endTime - startTime).toFixed(3))
+      if (duration < MIN_CLIP_SECONDS || duration > MAX_CLIP_SECONDS || endTime <= startTime) {
+        rejected.push({
+          evaluation: item.evaluation,
+          reason: duration < MIN_CLIP_SECONDS ? 'mechanical_finalizer_duration_too_short' : 'mechanical_finalizer_duration_too_long',
+          finalizer: { status: 'rejected', reason: 'duration', startTime, endTime, duration }
+        })
+        continue
+      }
+
+      accepted.push({
+        evaluation: item.evaluation,
+        clip: {
+          ...item.clip,
+          startTime,
+          endTime,
+          duration
+        },
+        finalizer: {
+          status: 'accepted',
+          snappedTo: 'selected_line_word_bounds',
+          originalStartTime: item.clip.startTime,
+          originalEndTime: item.clip.endTime,
+          startTime,
+          endTime,
+          duration
+        }
+      })
+    }
+
+    return { accepted, rejected }
   }
 
   private suppressOverlaps(evaluations: CandidateEvaluation[], limit: number) {

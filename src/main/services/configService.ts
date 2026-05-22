@@ -97,6 +97,9 @@ interface ConfigSchema {
     autoApproveThreshold: number
     maxClipsPerEpisode: number
     productionSelectorMode: 'legacy' | 'arc_v1' | 'llm_thread_v1'
+    enableExplicitFallbacks: boolean
+    enableTranscriptUpload: boolean
+    enableTxtGuidedAlignment: boolean
     enableLegacyResolvedClipProposal: boolean
     enableLegacyTranscriptLineAgent: boolean
     enableLegacyBoundaryProposal: boolean
@@ -129,6 +132,9 @@ function createDefaultUserPreferences(): ConfigSchema['userPreferences'] {
     autoApproveThreshold: 8.0,
     maxClipsPerEpisode: 25,
     productionSelectorMode: 'arc_v1',
+    enableExplicitFallbacks: false,
+    enableTranscriptUpload: false,
+    enableTxtGuidedAlignment: false,
     enableLegacyResolvedClipProposal: false,
     enableLegacyTranscriptLineAgent: false,
     enableLegacyBoundaryProposal: false,
@@ -212,6 +218,9 @@ class ConfigService {
       ...defaults,
       ...stored,
       productionSelectorMode: this.normalizeProductionSelectorMode(stored.productionSelectorMode),
+      enableExplicitFallbacks: Boolean(stored.enableExplicitFallbacks),
+      enableTranscriptUpload: Boolean(stored.enableTranscriptUpload),
+      enableTxtGuidedAlignment: Boolean(stored.enableTxtGuidedAlignment),
       enableLegacyResolvedClipProposal: Boolean(stored.enableLegacyResolvedClipProposal),
       enableLegacyTranscriptLineAgent: Boolean(stored.enableLegacyTranscriptLineAgent),
       enableLegacyBoundaryProposal: Boolean(stored.enableLegacyBoundaryProposal),
