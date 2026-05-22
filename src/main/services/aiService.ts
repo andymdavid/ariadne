@@ -175,6 +175,8 @@ export interface ThreadCoherenceReview {
   reason: string
   fatalIssues: string[]
   confidence: number
+  boundaryWarningStatus?: 'none' | 'soft_start_accepted' | 'repaired' | 'accepted_with_override' | 'unresolved_rejected'
+  endingJustification?: string | null
 }
 
 export interface TranscriptDataWithWords {
@@ -621,6 +623,7 @@ class AIService {
     maxDurationSeconds: number
     lines: ThreadDiscoveryLine[]
     broadDiscovery?: boolean
+    strictJsonRetry?: boolean
     semanticGuide?: ThreadSemanticGuide | null
   }): Promise<ThreadDiscoveryResult> {
     if (input.lines.length === 0) {
@@ -913,6 +916,7 @@ Return JSON only. No explanations outside the JSON structure.
     maxDurationSeconds: number
     lines: ThreadDiscoveryLine[]
     broadDiscovery?: boolean
+    strictJsonRetry?: boolean
     semanticGuide?: ThreadSemanticGuide | null
   }) {
     const lineText = input.lines.map((line) => (
@@ -924,6 +928,10 @@ CHUNK_ID: ${input.chunkId}
 MEDIA_DURATION: ${input.mediaDuration.toFixed(2)}s
 TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
 DISCOVERY_MODE: ${input.broadDiscovery ? 'broad_repairable_threads' : 'standard_coherent_threads'}
+${input.strictJsonRetry ? `
+STRICT_JSON_RETRY:
+Your previous response for this chunk was not parseable. Return only the JSON object shown in OUTPUT JSON. Do not include headings, notes, analysis, Markdown fences, or prose before or after the object.
+` : ''}
 ${input.semanticGuide ? `
 UPLOADED_TRANSCRIPT_GUIDE:
 Source file: ${input.semanticGuide.fileName ?? 'uploaded transcript'}
@@ -1191,12 +1199,19 @@ Reject when:
 - the ending clearly needs the next line to make sense
 - the range is only the middle of a larger thought
 
+Boundary policy:
+- Treat start warnings as soft when the listener can orient within the first few seconds.
+- Treat ending warnings more strictly. If following lines materially complete the same point, reject or explain why the current ending is still enough for a rough cut.
+- Do not reject only because the opening is not a polished hook.
+
 OUTPUT JSON:
 {
   "status": "accepted",
   "reason": "Why this is coherent enough or why it is broken.",
   "fatal_issues": [],
-  "confidence": 0.82
+  "confidence": 0.82,
+  "boundary_warning_status": "soft_start_accepted",
+  "ending_justification": "The final selected line completes the claim; the next line starts a new example."
 }
 
 SELECTED_LINES:
@@ -1210,7 +1225,7 @@ Return one JSON object only. The first character must be "{" and the last charac
   }
 
   private parseThreadCandidateResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadDiscoveryResult {
-    const jsonString = this.extractJSON(content)
+    const jsonString = this.extractThreadJSON(content)
     if (!jsonString) {
       throw new Error(`No JSON found in thread discovery response. Preview: ${this.previewResponse(content)}`)
     }
@@ -1316,7 +1331,7 @@ Return one JSON object only. The first character must be "{" and the last charac
   }
 
   private parseThreadRepairResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadRepairSelection {
-    const jsonString = this.extractJSON(content)
+    const jsonString = this.extractThreadJSON(content)
     if (!jsonString) {
       const recovered = this.parseThreadRepairTextFallback(content, lines)
       if (recovered) {
@@ -1376,7 +1391,7 @@ Return one JSON object only. The first character must be "{" and the last charac
   }
 
   private parseThreadCoherenceReviewResponse(content: string): ThreadCoherenceReview {
-    const jsonString = this.extractJSON(content)
+    const jsonString = this.extractThreadJSON(content)
     if (!jsonString) {
       const recovered = this.parseThreadCoherenceReviewTextFallback(content)
       if (recovered) {
@@ -1402,13 +1417,27 @@ Return one JSON object only. The first character must be "{" and the last charac
 
   private normalizeThreadCoherenceReview(parsed: any): ThreadCoherenceReview {
     const fatalIssues = parsed.fatal_issues ?? parsed.fatalIssues
+    const boundaryWarningStatus = parsed.boundary_warning_status ?? parsed.boundaryWarningStatus
+    const allowedBoundaryWarningStatus = new Set([
+      'none',
+      'soft_start_accepted',
+      'repaired',
+      'accepted_with_override',
+      'unresolved_rejected'
+    ])
     return {
       status: parsed.status === 'accepted' ? 'accepted' : 'rejected',
       reason: String(parsed.reason || 'No coherence review rationale provided.').trim(),
       fatalIssues: Array.isArray(fatalIssues)
         ? fatalIssues.map((issue: unknown) => String(issue)).filter(Boolean)
         : [],
-      confidence: Math.max(0, Math.min(1, Number(parsed.confidence ?? 0.5)))
+      confidence: Math.max(0, Math.min(1, Number(parsed.confidence ?? 0.5))),
+      boundaryWarningStatus: allowedBoundaryWarningStatus.has(String(boundaryWarningStatus))
+        ? String(boundaryWarningStatus) as ThreadCoherenceReview['boundaryWarningStatus']
+        : undefined,
+      endingJustification: parsed.ending_justification == null && parsed.endingJustification == null
+        ? null
+        : String(parsed.ending_justification ?? parsed.endingJustification).trim()
     }
   }
 
@@ -1441,7 +1470,9 @@ Return one JSON object only. The first character must be "{" and the last charac
       status: statusMatch[1].toLowerCase() === 'accepted' ? 'accepted' : 'rejected',
       reason: reasonMatch?.[1]?.trim() || `Recovered coherence review from partial response: ${this.previewResponse(content)}`,
       fatalIssues,
-      confidence: confidenceMatch ? Math.max(0, Math.min(1, Number(confidenceMatch[1]))) : 0.5
+      confidence: confidenceMatch ? Math.max(0, Math.min(1, Number(confidenceMatch[1]))) : 0.5,
+      boundaryWarningStatus: undefined,
+      endingJustification: null
     }
   }
 
@@ -2811,6 +2842,47 @@ Return JSON only.
     }
     
     console.log('All JSON extraction strategies failed')
+    return null
+  }
+
+  private extractThreadJSON(content: string): string | null {
+    const standard = this.extractJSON(content)
+    if (standard) {
+      return standard
+    }
+
+    const normalized = content
+      .replace(/```json/gi, '```')
+      .replace(/^json\s*/i, '')
+      .trim()
+
+    const fencedBlocks = [...normalized.matchAll(/```\s*([\s\S]*?)\s*```/g)]
+      .map((match) => match[1]?.trim())
+      .filter((block): block is string => Boolean(block))
+    for (const block of fencedBlocks) {
+      const object = this.extractFirstBalancedJSONObject(block)
+      if (object) {
+        return object
+      }
+    }
+
+    const firstBalancedObject = this.extractFirstBalancedJSONObject(normalized)
+    if (firstBalancedObject) {
+      return firstBalancedObject
+    }
+
+    const firstBrace = normalized.indexOf('{')
+    const lastBrace = normalized.lastIndexOf('}')
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const candidate = normalized.slice(firstBrace, lastBrace + 1)
+      try {
+        JSON.parse(candidate)
+        return candidate
+      } catch {
+        return null
+      }
+    }
+
     return null
   }
 

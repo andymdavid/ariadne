@@ -105,6 +105,18 @@ type LlmThreadSelectionReport = {
   llmRepairFailureCategory?: string | null
   llmCoherenceReviewError?: string | null
   llmCoherenceReviewFailureCategory?: string | null
+  discoveryRetryAttempted?: boolean
+  discoveryChunksAttempted?: number
+  discoveryChunksSucceeded?: number
+  discoveryChunksFailed?: number
+  discoveryParseFailures?: number
+  partialDiscoveryFailure?: boolean
+  failedDiscoveryChunkIds?: string[]
+  salvageAttempted?: boolean
+  salvageSource?: string | null
+  salvageAcceptedCount?: number
+  salvageRejectedCount?: number
+  reviewableWithWarningsCount?: number
   selectedPreview?: Array<Record<string, unknown>>
   rejectedPreview?: Array<Record<string, unknown>>
 }
@@ -504,8 +516,25 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                     <span className="text-right text-text-primary">{llmThreadReport.timingSource ?? 'n/a'}</span>
                     <span>Thread Candidates</span>
                     <span className="text-right text-text-primary">{String(llmThreadReport.threadCandidatesDiscovered ?? 0)}</span>
+                    <span>Discovery Chunks</span>
+                    <span className="text-right text-text-primary">
+                      {String(llmThreadReport.discoveryChunksSucceeded ?? 0)} ok / {String(llmThreadReport.discoveryChunksFailed ?? 0)} failed
+                      {llmThreadReport.discoveryChunksAttempted ? ` / ${llmThreadReport.discoveryChunksAttempted}` : ''}
+                    </span>
+                    <span>Discovery Retry</span>
+                    <span className="text-right text-text-primary">{llmThreadReport.discoveryRetryAttempted ? 'yes' : 'no'}</span>
+                    <span>Parse Failures</span>
+                    <span className="text-right text-text-primary">{String(llmThreadReport.discoveryParseFailures ?? 0)}</span>
                     <span>Repaired</span>
                     <span className="text-right text-text-primary">{String(llmThreadReport.threadCandidatesRepaired ?? 0)}</span>
+                    <span>Warnings</span>
+                    <span className="text-right text-text-primary">{String(llmThreadReport.reviewableWithWarningsCount ?? 0)} reviewable</span>
+                    <span>Salvage</span>
+                    <span className="text-right text-text-primary">
+                      {llmThreadReport.salvageAttempted
+                        ? `${llmThreadReport.salvageAcceptedCount ?? 0} accepted / ${llmThreadReport.salvageRejectedCount ?? 0} rejected`
+                        : 'none'}
+                    </span>
                     <span>Variants</span>
                     <span className="text-right text-text-primary">
                       {String(llmThreadReport.mechanicalVariantsGenerated ?? 0)}
@@ -527,6 +556,11 @@ export function PipelineRunInspector({ episodeId }: PipelineRunInspectorProps) {
                         llmThreadReport.llmRepairError ? `repair(${llmThreadReport.llmRepairFailureCategory ?? 'unknown'}): ${llmThreadReport.llmRepairError}` : null,
                         llmThreadReport.llmCoherenceReviewError ? `coherence(${llmThreadReport.llmCoherenceReviewFailureCategory ?? 'unknown'}): ${llmThreadReport.llmCoherenceReviewError}` : null
                       ].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
+                  {llmThreadReport.partialDiscoveryFailure && (
+                    <div className="mt-2 text-text-muted">
+                      Partial discovery failure: {(llmThreadReport.failedDiscoveryChunkIds ?? []).join(', ') || 'unknown chunk'}
                     </div>
                   )}
                   {((llmThreadReport.selectedPreview?.length ?? 0) > 0 || (llmThreadReport.rejectedPreview?.length ?? 0) > 0) && (
