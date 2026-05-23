@@ -76,6 +76,14 @@ const boundaryQualityOptions: Array<{ value: ClipBoundaryQuality; label: string 
   { value: 'reject', label: 'Reject' }
 ]
 
+const startBoundaryQualityOptions = boundaryQualityOptions.filter((option) =>
+  option.value === 'usable' || option.value === 'trim_start' || option.value === 'extend_start' || option.value === 'reject'
+)
+
+const endBoundaryQualityOptions = boundaryQualityOptions.filter((option) =>
+  option.value === 'usable' || option.value === 'trim_end' || option.value === 'extend_end' || option.value === 'reject'
+)
+
 function ClipPreview({
   mediaUrl,
   startTime,
@@ -381,6 +389,32 @@ export function ClipWorkspacePage() {
     }
   }
 
+  const renderBoundaryButtons = (
+    clip: ClipCardData,
+    boundary: 'startQuality' | 'endQuality',
+    options: Array<{ value: ClipBoundaryQuality; label: string }>
+  ) => (
+    <div className="flex flex-wrap gap-1">
+      {options.map((option) => {
+        const selected = (clip.reviewFeedback?.[boundary] ?? 'unreviewed') === option.value
+        return (
+          <button
+            key={`${clip.id}-${boundary}-${option.value}`}
+            type="button"
+            onClick={() => updateClipBoundaryFeedback(clip.id, boundary, option.value)}
+            className={`rounded-[5px] border px-2 py-1 text-[11px] transition-colors ${
+              selected
+                ? 'border-accent-primary bg-accent-primary/15 text-text-primary'
+                : 'border-border-default text-text-muted hover:bg-hover-bg hover:text-text-primary'
+            }`}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
   if (loading) {
     return (
       <div
@@ -435,6 +469,77 @@ export function ClipWorkspacePage() {
           <IoArrowBack size={15} />
           <span>Back home</span>
         </button>
+
+        {clips.length > 0 && (
+          <details className="mt-8 rounded-[8px] border border-border-default bg-bg-secondary/70 p-4">
+            <summary className="cursor-pointer text-[12px] uppercase tracking-[0.18em] text-text-muted">
+              Boundary review
+            </summary>
+            <div className="mt-4 space-y-4">
+              {clips.map((clip) => (
+                <section
+                  key={`boundary-review-${clip.id}`}
+                  className="rounded-[6px] border border-border-default bg-bg-primary/60 p-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="line-clamp-1 text-sm text-text-primary">{clip.title}</div>
+                      <div className="mt-1 font-mono text-[11px] text-text-muted">
+                        {formatTime(clip.startTime)} - {formatTime(clip.endTime)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-[5px] border border-border-default px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-hover-bg hover:text-text-primary"
+                      onClick={() => navigate(`/content/${episodeId}/${clip.id}`)}
+                    >
+                      Edit
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-[48px_1fr] gap-x-3 gap-y-2 text-[11px]">
+                    <span className="pt-1 uppercase tracking-[0.16em] text-text-muted">Start</span>
+                    {renderBoundaryButtons(clip, 'startQuality', startBoundaryQualityOptions)}
+                    <span className="pt-1 uppercase tracking-[0.16em] text-text-muted">End</span>
+                    {renderBoundaryButtons(clip, 'endQuality', endBoundaryQualityOptions)}
+                  </div>
+
+                  {clip.transcriptContext.length > 0 && (
+                    <details className="mt-3 rounded-[6px] border border-border-default bg-bg-secondary/60 p-2 text-[11px]">
+                      <summary className="cursor-pointer uppercase tracking-[0.16em] text-text-muted">Transcript context</summary>
+                      <div className="mt-2 max-h-56 space-y-1 overflow-auto">
+                        {clip.transcriptContext.map((line) => (
+                          <button
+                            key={`${clip.id}-review-context-${line.id}`}
+                            type="button"
+                            onClick={() => {
+                              if (line.relation === 'previous') {
+                                void updateClipBoundaryFeedback(clip.id, 'startQuality', 'extend_start')
+                              } else if (line.relation === 'next') {
+                                void updateClipBoundaryFeedback(clip.id, 'endQuality', 'extend_end')
+                              }
+                            }}
+                            className={`w-full rounded-[5px] border px-2 py-1.5 text-left transition-colors ${
+                              line.relation === 'selected'
+                                ? 'border-accent-primary/40 bg-accent-primary/10 text-text-primary'
+                                : 'border-border-default text-text-muted hover:bg-hover-bg hover:text-text-primary'
+                            }`}
+                          >
+                            <div className="mb-0.5 flex items-center justify-between gap-2">
+                              <span className="font-mono text-[10px]">{formatTime(line.start)}-{formatTime(line.end)}</span>
+                              <span className="text-[10px] uppercase tracking-[0.14em]">{line.relation}</span>
+                            </div>
+                            <div>{line.text}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </section>
+              ))}
+            </div>
+          </details>
+        )}
 
         <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
           {clips.map((clip) => {
@@ -518,87 +623,6 @@ export function ClipWorkspacePage() {
                     {formatTime(clip.startTime)} - {formatTime(clip.endTime)}
                   </span>
                 </div>
-
-                <div className="space-y-2 rounded-[6px] border border-border-default bg-bg-secondary/70 p-2">
-                  <div className="grid grid-cols-[42px_1fr] gap-x-2 gap-y-1 text-[11px]">
-                    <span className="pt-1 uppercase tracking-[0.16em] text-text-muted">Start</span>
-                    <div className="flex flex-wrap gap-1">
-                      {boundaryQualityOptions
-                        .filter((option) => option.value === 'usable' || option.value === 'trim_start' || option.value === 'extend_start' || option.value === 'reject')
-                        .map((option) => {
-                          const selected = (clip.reviewFeedback?.startQuality ?? 'unreviewed') === option.value
-                          return (
-                            <button
-                              key={`start-${option.value}`}
-                              type="button"
-                              onClick={() => updateClipBoundaryFeedback(clip.id, 'startQuality', option.value)}
-                              className={`rounded-[5px] border px-2 py-1 text-[11px] transition-colors ${
-                                selected
-                                  ? 'border-accent-primary bg-accent-primary/15 text-text-primary'
-                                  : 'border-border-default text-text-muted hover:bg-hover-bg hover:text-text-primary'
-                              }`}
-                            >
-                              {option.label}
-                            </button>
-                          )
-                        })}
-                    </div>
-                    <span className="pt-1 uppercase tracking-[0.16em] text-text-muted">End</span>
-                    <div className="flex flex-wrap gap-1">
-                      {boundaryQualityOptions
-                        .filter((option) => option.value === 'usable' || option.value === 'trim_end' || option.value === 'extend_end' || option.value === 'reject')
-                        .map((option) => {
-                          const selected = (clip.reviewFeedback?.endQuality ?? 'unreviewed') === option.value
-                          return (
-                            <button
-                              key={`end-${option.value}`}
-                              type="button"
-                              onClick={() => updateClipBoundaryFeedback(clip.id, 'endQuality', option.value)}
-                              className={`rounded-[5px] border px-2 py-1 text-[11px] transition-colors ${
-                                selected
-                                  ? 'border-accent-primary bg-accent-primary/15 text-text-primary'
-                                  : 'border-border-default text-text-muted hover:bg-hover-bg hover:text-text-primary'
-                              }`}
-                            >
-                              {option.label}
-                            </button>
-                          )
-                        })}
-                    </div>
-                  </div>
-                </div>
-
-                {clip.transcriptContext.length > 0 && (
-                  <details className="rounded-[6px] border border-border-default bg-bg-secondary/70 p-2 text-[11px]">
-                    <summary className="cursor-pointer uppercase tracking-[0.16em] text-text-muted">Transcript context</summary>
-                    <div className="mt-2 max-h-44 space-y-1 overflow-auto">
-                      {clip.transcriptContext.map((line) => (
-                        <button
-                          key={line.id}
-                          type="button"
-                          onClick={() => {
-                            if (line.relation === 'previous') {
-                              void updateClipBoundaryFeedback(clip.id, 'startQuality', 'extend_start')
-                            } else if (line.relation === 'next') {
-                              void updateClipBoundaryFeedback(clip.id, 'endQuality', 'extend_end')
-                            }
-                          }}
-                          className={`w-full rounded-[5px] border px-2 py-1.5 text-left transition-colors ${
-                            line.relation === 'selected'
-                              ? 'border-accent-primary/40 bg-accent-primary/10 text-text-primary'
-                              : 'border-border-default text-text-muted hover:bg-hover-bg hover:text-text-primary'
-                          }`}
-                        >
-                          <div className="mb-0.5 flex items-center justify-between gap-2">
-                            <span className="font-mono text-[10px]">{formatTime(line.start)}-{formatTime(line.end)}</span>
-                            <span className="text-[10px] uppercase tracking-[0.14em]">{line.relation}</span>
-                          </div>
-                          <div className="line-clamp-2">{line.text}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </details>
-                )}
 
                 <div className="clip-actions clip-actions-grid">
                   <button
