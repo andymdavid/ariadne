@@ -661,7 +661,47 @@ class AIService {
       temperature: 0.2
     })
 
-    return this.parseThreadCandidateResponse(response.content, input.lines)
+    try {
+      return this.parseThreadCandidateResponse(response.content, input.lines)
+    } catch (parseError) {
+      const repaired = await this.repairThreadDiscoveryCandidateResponse({
+        malformedContent: response.content,
+        lines: input.lines
+      })
+      const result = this.parseThreadCandidateResponse(repaired.content, input.lines)
+      result.diagnostics.invalidReasons.push(`json_repair_pass_used:${parseError instanceof Error ? parseError.message : 'unknown_parse_error'}`)
+      result.diagnostics.responsePreview = this.previewResponse(response.content)
+      return result
+    }
+  }
+
+  private async repairThreadDiscoveryCandidateResponse(input: {
+    malformedContent: string
+    lines: ThreadDiscoveryLine[]
+  }) {
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You convert malformed podcast clip discovery output into strict JSON.',
+            'Do not discover new candidates.',
+            'Preserve candidate ideas, titles, reasons, and line ranges from the malformed response when present.',
+            'Drop candidates without valid line ranges from the provided transcript line indexes.',
+            'Return one JSON object only. No Markdown, no prose.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: this.buildThreadDiscoveryJsonRepairPrompt(input)
+        }
+      ],
+      max_tokens: 3000,
+      temperature: 0
+    })
+
+    return response
   }
 
   async repairThreadCandidate(input: {
@@ -990,6 +1030,45 @@ Return one JSON object only. The first character must be "{" and the last charac
     `.trim()
   }
 
+  private buildThreadDiscoveryJsonRepairPrompt(input: {
+    malformedContent: string
+    lines: ThreadDiscoveryLine[]
+  }) {
+    const validLineIndexes = input.lines.map((line) => line.index).join(', ')
+    return `
+VALID_LINE_INDEXES:
+${validLineIndexes}
+
+MALFORMED_DISCOVERY_RESPONSE:
+${input.malformedContent.slice(0, 18000)}
+
+TASK:
+Convert the malformed response into the exact JSON schema below.
+If the response contains prose like "Candidate", "Title", "Lines 12-18", "Reason", or bullet lists, extract those candidate ranges.
+Use only VALID_LINE_INDEXES. Drop any candidate whose start or end line is missing, invalid, or reversed.
+Do not add candidates that are not present in the malformed response.
+
+OUTPUT JSON:
+{
+  "candidates": [
+    {
+      "id": "thread_1",
+      "start_line_index": 12,
+      "end_line_index": 18,
+      "title": "Short descriptive title",
+      "reason": "Why this is a coherent rough cut",
+      "self_contained": false,
+      "expected_context": null,
+      "expected_payoff": "Where the thought lands",
+      "confidence": 0.7
+    }
+  ]
+}
+
+Return one JSON object only. The first character must be "{" and the last character must be "}".
+    `.trim()
+  }
+
   private parseAudioSemanticGuideResponse(content: string, fileName: string): ThreadSemanticGuide {
     const jsonString = this.extractJSON(content)
     let transcriptText = content.trim()
@@ -1227,6 +1306,10 @@ Return one JSON object only. The first character must be "{" and the last charac
   private parseThreadCandidateResponse(content: string, lines: ThreadDiscoveryLine[]): ThreadDiscoveryResult {
     const jsonString = this.extractThreadJSON(content)
     if (!jsonString) {
+      const recovered = this.parseThreadCandidateTextFallback(content, lines)
+      if (recovered) {
+        return recovered
+      }
       throw new Error(`No JSON found in thread discovery response. Preview: ${this.previewResponse(content)}`)
     }
 
@@ -1234,6 +1317,10 @@ Return one JSON object only. The first character must be "{" and the last charac
     try {
       parsed = JSON.parse(jsonString)
     } catch (error) {
+      const recovered = this.parseThreadCandidateTextFallback(content, lines)
+      if (recovered) {
+        return recovered
+      }
       const message = error instanceof Error ? error.message : 'Unknown JSON parse error'
       throw new Error(`Invalid JSON in thread discovery response: ${message}. Preview: ${this.previewResponse(content)}`)
     }
@@ -1276,6 +1363,103 @@ Return one JSON object only. The first character must be "{" and the last charac
         invalidReasons
       }
     }
+  }
+
+  private parseThreadCandidateTextFallback(content: string, lines: ThreadDiscoveryLine[]): ThreadDiscoveryResult | null {
+    const validLineIndexes = new Set(lines.map((line) => line.index))
+    const ranges: Array<{ startLineIndex: number; endLineIndex: number; matchIndex: number }> = []
+    const patterns = [
+      /\b(?:lines?|line\s+range|range)\s*[:#]?\s*(\d+)\s*(?:-|–|—|to|through)\s*(\d+)\b/gi,
+      /\bstart[_\s-]*line(?:[_\s-]*index)?\D{0,24}(\d+)[\s\S]{0,180}?\bend[_\s-]*line(?:[_\s-]*index)?\D{0,24}(\d+)/gi,
+      /\bstart_line_index["']?\s*[:=]\s*(\d+)[\s\S]{0,180}?\bend_line_index["']?\s*[:=]\s*(\d+)/gi
+    ]
+
+    for (const pattern of patterns) {
+      for (const match of content.matchAll(pattern)) {
+        const startLineIndex = Number(match[1])
+        const endLineIndex = Number(match[2])
+        if (!Number.isFinite(startLineIndex) || !Number.isFinite(endLineIndex)) continue
+        if (!validLineIndexes.has(startLineIndex) || !validLineIndexes.has(endLineIndex) || endLineIndex < startLineIndex) continue
+        if (ranges.some((range) => range.startLineIndex === startLineIndex && range.endLineIndex === endLineIndex)) continue
+        ranges.push({
+          startLineIndex,
+          endLineIndex,
+          matchIndex: match.index ?? 0
+        })
+      }
+    }
+
+    if (ranges.length === 0) {
+      return null
+    }
+
+    ranges.sort((left, right) => left.matchIndex - right.matchIndex)
+    const candidates = ranges.slice(0, 12).map((range, index): ThreadCandidateSelection => {
+      const blockStart = Math.max(0, range.matchIndex - 500)
+      const blockEnd = Math.min(content.length, range.matchIndex + 900)
+      const block = content.slice(blockStart, blockEnd)
+      const title = this.extractThreadCandidateTitleFromText(block, index)
+      const reason = this.extractThreadCandidateReasonFromText(block)
+
+      return {
+        id: `thread_recovered_${index + 1}`,
+        startLineIndex: range.startLineIndex,
+        endLineIndex: range.endLineIndex,
+        title,
+        reason,
+        selfContained: !/\b(needs?|requires?|missing)\s+(?:prior|previous|context)|not\s+self[-\s]?contained/i.test(block),
+        expectedContext: this.extractLabeledValue(block, /expected[_\s-]*context|context/i),
+        expectedPayoff: this.extractLabeledValue(block, /expected[_\s-]*payoff|payoff|ending/i),
+        confidence: this.extractConfidenceFromText(block)
+      }
+    })
+
+    return {
+      candidates,
+      diagnostics: {
+        responsePreview: this.previewResponse(content),
+        rawCandidateCount: ranges.length,
+        validCandidateCount: candidates.length,
+        invalidCandidateCount: Math.max(0, ranges.length - candidates.length),
+        invalidReasons: ['recovered_from_prose_line_ranges']
+      }
+    }
+  }
+
+  private extractThreadCandidateTitleFromText(block: string, index: number) {
+    const titleMatch = block.match(/\btitle\s*[:=-]\s*["“]?([^"\n”]{3,120})/i)
+    if (titleMatch?.[1]) {
+      return titleMatch[1].replace(/[*_`]/g, '').trim()
+    }
+
+    const lines = block
+      .split('\n')
+      .map((line) => line.replace(/^[\s>*#\-\d.)]+/, '').replace(/[*_`]/g, '').trim())
+      .filter((line) => line.length >= 3 && line.length <= 120)
+      .filter((line) => !/\b(?:lines?|range|start[_\s-]*line|end[_\s-]*line|confidence|reason)\b/i.test(line))
+
+    return lines[0] || `Recovered thread ${index + 1}`
+  }
+
+  private extractThreadCandidateReasonFromText(block: string) {
+    const reason = this.extractLabeledValue(block, /reason|rationale|why/i)
+    if (reason) {
+      return reason
+    }
+    return this.previewResponse(block.replace(/\s+/g, ' '), 500)
+  }
+
+  private extractLabeledValue(block: string, labelPattern: RegExp) {
+    const source = labelPattern.source
+    const match = block.match(new RegExp(`\\b(?:${source})\\s*[:=-]\\s*["“]?([^"”\\n]{3,500})`, 'i'))
+    return match?.[1]?.replace(/[*_`]/g, '').trim() || null
+  }
+
+  private extractConfidenceFromText(block: string) {
+    const match = block.match(/\bconfidence\s*[:=-]\s*([01](?:\.\d+)?|\.\d+|\d{1,3}%)/i)
+    if (!match?.[1]) return 0.62
+    const raw = match[1].includes('%') ? Number(match[1].replace('%', '')) / 100 : Number(match[1])
+    return Math.max(0, Math.min(1, raw))
   }
 
   private parseConversationStructuringResponse(
