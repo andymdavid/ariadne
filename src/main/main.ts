@@ -705,6 +705,14 @@ ipcMain.handle('get-clip-trim-state', (event, clipId: string) => {
   return database.getClipTrimState(clipId);
 });
 
+ipcMain.handle('get-clip-review-feedback', (_event, clipId: string) => {
+  return database.getClipReviewFeedback(clipId);
+});
+
+ipcMain.handle('save-clip-review-feedback', (_event, clipId: string, feedback: any) => {
+  return database.saveClipReviewFeedback(clipId, feedback);
+});
+
 ipcMain.handle('update-clip-status', async (_event, clipId: string, status: string) => {
   const normalizedStatus = normalizeClipStatus(status);
   const result = database.updateClipStatus(clipId, normalizedStatus);
@@ -1355,6 +1363,10 @@ ipcMain.handle('get-clip-transcript-lines', (_event, clipId: string) => {
     return lines
   }
   return database.getClipTranscriptSegments(clipId)
+});
+
+ipcMain.handle('get-clip-transcript-context', (_event, clipId: string, contextLineCount?: number) => {
+  return database.getClipTranscriptContext(clipId, contextLineCount)
 });
 
 // Logo handlers

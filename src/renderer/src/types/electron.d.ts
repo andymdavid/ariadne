@@ -4,6 +4,8 @@ import type {
   CalendarSlot,
   ClipVisualSource,
   ClipTrimState,
+  ClipReviewFeedback,
+  ClipTranscriptContextLine,
   GeneratedVideoAsset,
   GeneratedVideoJobEvent,
   GeneratedVideoJob,
@@ -77,6 +79,11 @@ declare global {
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       getClip: (clipId: string) => Promise<any>;
       getClipTrimState: (clipId: string) => Promise<ClipTrimState | undefined>;
+      getClipReviewFeedback: (clipId: string) => Promise<ClipReviewFeedback | undefined>;
+      saveClipReviewFeedback: (
+        clipId: string,
+        feedback: Partial<Omit<ClipReviewFeedback, 'clipId' | 'updatedAt'>>
+      ) => Promise<ClipReviewFeedback>;
       getTranscriptSegments: (episodeId: string) => Promise<any[]>;
       updateTranscriptSegment: (
         episodeId: string,
@@ -206,6 +213,7 @@ declare global {
       deleteClipEdits: (clipId: string) => Promise<any>;
       getClipTranscriptSegments: (clipId: string) => Promise<any[]>;
       getClipTranscriptLines: (clipId: string) => Promise<any[]>;
+      getClipTranscriptContext: (clipId: string, contextLineCount?: number) => Promise<ClipTranscriptContextLine[]>;
       uploadLogo: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;
       listLogos: () => Promise<string[]>;
       uploadMusic: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;

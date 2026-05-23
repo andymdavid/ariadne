@@ -156,6 +156,9 @@ const electronAPI = {
   getEpisodeClips: (episodeId: string) => ipcRenderer.invoke('get-episode-clips', episodeId),
   getClip: (clipId: string) => ipcRenderer.invoke('get-clip', clipId),
   getClipTrimState: (clipId: string) => ipcRenderer.invoke('get-clip-trim-state', clipId),
+  getClipReviewFeedback: (clipId: string) => ipcRenderer.invoke('get-clip-review-feedback', clipId),
+  saveClipReviewFeedback: (clipId: string, feedback: any) =>
+    ipcRenderer.invoke('save-clip-review-feedback', clipId, feedback),
   getTranscriptSegments: (episodeId: string) => ipcRenderer.invoke('get-transcript-segments', episodeId),
   updateTranscriptSegment: (
     episodeId: string,
@@ -337,6 +340,8 @@ const electronAPI = {
   deleteClipEdits: (clipId: string) => ipcRenderer.invoke('delete-clip-edits', clipId),
   getClipTranscriptSegments: (clipId: string) => ipcRenderer.invoke('get-clip-transcript-segments', clipId),
   getClipTranscriptLines: (clipId: string) => ipcRenderer.invoke('get-clip-transcript-lines', clipId),
+  getClipTranscriptContext: (clipId: string, contextLineCount?: number) =>
+    ipcRenderer.invoke('get-clip-transcript-context', clipId, contextLineCount),
 
   // Logo operations
   uploadLogo: (base64Data: string, fileName: string) => ipcRenderer.invoke('upload-logo', base64Data, fileName),
@@ -428,6 +433,8 @@ declare global {
       getEpisodeClips: (episodeId: string) => Promise<any[]>;
       getClip: (clipId: string) => Promise<any>;
       getClipTrimState: (clipId: string) => Promise<ClipTrimState | undefined>;
+      getClipReviewFeedback: (clipId: string) => Promise<any>;
+      saveClipReviewFeedback: (clipId: string, feedback: any) => Promise<any>;
       getTranscriptSegments: (episodeId: string) => Promise<any[]>;
       updateTranscriptSegment: (episodeId: string, segmentIndex: number, text: string) => Promise<any>;
       updateClipStatus: (clipId: string, status: string) => Promise<any>;
@@ -487,6 +494,7 @@ declare global {
       deleteClipEdits: (clipId: string) => Promise<any>;
       getClipTranscriptSegments: (clipId: string) => Promise<any[]>;
       getClipTranscriptLines: (clipId: string) => Promise<any[]>;
+      getClipTranscriptContext: (clipId: string, contextLineCount?: number) => Promise<any[]>;
 
       // Logo operations
       uploadLogo: (base64Data: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;

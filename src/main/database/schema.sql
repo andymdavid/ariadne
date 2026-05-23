@@ -164,6 +164,17 @@ CREATE TABLE IF NOT EXISTS clip_trim_state (
     FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS clip_review_feedback (
+    clip_id TEXT PRIMARY KEY,
+    start_quality TEXT NOT NULL DEFAULT 'unreviewed',
+    end_quality TEXT NOT NULL DEFAULT 'unreviewed',
+    notes TEXT,
+    suggested_start_time REAL,
+    suggested_end_time REAL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS workflow_jobs (
     id TEXT PRIMARY KEY,
     job_type TEXT NOT NULL,

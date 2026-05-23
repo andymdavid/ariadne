@@ -2,7 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { IoArrowBack, IoCheckmark, IoClose, IoCreateOutline, IoPlay, IoPause, IoShareOutline } from 'react-icons/io5'
 import { isClipApproved, isClipPendingReview, normalizeClipStatus } from '@shared/types'
-import type { Clip, ClipVisualSource, GeneratedVideoAsset, ResolvedClipVideoSource, ScheduledPublication } from '@shared/types'
+import type {
+  Clip,
+  ClipBoundaryQuality,
+  ClipReviewFeedback,
+  ClipTranscriptContextLine,
+  ClipVisualSource,
+  GeneratedVideoAsset,
+  ResolvedClipVideoSource,
+  ScheduledPublication
+} from '@shared/types'
 
 type ClipCardData = Clip & {
   title: string
@@ -11,6 +20,8 @@ type ClipCardData = Clip & {
   visualSource: ClipVisualSource
   resolvedVideoSource: ResolvedClipVideoSource
   mediaUrl: string | null
+  reviewFeedback: ClipReviewFeedback | null
+  transcriptContext: ClipTranscriptContextLine[]
 }
 
 type RawClip = Record<string, any>
@@ -45,6 +56,25 @@ const defaultVisualSource = (clipId: string): ClipVisualSource => ({
   generatedVideoAssetId: null,
   updatedAt: new Date(0).toISOString()
 })
+
+const defaultReviewFeedback = (clipId: string): ClipReviewFeedback => ({
+  clipId,
+  startQuality: 'unreviewed',
+  endQuality: 'unreviewed',
+  notes: null,
+  suggestedStartTime: null,
+  suggestedEndTime: null,
+  updatedAt: new Date(0).toISOString()
+})
+
+const boundaryQualityOptions: Array<{ value: ClipBoundaryQuality; label: string }> = [
+  { value: 'usable', label: 'Usable' },
+  { value: 'trim_start', label: 'Trim' },
+  { value: 'extend_start', label: 'Extend' },
+  { value: 'trim_end', label: 'Trim' },
+  { value: 'extend_end', label: 'Extend' },
+  { value: 'reject', label: 'Reject' }
+]
 
 function ClipPreview({
   mediaUrl,
@@ -201,11 +231,13 @@ export function ClipWorkspacePage() {
 
         const detailedClips = await Promise.all(
           normalizedClips.map(async (clip) => {
-            const [titles, transcriptSegments, visualSource, resolvedVideoSource] = await Promise.all([
+            const [titles, transcriptSegments, transcriptContext, visualSource, resolvedVideoSource, reviewFeedback] = await Promise.all([
               window.electronAPI?.getClipTitles?.(clip.id).catch(() => []),
               window.electronAPI?.getClipTranscriptLines?.(clip.id).catch(() => []),
+              window.electronAPI?.getClipTranscriptContext?.(clip.id, 3).catch(() => []),
               window.electronAPI?.getClipVisualSource?.(clip.id).catch(() => defaultVisualSource(clip.id)),
-              window.electronAPI?.resolveClipVideoSource?.(clip.id).catch(() => null)
+              window.electronAPI?.resolveClipVideoSource?.(clip.id).catch(() => null),
+              window.electronAPI?.getClipReviewFeedback?.(clip.id).catch(() => null)
             ])
 
             const selectedTitle =
@@ -226,6 +258,15 @@ export function ClipWorkspacePage() {
                 asset: null
               },
               mediaUrl: resolvedVideoSource?.sourcePath ? `app-file://${resolvedVideoSource.sourcePath}` : null,
+              reviewFeedback: reviewFeedback ?? defaultReviewFeedback(clip.id),
+              transcriptContext: (transcriptContext || []).map((line: any) => ({
+                id: String(line.id),
+                index: Number(line.index ?? 0),
+                start: Number(line.start ?? 0),
+                end: Number(line.end ?? 0),
+                text: String(line.text ?? ''),
+                relation: line.relation === 'previous' || line.relation === 'next' ? line.relation : 'selected'
+              })),
               transcriptLines: (transcriptSegments || []).map((segment: any) => ({
                 id: segment.id,
                 start: Number(segment.start_time ?? segment.start ?? 0),
@@ -309,6 +350,34 @@ export function ClipWorkspacePage() {
       )
     } catch (statusError) {
       console.error(`Failed to update clip status to ${status}:`, statusError)
+    }
+  }
+
+  const updateClipBoundaryFeedback = async (
+    targetClipId: string,
+    boundary: 'startQuality' | 'endQuality',
+    quality: ClipBoundaryQuality
+  ) => {
+    try {
+      const saved = await window.electronAPI?.saveClipReviewFeedback?.(targetClipId, {
+        [boundary]: quality
+      })
+      setClips((currentClips) =>
+        currentClips.map((clip) =>
+          clip.id === targetClipId
+            ? {
+                ...clip,
+                reviewFeedback: saved ?? {
+                  ...(clip.reviewFeedback ?? defaultReviewFeedback(targetClipId)),
+                  [boundary]: quality,
+                  updatedAt: new Date().toISOString()
+                }
+              }
+            : clip
+        )
+      )
+    } catch (feedbackError) {
+      console.error(`Failed to save ${boundary} feedback:`, feedbackError)
     }
   }
 
@@ -449,6 +518,87 @@ export function ClipWorkspacePage() {
                     {formatTime(clip.startTime)} - {formatTime(clip.endTime)}
                   </span>
                 </div>
+
+                <div className="space-y-2 rounded-[6px] border border-border-default bg-bg-secondary/70 p-2">
+                  <div className="grid grid-cols-[42px_1fr] gap-x-2 gap-y-1 text-[11px]">
+                    <span className="pt-1 uppercase tracking-[0.16em] text-text-muted">Start</span>
+                    <div className="flex flex-wrap gap-1">
+                      {boundaryQualityOptions
+                        .filter((option) => option.value === 'usable' || option.value === 'trim_start' || option.value === 'extend_start' || option.value === 'reject')
+                        .map((option) => {
+                          const selected = (clip.reviewFeedback?.startQuality ?? 'unreviewed') === option.value
+                          return (
+                            <button
+                              key={`start-${option.value}`}
+                              type="button"
+                              onClick={() => updateClipBoundaryFeedback(clip.id, 'startQuality', option.value)}
+                              className={`rounded-[5px] border px-2 py-1 text-[11px] transition-colors ${
+                                selected
+                                  ? 'border-accent-primary bg-accent-primary/15 text-text-primary'
+                                  : 'border-border-default text-text-muted hover:bg-hover-bg hover:text-text-primary'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          )
+                        })}
+                    </div>
+                    <span className="pt-1 uppercase tracking-[0.16em] text-text-muted">End</span>
+                    <div className="flex flex-wrap gap-1">
+                      {boundaryQualityOptions
+                        .filter((option) => option.value === 'usable' || option.value === 'trim_end' || option.value === 'extend_end' || option.value === 'reject')
+                        .map((option) => {
+                          const selected = (clip.reviewFeedback?.endQuality ?? 'unreviewed') === option.value
+                          return (
+                            <button
+                              key={`end-${option.value}`}
+                              type="button"
+                              onClick={() => updateClipBoundaryFeedback(clip.id, 'endQuality', option.value)}
+                              className={`rounded-[5px] border px-2 py-1 text-[11px] transition-colors ${
+                                selected
+                                  ? 'border-accent-primary bg-accent-primary/15 text-text-primary'
+                                  : 'border-border-default text-text-muted hover:bg-hover-bg hover:text-text-primary'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          )
+                        })}
+                    </div>
+                  </div>
+                </div>
+
+                {clip.transcriptContext.length > 0 && (
+                  <details className="rounded-[6px] border border-border-default bg-bg-secondary/70 p-2 text-[11px]">
+                    <summary className="cursor-pointer uppercase tracking-[0.16em] text-text-muted">Transcript context</summary>
+                    <div className="mt-2 max-h-44 space-y-1 overflow-auto">
+                      {clip.transcriptContext.map((line) => (
+                        <button
+                          key={line.id}
+                          type="button"
+                          onClick={() => {
+                            if (line.relation === 'previous') {
+                              void updateClipBoundaryFeedback(clip.id, 'startQuality', 'extend_start')
+                            } else if (line.relation === 'next') {
+                              void updateClipBoundaryFeedback(clip.id, 'endQuality', 'extend_end')
+                            }
+                          }}
+                          className={`w-full rounded-[5px] border px-2 py-1.5 text-left transition-colors ${
+                            line.relation === 'selected'
+                              ? 'border-accent-primary/40 bg-accent-primary/10 text-text-primary'
+                              : 'border-border-default text-text-muted hover:bg-hover-bg hover:text-text-primary'
+                          }`}
+                        >
+                          <div className="mb-0.5 flex items-center justify-between gap-2">
+                            <span className="font-mono text-[10px]">{formatTime(line.start)}-{formatTime(line.end)}</span>
+                            <span className="text-[10px] uppercase tracking-[0.14em]">{line.relation}</span>
+                          </div>
+                          <div className="line-clamp-2">{line.text}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                )}
 
                 <div className="clip-actions clip-actions-grid">
                   <button

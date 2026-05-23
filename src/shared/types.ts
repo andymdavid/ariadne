@@ -129,6 +129,34 @@ export interface ClipTrimState {
   updatedAt: string;
 }
 
+export type ClipBoundaryQuality =
+  | 'unreviewed'
+  | 'usable'
+  | 'trim_start'
+  | 'trim_end'
+  | 'extend_start'
+  | 'extend_end'
+  | 'reject';
+
+export interface ClipReviewFeedback {
+  clipId: string;
+  startQuality: ClipBoundaryQuality;
+  endQuality: ClipBoundaryQuality;
+  notes?: string | null;
+  suggestedStartTime?: number | null;
+  suggestedEndTime?: number | null;
+  updatedAt: string;
+}
+
+export interface ClipTranscriptContextLine {
+  id: string;
+  index: number;
+  start: number;
+  end: number;
+  text: string;
+  relation: 'previous' | 'selected' | 'next';
+}
+
 export interface ContentPackage {
   id: string;
   clipId: string;

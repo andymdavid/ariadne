@@ -7,6 +7,8 @@ import type {
   CalendarSlotStatus,
   ClipMetadataAnalysis,
   ClipMetadataAnalysisDraft,
+  ClipReviewFeedback,
+  ClipTranscriptContextLine,
   ClipPublishPreferences,
   ClipVisualSource,
   ClipVisualSourceType,
@@ -1291,6 +1293,16 @@ class DatabaseManager {
         updated_at TEXT NOT NULL,
         FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
       );`,
+      `CREATE TABLE IF NOT EXISTS clip_review_feedback (
+        clip_id TEXT PRIMARY KEY,
+        start_quality TEXT NOT NULL DEFAULT 'unreviewed',
+        end_quality TEXT NOT NULL DEFAULT 'unreviewed',
+        notes TEXT,
+        suggested_start_time REAL,
+        suggested_end_time REAL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );`,
       `CREATE TABLE IF NOT EXISTS clip_edits (
         clip_id TEXT PRIMARY KEY,
 
@@ -2167,6 +2179,29 @@ class DatabaseManager {
         this.db.pragma('user_version = 27')
       }
     }
+
+    if (preVersion <= 27) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS clip_review_feedback (
+            clip_id TEXT PRIMARY KEY,
+            start_quality TEXT NOT NULL DEFAULT 'unreviewed',
+            end_quality TEXT NOT NULL DEFAULT 'unreviewed',
+            notes TEXT,
+            suggested_start_time REAL,
+            suggested_end_time REAL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_clip_review_feedback_updated_at ON clip_review_feedback (updated_at);
+        `)
+        console.log('✅ Added clip review feedback table (v28)')
+        this.db.pragma('user_version = 28')
+      } catch (error) {
+        console.log('Clip review feedback migration skipped (may already exist)')
+        this.db.pragma('user_version = 28')
+      }
+    }
   }
   
   private initializeSchema() {
@@ -3011,6 +3046,55 @@ class DatabaseManager {
       ...line,
       words: line.words ? JSON.parse(line.words) : undefined
     }))
+  }
+
+  getClipTranscriptContext(clipId: string, contextLineCount = 3): ClipTranscriptContextLine[] {
+    const clip = this.getClip(clipId) as any
+    if (!clip) return []
+
+    const lines = this.getTranscriptLines(clip.episode_id) as any[]
+    const normalizedLines = lines.map((line, index) => ({
+      id: String(line.id ?? `${clip.episode_id}:line:${index}`),
+      index: Number(line.line_index ?? line.index ?? index),
+      start: Number(line.start_time ?? line.startTime ?? 0),
+      end: Number(line.end_time ?? line.endTime ?? 0),
+      text: String(line.text ?? '')
+    }))
+
+    if (normalizedLines.length === 0) {
+      return (this.getClipTranscriptSegments(clipId) as any[]).map((segment, index) => ({
+        id: String(segment.id ?? `${clipId}:segment:${index}`),
+        index: Number(segment.episode_segment_index ?? index),
+        start: Number(segment.start_time ?? 0),
+        end: Number(segment.end_time ?? 0),
+        text: String(segment.text ?? ''),
+        relation: 'selected'
+      }))
+    }
+
+    const selectedPositions = normalizedLines
+      .map((line, position) => ({ line, position }))
+      .filter(({ line }) => line.end > Number(clip.start_time) && line.start < Number(clip.end_time))
+
+    if (selectedPositions.length === 0) return []
+
+    const firstSelectedPosition = selectedPositions[0].position
+    const lastSelectedPosition = selectedPositions[selectedPositions.length - 1].position
+    const startPosition = Math.max(0, firstSelectedPosition - contextLineCount)
+    const endPosition = Math.min(normalizedLines.length - 1, lastSelectedPosition + contextLineCount)
+
+    return normalizedLines.slice(startPosition, endPosition + 1).map((line, offset) => {
+      const position = startPosition + offset
+      const relation = position < firstSelectedPosition
+        ? 'previous'
+        : position > lastSelectedPosition
+          ? 'next'
+          : 'selected'
+      return {
+        ...line,
+        relation
+      }
+    })
   }
 
   updateTranscriptLine(
@@ -3998,6 +4082,71 @@ class DatabaseManager {
   getClipTrimState(clipId: string): ClipTrimState | undefined {
     const stmt = this.db.prepare('SELECT * FROM clip_trim_state WHERE clip_id = ?')
     return stmt.get(clipId) as ClipTrimState | undefined
+  }
+
+  getClipReviewFeedback(clipId: string): ClipReviewFeedback | undefined {
+    const stmt = this.db.prepare('SELECT * FROM clip_review_feedback WHERE clip_id = ?')
+    const row = stmt.get(clipId) as any
+    if (!row) return undefined
+    return {
+      clipId: row.clip_id,
+      startQuality: row.start_quality,
+      endQuality: row.end_quality,
+      notes: row.notes,
+      suggestedStartTime: row.suggested_start_time,
+      suggestedEndTime: row.suggested_end_time,
+      updatedAt: row.updated_at
+    }
+  }
+
+  saveClipReviewFeedback(
+    clipId: string,
+    feedback: Partial<Omit<ClipReviewFeedback, 'clipId' | 'updatedAt'>>
+  ): ClipReviewFeedback {
+    const existing = this.getClipReviewFeedback(clipId)
+    const now = new Date().toISOString()
+    const next = {
+      startQuality: feedback.startQuality ?? existing?.startQuality ?? 'unreviewed',
+      endQuality: feedback.endQuality ?? existing?.endQuality ?? 'unreviewed',
+      notes: Object.prototype.hasOwnProperty.call(feedback, 'notes') ? feedback.notes ?? null : existing?.notes ?? null,
+      suggestedStartTime: Object.prototype.hasOwnProperty.call(feedback, 'suggestedStartTime')
+        ? feedback.suggestedStartTime ?? null
+        : existing?.suggestedStartTime ?? null,
+      suggestedEndTime: Object.prototype.hasOwnProperty.call(feedback, 'suggestedEndTime')
+        ? feedback.suggestedEndTime ?? null
+        : existing?.suggestedEndTime ?? null
+    }
+
+    const stmt = this.db.prepare(`
+      INSERT INTO clip_review_feedback (
+        clip_id,
+        start_quality,
+        end_quality,
+        notes,
+        suggested_start_time,
+        suggested_end_time,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(clip_id) DO UPDATE SET
+        start_quality = excluded.start_quality,
+        end_quality = excluded.end_quality,
+        notes = excluded.notes,
+        suggested_start_time = excluded.suggested_start_time,
+        suggested_end_time = excluded.suggested_end_time,
+        updated_at = excluded.updated_at
+    `)
+
+    stmt.run(
+      clipId,
+      next.startQuality,
+      next.endQuality,
+      next.notes,
+      next.suggestedStartTime,
+      next.suggestedEndTime,
+      now
+    )
+
+    return this.getClipReviewFeedback(clipId)!
   }
 
   saveClipTrimState(
