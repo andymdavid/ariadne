@@ -1,0 +1,164 @@
+# Clip Timing Playbook
+
+**Purpose:** a repeatable method for diagnosing and fixing the two recurring failure modes in
+podcast-to-reel pipelines — **audio cut mid-word** and **captions out of sync** — written so a
+smaller/cheaper model (or a new contributor) can follow it without re-deriving the system.
+
+Everything below is checkable. When a symptom appears, do not debug by intuition: walk the
+invariants in §2 against the timing chain in §1 until one fails. The failure is always an
+invariant violation; the fix is always "restore the invariant at the point it breaks".
+
+---
+
+## 1. The timing chain (single source of truth)
+
+There is exactly one authoritative clock: **Whisper word-level timestamps in episode time**
+(seconds from the start of the source file). Every other number is derived from it.
+
+```
+source media file
+  → extractAudio (ffmpegService.extractAudio): full-length decode, 16kHz mono WAV.
+    NO seeking, NO trimming → Whisper timestamps map 1:1 onto source time.
+  → transcript_segments / transcript_lines tables (words stored as JSON in `words` column,
+    parsed by database.getTranscriptSegments / getClipTranscriptSegments — note the clip
+    queries filter by OVERLAP: end_time > clipStart AND start_time < clipEnd)
+  → clip boundaries (episode time)
+      - llm_thread_v1: llmThreadSelectorService.finalizeMechanicalClips snaps to
+        firstWord.startTime − 0.15 head pad … lastWord.endTime + 0.22 tail pad
+      - manual trim: ClipEditModal applyBoundaryWithSnap (word / frame / free snap modes)
+  → caption cues (CLIP-RELATIVE time = episode time − clip start_time)
+      - cached: clip_edits.caption_segments JSON ({text, start, end, words[]})
+      - derived: exportService.buildCaptionSegmentsFromTranscript (word-accurate fallback,
+        used only when the cache is empty)
+  → render
+      - preview clip: mediaWorker → ffmpegService.createClip (re-encode, -ss before -i)
+      - export: ffmpegService.exportReelClip (re-encode; ASS subtitles or overlay assets;
+        overlay enable='between(t,…)' and ASS Dialogue times are clip-relative, which is
+        correct because seek+re-encode resets output t to 0 at clip start)
+```
+
+## 2. Invariants
+
+Any timing bug in this app is a violation of one of these six rules.
+
+- **I1 — Word grounding.** Every clip boundary must be grounded in a word timestamp:
+  `start ≤ firstWord.start` and `end ≥ lastWord.end`, with a small pad
+  (~0.15 s head, ~0.22 s tail). Whisper word times regularly land *inside* the spoken word,
+  so a cut at exactly `word.start` clips the first phoneme — that is what "audio cut
+  mid-word" almost always is. A boundary that is a raw LLM-suggested time, a raw
+  `video.currentTime`, or a frame-rounded number is not grounded.
+
+- **I2 — One offset, applied once.** Caption cue time = episode time − **current**
+  `clip.start_time`. Never apply the offset twice, never apply a stale one. Any persisted
+  clip-relative data (`clip_edits.caption_segments`) is invalid the moment boundaries change
+  and must be rebuilt with the new start or nulled (ClipEditorPage nulls it; ClipEditModal
+  rebuilds it on save — any new boundary-writing code path must do one of the two).
+
+- **I3 — Words survive every hop.** Word-level timing must survive every serialization
+  (DB → JSON → renderer → `saveClipEdits` → export). The degradation is *silent*: the ASS
+  generator (`ffmpegService.generateASSSubtitles`) falls back from word-highlight karaoke to
+  whole-segment cues when `segment.words` is missing, and `alignWordsToTranscriptText`
+  falls back to evenly interpolated timing — both render fine but drift against speech.
+  Whisper segments are 5–15 s long, so segment-level captions look "seconds out of sync".
+
+- **I4 — Overlap, never containment.** Filtering segments/words into a clip window must use
+  `end > clipStart && start < clipEnd`, then clamp times into the window. A containment
+  filter (`start >= clipStart && end <= clipEnd`) drops every boundary-straddling segment —
+  and because boundaries deliberately land mid-segment (I1 snaps to words, not segments),
+  straddling is the common case, not the edge case. Symptom: no captions over the first/last
+  words of the clip.
+
+- **I5 — Accurate cuts only.** All cutting re-encodes (`-ss` before `-i` **with**
+  `libx264/aac`). Never introduce `-c copy` stream-copy cuts: they snap to the previous
+  keyframe, shifting the whole clip by up to several seconds and desyncing every
+  clip-relative caption time.
+
+- **I6 — Preview must not lie.** The preview and the export must read timing from the same
+  data. Today the modal preview reads live transcript words while the export reads cached
+  `caption_segments`; whenever those two disagree, users report "it looked fine in preview".
+  If you change one side's data source, change the other.
+
+## 3. Diagnosis by symptom
+
+**"Audio cuts off mid-word" (start or end of clip)** → I1 violation.
+1. Find where that clip's boundary was written: pipeline
+   (`finalizeMechanicalClips`), manual trim (`applyBoundaryWithSnap` → `handleSave` →
+   `updateClipBoundaries`), or legacy candidate mapping (`clipCandidateService`,
+   char-index→word heuristics).
+2. Compare `clip.start_time`/`end_time` against the nearest word timestamps (SQL in §4).
+   If the boundary sits strictly inside `[word.start, word.end)` of a spoken word, or at
+   exactly `word.start` with no pad, you've found it.
+3. Fix at the writer, not the renderer: snap to word bounds and pad.
+
+**"Captions offset by a constant amount for the whole clip"** → I2 (usually) or I5.
+1. Check `clip_edits.updated_at` vs `clips.updated_at`: were boundaries changed after
+   `caption_segments` was saved by a path that neither rebuilt nor nulled it?
+2. If the offset exists even with a fresh cache: check the container start offset
+   (`ffprobe -show_entries format=start_time`) and check no stream-copy cut crept in.
+
+**"Captions drift progressively / appear as long multi-second blocks"** → I3.
+1. Dump the clip's `caption_segments` (SQL in §4). If segments have no `words` array,
+   some save path stripped them. Find every writer of `caption_segments`
+   (`grep -rn "caption_segments" src`) and check each one carries `words`.
+
+**"No captions over the first/last words"** → I4. Grep the caption-building filters for
+`>=` / `<=` containment comparisons against clip boundaries.
+
+## 4. Verification recipe (run after any fix — do not trust the code read)
+
+Data-level check (fast, no render):
+
+```bash
+python3 scripts/check_caption_segments.py         # scans clip_edits for I1–I4 violations
+```
+
+Render-level check (the ground truth — inspect what was actually rendered):
+
+```bash
+# 1. Export one clip through the real pipeline, then:
+ffprobe -v error -show_entries format=start_time,duration -of json out.mp4
+
+# 2. Boundary audio: listen to the first/last second for clipped phonemes
+ffmpeg -y -i out.mp4 -t 1.2 head.wav && ffmpeg -y -sseof -1.2 -i out.mp4 tail.wav
+
+# 3. Caption timing: extract frames at a cue's start/end (times from caption_segments)
+#    and confirm the highlighted word matches what is being spoken at that instant
+ffmpeg -y -ss <cue.start> -i out.mp4 -frames:v 1 cue_start.png
+
+# 4. ASS inspection: the export writes subtitles_<ts>.ass to the temp dir and deletes it
+#    after render — comment out the unlink in ffmpegService exportReelClip handlers (or
+#    copy it mid-render) and diff Dialogue times against Whisper word times.
+```
+
+Acceptance: first and last words fully audible; every word-highlight cue changes within
+~120 ms of the spoken word; captions present across the entire speech range of the clip.
+
+## 5. Known writers and readers of timing data
+
+| Data | Writers | Readers |
+|---|---|---|
+| `clips.start_time/end_time` | `llmThreadSelectorService.finalizeMechanicalClips`, `updateClipBoundaries` (ClipEditModal, ClipEditorPage), legacy `clipCandidateService` | everything |
+| `clip_edits.caption_segments` | `ClipEditModal.buildEditsObject` (save + apply-to-all), `CaptionEditor.handleSave`, ClipEditorPage (nulls on trim) | `exportService.buildCaptionSegments` (preferred over transcript), `CaptionEditor.loadCaptionData` |
+| `transcript_segments.words` | Whisper ingestion | export fallback, trim word-snap, caption rebuilds |
+
+Rules when touching these:
+- New writer of `caption_segments` → must include clamped, clip-relative `words` (I3, I4).
+- New writer of clip boundaries → must rebuild or null `caption_segments` (I2) and snap to
+  padded word bounds (I1).
+- User-edited caption text → drop that segment's `words` (stale words would override the
+  edited text in word-highlight mode); export falls back to phrase timing for that segment.
+
+## 6. Worked example (July 2026)
+
+Symptoms matching Becky Isjwara's in the Every article (mid-word cuts, caption drift) were
+diagnosed with exactly the walk in §3 and turned out to be:
+
+1. **I3:** `ClipEditModal.buildEditsObject` and `CaptionEditor`'s transcript fallback saved
+   `caption_segments` as `{text, start, end}` only — every modal save silently downgraded
+   exports from word-karaoke to 5–15 s segment blocks.
+2. **I4:** the same function filtered segments by containment, dropping boundary-straddling
+   segments → no captions over the clip's opening/closing words.
+3. **I1:** `finalizeMechanicalClips` padded the tail (+0.22 s) but cut the head at exactly
+   `firstWord.startTime`, clipping first-phoneme onsets.
+
+All three were fixed at the writers; the renderers were already correct.
