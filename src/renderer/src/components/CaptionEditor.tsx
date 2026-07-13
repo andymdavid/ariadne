@@ -14,6 +14,7 @@ interface CaptionSegment {
   text: string
   start: number
   end: number
+  words?: Array<{ word: string; start: number; end: number }>
 }
 
 interface CaptionSettings {
@@ -133,12 +134,29 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
         console.log('[CaptionEditor] Raw transcript segments:', transcriptSegments)
 
         if (transcriptSegments && transcriptSegments.length > 0) {
-          // Convert episode timestamps to clip-relative timestamps (subtract clip start time)
-          segments = transcriptSegments.map((seg: any) => ({
-            text: seg.text,
-            start: seg.start_time - clipStartTime,
-            end: seg.end_time - clipStartTime
-          }))
+          // Convert episode timestamps to clip-relative timestamps (subtract clip start time),
+          // clamping to the clip window and keeping word-level timing so exports stay in sync
+          const clipDuration = Math.max(0, clipEndTime - clipStartTime)
+          segments = transcriptSegments.map((seg: any) => {
+            const words = Array.isArray(seg.words)
+              ? seg.words
+                  .filter((word: any) =>
+                    Number(word.end) > clipStartTime && Number(word.start) < clipEndTime
+                  )
+                  .map((word: any) => ({
+                    word: String(word.word ?? ''),
+                    start: Math.max(0, Math.min(clipDuration, Number(word.start) - clipStartTime)),
+                    end: Math.max(0, Math.min(clipDuration, Number(word.end) - clipStartTime))
+                  }))
+              : []
+
+            return {
+              text: words.length > 0 ? words.map((word: any) => word.word).join(' ') : seg.text,
+              start: Math.max(0, seg.start_time - clipStartTime),
+              end: Math.min(clipDuration, seg.end_time - clipStartTime),
+              ...(words.length > 0 ? { words } : {})
+            }
+          })
           console.log('[CaptionEditor] Converted to clip-relative segments:', segments)
         } else {
           console.warn('[CaptionEditor] No transcript segments found!')
@@ -234,7 +252,10 @@ export function CaptionEditor({ clipId, episodeId, clipStartTime, clipEndTime, o
 
   const handleCaptionEdit = (index: number, newText: string) => {
     const newSegments = [...settings.segments]
-    newSegments[index] = { ...newSegments[index], text: newText }
+    // Drop word-level timing for edited text — the stale words would otherwise
+    // override the edited text during word-highlight export
+    const { words: _staleWords, ...segment } = newSegments[index]
+    newSegments[index] = { ...segment, text: newText }
     setSettings({ ...settings, segments: newSegments })
   }
 

@@ -1014,15 +1014,33 @@ export function ClipEditModal({
 
     // Add caption style edits
     if (captionStyle) {
-      // Get clip-relative transcript segments for caption_segments field
-      // For the target clip, we need to filter based on its boundaries
+      // Get clip-relative transcript segments for caption_segments field.
+      // Include segments that overlap the clip (not just those fully inside it) so
+      // captions still cover the clip head/tail when a boundary lands mid-segment,
+      // and carry clamped word-level timestamps so exports keep word-accurate sync.
+      const clipDuration = Math.max(0, targetEndTime - targetStartTime)
       const clipRelativeSegments = clipTranscriptSegments
-        .filter((seg: any) => seg.start_time >= targetStartTime && seg.end_time <= targetEndTime)
-        .map((seg: any) => ({
-          text: seg.text,
-          start: seg.start_time - targetStartTime,
-          end: seg.end_time - targetStartTime
-        }))
+        .filter((seg: any) => seg.end_time > targetStartTime && seg.start_time < targetEndTime)
+        .map((seg: any) => {
+          const words = Array.isArray(seg.words)
+            ? seg.words
+                .filter((word: any) =>
+                  Number(word.end) > targetStartTime && Number(word.start) < targetEndTime
+                )
+                .map((word: any) => ({
+                  word: String(word.word ?? ''),
+                  start: Math.max(0, Math.min(clipDuration, Number(word.start) - targetStartTime)),
+                  end: Math.max(0, Math.min(clipDuration, Number(word.end) - targetStartTime))
+                }))
+            : []
+
+          return {
+            text: words.length > 0 ? words.map((word: any) => word.word).join(' ') : seg.text,
+            start: Math.max(0, seg.start_time - targetStartTime),
+            end: Math.min(clipDuration, seg.end_time - targetStartTime),
+            ...(words.length > 0 ? { words } : {})
+          }
+        })
 
       Object.assign(allEdits, {
         captions_enabled: captionStyle.enabled ? 1 : 0,

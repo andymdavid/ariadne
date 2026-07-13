@@ -1273,7 +1273,9 @@ class LlmThreadSelectorService {
         continue
       }
 
-      const startTime = Math.max(0, firstWord.startTime)
+      // Pad both boundaries: Whisper word timestamps regularly land slightly inside
+      // the spoken word, so cutting exactly at firstWord.startTime clips its onset.
+      const startTime = Math.max(0, firstWord.startTime - 0.15)
       const endTime = Math.min(timeline.mediaDuration, lastWord.endTime + 0.22)
       const duration = Number((endTime - startTime).toFixed(3))
       if (duration < MIN_CLIP_SECONDS || duration > MAX_CLIP_SECONDS || endTime <= startTime) {
