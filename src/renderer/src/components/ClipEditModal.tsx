@@ -197,10 +197,14 @@ export function ClipEditModal({
   const loadMusicSettings = async () => {
     try {
       const existingEdits = await window.electronAPI?.getClipEdits?.(clipId)
-      if (existingEdits) {
+      const brandTemplate = await window.electronAPI?.getBrandTemplate?.()
+
+      // Only use clip edits if music was explicitly configured (has a path set)
+      // Otherwise fall back to brand template to avoid clip edits overriding brand template music
+      if (existingEdits?.music_path) {
         setMusicSettings({
           enabled: existingEdits.music_enabled === 1,
-          musicPath: existingEdits.music_path || null,
+          musicPath: existingEdits.music_path,
           volume: existingEdits.music_volume ?? 0.3,
           duckVolume: existingEdits.music_duck_volume ?? 0.1,
           duckEnabled: existingEdits.music_duck_enabled === 1,
@@ -209,7 +213,6 @@ export function ClipEditModal({
           loop: existingEdits.music_loop === 1
         })
       } else {
-        const brandTemplate = await window.electronAPI?.getBrandTemplate?.()
         setMusicSettings({
           enabled: brandTemplate?.music.enabled ?? false,
           musicPath: brandTemplate?.music.assetPath ?? null,
