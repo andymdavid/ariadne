@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto'
-import type { CanonicalConversationalTimeline, CanonicalTranscriptLine } from '../../shared/canonicalTimeline'
+import type { CanonicalConversationalTimeline, CanonicalTimedWord, CanonicalTranscriptLine } from '../../shared/canonicalTimeline'
 import {
   getEndLookaheadIssue,
-  getStartLookbackIssue
+  getStartLookbackIssue,
+  resolveClipEndWithTrailingPad
 } from './boundaryRepairPrimitives'
 import AIService, { AIServiceError } from './aiService'
 import type {
@@ -118,6 +119,14 @@ export type LlmThreadSelectorResult = {
 
 const MIN_CLIP_SECONDS = 25
 const MAX_CLIP_SECONDS = 150
+// A boundary with less silence than this around it is a "hard handoff": there is no
+// clean place to cut, so we try to move the cut to a nearby pause instead.
+const HARD_HANDOFF_GAP_SECONDS = 0.25
+const BOUNDARY_POLISH_MAX_LINE_SHIFT = 2
+const BOUNDARY_HEAD_PAD_SECONDS = 0.15
+const BOUNDARY_TAIL_PAD_SECONDS = 0.22
+const BOUNDARY_MAX_TAIL_PAD_SECONDS = 0.45
+const BOUNDARY_WORD_GUARD_SECONDS = 0.04
 const DISCOVERY_CHUNK_LINE_COUNT = 80
 const DISCOVERY_CHUNK_OVERLAP = 10
 const MAX_REPAIR_ATTEMPTS = 2
@@ -388,6 +397,14 @@ class LlmThreadSelectorService {
 
       if (verification.status !== 'accepted' && (repairAttempts >= MAX_REPAIR_ATTEMPTS || repairError)) {
         llmRepairAttemptsExhausted = true
+      }
+
+      if (verification.status === 'accepted') {
+        const polish = this.polishBoundaryHandoffs(input.timeline, input.transcription, currentCandidate)
+        if (polish) {
+          currentCandidate = polish.candidate
+          verification = polish.verification
+        }
       }
 
       const clip = verification.status === 'accepted'
@@ -815,6 +832,112 @@ class LlmThreadSelectorService {
       variantsEvaluated,
       reason: `Deterministic contraction found no accepted range; best attempted range ${bestRange} still failed: ${bestIssues}.`,
       failureCode: this.deterministicFailureCode(bestRejected ?? verification)
+    }
+  }
+
+  /**
+   * Best-effort acoustic polish for accepted candidates. When a boundary lands on a
+   * hard handoff (no silence between the boundary word and its neighbour, so any cut
+   * placement clips a phoneme or steals the next speaker's onset), try shifting the
+   * line range slightly to a boundary with a real pause. Never changes acceptance:
+   * a variant is adopted only if it independently verifies as accepted AND both of
+   * its boundaries clear the handoff threshold; otherwise the original stands.
+   */
+  private polishBoundaryHandoffs(
+    timeline: CanonicalConversationalTimeline,
+    transcription: PipelineWorkerTranscription,
+    candidate: ThreadCandidateSelection
+  ): { candidate: ThreadCandidateSelection; verification: VerificationResult } | null {
+    const gaps = this.getLineRangeBoundaryGaps(timeline, candidate.startLineIndex, candidate.endLineIndex)
+    if (!gaps) return null
+
+    const startIsHard = gaps.leadingGap < HARD_HANDOFF_GAP_SECONDS
+    const endIsHard = gaps.trailingGap < HARD_HANDOFF_GAP_SECONDS
+    if (!startIsHard && !endIsHard) return null
+
+    const sortedLines = [...timeline.lines].sort((left, right) => left.index - right.index)
+    const startPosition = sortedLines.findIndex((line) => line.index === candidate.startLineIndex)
+    const endPosition = sortedLines.findIndex((line) => line.index === candidate.endLineIndex)
+    if (startPosition === -1 || endPosition === -1) return null
+
+    const positionsAround = (position: number, moveable: boolean) =>
+      moveable
+        ? this.range(
+            Math.max(0, position - BOUNDARY_POLISH_MAX_LINE_SHIFT),
+            Math.min(sortedLines.length - 1, position + BOUNDARY_POLISH_MAX_LINE_SHIFT)
+          )
+        : [position]
+
+    const attempts: Array<{ startPosition: number; endPosition: number; movement: number }> = []
+    for (const proposedStart of positionsAround(startPosition, startIsHard)) {
+      for (const proposedEnd of positionsAround(endPosition, endIsHard)) {
+        if (proposedEnd < proposedStart) continue
+        if (proposedStart === startPosition && proposedEnd === endPosition) continue
+        attempts.push({
+          startPosition: proposedStart,
+          endPosition: proposedEnd,
+          movement: Math.abs(proposedStart - startPosition) + Math.abs(proposedEnd - endPosition)
+        })
+      }
+    }
+    attempts.sort((left, right) => left.movement - right.movement)
+
+    for (const attempt of attempts) {
+      const startLineIndex = sortedLines[attempt.startPosition].index
+      const endLineIndex = sortedLines[attempt.endPosition].index
+      const attemptGaps = this.getLineRangeBoundaryGaps(timeline, startLineIndex, endLineIndex)
+      if (!attemptGaps) continue
+      if (
+        attemptGaps.leadingGap < HARD_HANDOFF_GAP_SECONDS ||
+        attemptGaps.trailingGap < HARD_HANDOFF_GAP_SECONDS
+      ) {
+        continue
+      }
+
+      const variant: ThreadCandidateSelection = {
+        ...candidate,
+        startLineIndex,
+        endLineIndex,
+        reason: `${candidate.reason} Boundary polish moved the cut to the nearest pause.`
+      }
+      const variantVerification = this.verifyCandidate(timeline, transcription, variant)
+      if (variantVerification.status !== 'accepted') continue
+      return { candidate: variant, verification: variantVerification }
+    }
+
+    return null
+  }
+
+  private getLineRangeBoundaryGaps(
+    timeline: CanonicalConversationalTimeline,
+    startLineIndex: number,
+    endLineIndex: number
+  ) {
+    const wordById = new Map(timeline.words.map((word) => [word.id, word]))
+    const selectedWords = timeline.lines
+      .filter((line) => line.index >= startLineIndex && line.index <= endLineIndex)
+      .sort((left, right) => left.index - right.index)
+      .flatMap((line) => line.wordIds)
+      .map((wordId) => wordById.get(wordId))
+      .filter((word): word is CanonicalTimedWord => Boolean(word))
+
+    const firstWord = selectedWords[0]
+    const lastWord = selectedWords[selectedWords.length - 1]
+    if (!firstWord || !lastWord) return null
+
+    const firstIndex = timeline.words.indexOf(firstWord)
+    const lastIndex = timeline.words.indexOf(lastWord)
+    const previousWord = firstIndex > 0 ? timeline.words[firstIndex - 1] : undefined
+    const nextWord =
+      lastIndex >= 0 && lastIndex + 1 < timeline.words.length ? timeline.words[lastIndex + 1] : undefined
+
+    return {
+      firstWord,
+      lastWord,
+      previousWord,
+      nextWord,
+      leadingGap: previousWord ? firstWord.startTime - previousWord.endTime : Number.POSITIVE_INFINITY,
+      trailingGap: nextWord ? nextWord.startTime - lastWord.endTime : Number.POSITIVE_INFINITY
     }
   }
 
@@ -1275,8 +1398,9 @@ class LlmThreadSelectorService {
 
       // Pad both boundaries: Whisper word timestamps regularly land slightly inside
       // the spoken word, so cutting exactly at firstWord.startTime clips its onset.
-      // Pads may only extend into silence — clamp them at the neighbouring words so a
-      // clip never carries the tail of the previous sentence or the onset of the next.
+      // Pads may only extend into silence — they breathe into whatever gap exists and
+      // never cross the neighbouring word (guarded), so a clip neither carries the
+      // next speaker's onset nor gets padded past the previous sentence's tail.
       const firstWordIndex = timeline.words.indexOf(firstWord)
       const lastWordIndex = timeline.words.indexOf(lastWord)
       const previousWord = firstWordIndex > 0 ? timeline.words[firstWordIndex - 1] : undefined
@@ -1284,11 +1408,25 @@ class LlmThreadSelectorService {
         lastWordIndex >= 0 && lastWordIndex + 1 < timeline.words.length
           ? timeline.words[lastWordIndex + 1]
           : undefined
+      const leadingGap = previousWord ? firstWord.startTime - previousWord.endTime : Number.POSITIVE_INFINITY
+      const trailingGap = nextWord ? nextWord.startTime - lastWord.endTime : Number.POSITIVE_INFINITY
 
-      const paddedStart = Math.max(firstWord.startTime - 0.15, previousWord?.endTime ?? 0)
-      const startTime = Math.max(0, Math.min(firstWord.startTime, paddedStart))
-      const paddedEnd = Math.min(lastWord.endTime + 0.22, nextWord?.startTime ?? Number.POSITIVE_INFINITY)
-      const endTime = Math.min(timeline.mediaDuration, Math.max(lastWord.endTime, paddedEnd))
+      const headPad = Math.min(BOUNDARY_HEAD_PAD_SECONDS, Math.max(0, leadingGap - BOUNDARY_WORD_GUARD_SECONDS))
+      const startTime = Math.max(0, firstWord.startTime - headPad)
+      const endTime = Math.min(
+        timeline.mediaDuration,
+        resolveClipEndWithTrailingPad({
+          words: [
+            { word: lastWord.word, start: lastWord.startTime, end: lastWord.endTime },
+            ...(nextWord ? [{ word: nextWord.word, start: nextWord.startTime, end: nextWord.endTime }] : [])
+          ],
+          wordIndex: 0,
+          mediaDuration: timeline.mediaDuration,
+          trailingPadSeconds: BOUNDARY_TAIL_PAD_SECONDS,
+          maxTrailingPadSeconds: BOUNDARY_MAX_TAIL_PAD_SECONDS,
+          guardSeconds: BOUNDARY_WORD_GUARD_SECONDS
+        })
+      )
       const duration = Number((endTime - startTime).toFixed(3))
       if (duration < MIN_CLIP_SECONDS || duration > MAX_CLIP_SECONDS || endTime <= startTime) {
         rejected.push({
@@ -1314,7 +1452,11 @@ class LlmThreadSelectorService {
           originalEndTime: item.clip.endTime,
           startTime,
           endTime,
-          duration
+          duration,
+          leadingGapSeconds: Number.isFinite(leadingGap) ? Number(leadingGap.toFixed(3)) : null,
+          trailingGapSeconds: Number.isFinite(trailingGap) ? Number(trailingGap.toFixed(3)) : null,
+          hardHandoffStart: leadingGap < HARD_HANDOFF_GAP_SECONDS,
+          hardHandoffEnd: trailingGap < HARD_HANDOFF_GAP_SECONDS
         }
       })
     }

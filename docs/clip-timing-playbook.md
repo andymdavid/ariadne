@@ -50,8 +50,21 @@ Any timing bug in this app is a violation of one of these six rules.
   **Pads may only extend into silence.** A fixed-size pad applied where speech is
   continuous lands inside the *neighbouring* word — the clip carries the previous
   speaker's last syllables or the next speaker's onset, which listeners hear as an
-  abrupt mid-sentence cut. Clamp: `start ≥ previousWord.end`, `end ≤ nextWord.start`,
-  where previous/next are the timeline words adjacent to the selected span.
+  abrupt mid-sentence cut. Clamp: `start ≥ previousWord.end`, `end ≤ nextWord.start`
+  (with a small guard, see `resolveClipEndWithTrailingPad`), where previous/next are
+  the timeline words adjacent to the selected span.
+  **At a zero-gap handoff, no cut placement is clean** — clamping produces a
+  knife-edge cut that chops the final word's decay (Whisper end-times run early in
+  continuous speech). Know your pause data: Whisper words are contiguous *within* a
+  segment, so real pauses only surface at segment boundaries; in crosstalk-heavy
+  audio, long stretches have no pause at all. The remedies are layered:
+  1. audio micro-fades at every cut (~40 ms in, ~120 ms out — `exportReelClip` and
+     `createClip`), which make even knife-edge cuts read as deliberate edits;
+  2. a best-effort polish pass (`polishBoundaryHandoffs`) that shifts an accepted
+     candidate's line range slightly to a boundary with a real pause — strictly
+     improving, never a gate: if no nearby pause verifies, the original stands;
+  3. `hardHandoffStart/End` + gap seconds recorded in the finalizer provenance so
+     rough boundaries are visible in review instead of discovered by ear.
 
 - **I2 — One offset, applied once.** Caption cue time = episode time − **current**
   `clip.start_time`. Never apply the offset twice, never apply a stale one. Any persisted
@@ -167,3 +180,11 @@ diagnosed with exactly the walk in §3 and turned out to be:
    `firstWord.startTime`, clipping first-phoneme onsets.
 
 All three were fixed at the writers; the renderers were already correct.
+
+A follow-up run exposed the second-order lesson: clamping pads at neighbouring words
+(the naive I1 fix) turned pad-bleed into knife-edge cuts at zero-gap speaker handoffs
+— *arguably worse*, because the final word of the clip then sounds chopped instead of
+the next word intruding. That is what motivated the layered remedy now encoded in I1
+(micro-fades + pause-seeking polish + hard-handoff provenance): in continuous speech
+there is no cut position that fixes this, so placement, rendering, and review must
+share the job.

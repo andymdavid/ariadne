@@ -268,6 +268,11 @@ class FFmpegService {
         .duration(duration)
         .videoCodec('libx264')
         .audioCodec('aac')
+        // Match the export's boundary micro-fades so previews sound like exports
+        .audioFilters([
+          'afade=t=in:st=0:d=0.04',
+          `afade=t=out:st=${Math.max(0, duration - 0.12).toFixed(3)}:d=0.12`
+        ])
         .format(options.format || 'mp4')
         .output(outputPath)
       
@@ -613,6 +618,14 @@ class FFmpegService {
       let videoLabel = '[0:v]'
       let audioLabel = '[0:a]'
       let currentVideoOutput = '[v0]'
+
+      // Micro-fades on the source audio so word-snapped cuts don't sound like hard
+      // stops — boundaries in continuous speech have no silence to cut in, and a
+      // ~120ms fade-out reads as a deliberate edit instead of a chopped word.
+      filters.push(
+        `[0:a]afade=t=in:st=0:d=0.04,afade=t=out:st=${Math.max(0, duration - 0.12).toFixed(3)}:d=0.12[a_faded]`
+      )
+      audioLabel = '[a_faded]'
 
       // Step 1: Apply frame/crop settings
       if (frameSettings.cropMode === 'center') {
