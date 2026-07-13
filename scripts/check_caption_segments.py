@@ -36,7 +36,8 @@ clips = db.execute(
     """
     SELECT c.id, c.episode_id, c.start_time, c.end_time,
            e.caption_segments, e.captions_enabled
-    FROM clips c JOIN clip_edits e ON e.clip_id = c.id
+    FROM clips c LEFT JOIN clip_edits e ON e.clip_id = c.id
+    WHERE c.is_active IS NULL OR c.is_active = 1
     """
 ).fetchall()
 
@@ -49,7 +50,7 @@ def report(clip_id: str, invariant: str, message: str) -> None:
     print(f"  [{invariant}] clip {clip_id}: {message}")
 
 
-print(f"Checking {len(clips)} clips with saved edits...\n")
+print(f"Checking {len(clips)} clips (boundaries for all, captions where edits exist)...\n")
 
 for clip in clips:
     duration = clip["end_time"] - clip["start_time"]

@@ -1275,8 +1275,20 @@ class LlmThreadSelectorService {
 
       // Pad both boundaries: Whisper word timestamps regularly land slightly inside
       // the spoken word, so cutting exactly at firstWord.startTime clips its onset.
-      const startTime = Math.max(0, firstWord.startTime - 0.15)
-      const endTime = Math.min(timeline.mediaDuration, lastWord.endTime + 0.22)
+      // Pads may only extend into silence — clamp them at the neighbouring words so a
+      // clip never carries the tail of the previous sentence or the onset of the next.
+      const firstWordIndex = timeline.words.indexOf(firstWord)
+      const lastWordIndex = timeline.words.indexOf(lastWord)
+      const previousWord = firstWordIndex > 0 ? timeline.words[firstWordIndex - 1] : undefined
+      const nextWord =
+        lastWordIndex >= 0 && lastWordIndex + 1 < timeline.words.length
+          ? timeline.words[lastWordIndex + 1]
+          : undefined
+
+      const paddedStart = Math.max(firstWord.startTime - 0.15, previousWord?.endTime ?? 0)
+      const startTime = Math.max(0, Math.min(firstWord.startTime, paddedStart))
+      const paddedEnd = Math.min(lastWord.endTime + 0.22, nextWord?.startTime ?? Number.POSITIVE_INFINITY)
+      const endTime = Math.min(timeline.mediaDuration, Math.max(lastWord.endTime, paddedEnd))
       const duration = Number((endTime - startTime).toFixed(3))
       if (duration < MIN_CLIP_SECONDS || duration > MAX_CLIP_SECONDS || endTime <= startTime) {
         rejected.push({

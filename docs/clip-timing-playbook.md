@@ -47,6 +47,11 @@ Any timing bug in this app is a violation of one of these six rules.
   so a cut at exactly `word.start` clips the first phoneme — that is what "audio cut
   mid-word" almost always is. A boundary that is a raw LLM-suggested time, a raw
   `video.currentTime`, or a frame-rounded number is not grounded.
+  **Pads may only extend into silence.** A fixed-size pad applied where speech is
+  continuous lands inside the *neighbouring* word — the clip carries the previous
+  speaker's last syllables or the next speaker's onset, which listeners hear as an
+  abrupt mid-sentence cut. Clamp: `start ≥ previousWord.end`, `end ≤ nextWord.start`,
+  where previous/next are the timeline words adjacent to the selected span.
 
 - **I2 — One offset, applied once.** Caption cue time = episode time − **current**
   `clip.start_time`. Never apply the offset twice, never apply a stale one. Any persisted
