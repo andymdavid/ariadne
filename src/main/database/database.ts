@@ -1303,6 +1303,13 @@ class DatabaseManager {
         updated_at TEXT NOT NULL,
         FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
       );`,
+      `CREATE TABLE IF NOT EXISTS clip_boundary_qa (
+        clip_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        details_json TEXT,
+        checked_at TEXT NOT NULL,
+        FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+      );`,
       `CREATE TABLE IF NOT EXISTS clip_edits (
         clip_id TEXT PRIMARY KEY,
 
@@ -2200,6 +2207,25 @@ class DatabaseManager {
       } catch (error) {
         console.log('Clip review feedback migration skipped (may already exist)')
         this.db.pragma('user_version = 28')
+      }
+    }
+
+    if (preVersion <= 28) {
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS clip_boundary_qa (
+            clip_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            details_json TEXT,
+            checked_at TEXT NOT NULL,
+            FOREIGN KEY (clip_id) REFERENCES clips (id) ON DELETE CASCADE
+          );
+        `)
+        console.log('✅ Added clip boundary QA table (v29)')
+        this.db.pragma('user_version = 29')
+      } catch (error) {
+        console.log('Clip boundary QA migration skipped (may already exist)')
+        this.db.pragma('user_version = 29')
       }
     }
   }
@@ -4082,6 +4108,23 @@ class DatabaseManager {
   getClipTrimState(clipId: string): ClipTrimState | undefined {
     const stmt = this.db.prepare('SELECT * FROM clip_trim_state WHERE clip_id = ?')
     return stmt.get(clipId) as ClipTrimState | undefined
+  }
+
+  getClipBoundaryQa(clipId: string) {
+    const stmt = this.db.prepare('SELECT * FROM clip_boundary_qa WHERE clip_id = ?')
+    return stmt.get(clipId)
+  }
+
+  saveClipBoundaryQa(clipId: string, status: string, detailsJson: string) {
+    const stmt = this.db.prepare(`
+      INSERT INTO clip_boundary_qa (clip_id, status, details_json, checked_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(clip_id) DO UPDATE SET
+        status = excluded.status,
+        details_json = excluded.details_json,
+        checked_at = excluded.checked_at
+    `)
+    return stmt.run(clipId, status, detailsJson, new Date().toISOString())
   }
 
   getClipReviewFeedback(clipId: string): ClipReviewFeedback | undefined {

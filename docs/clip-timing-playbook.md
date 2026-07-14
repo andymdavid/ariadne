@@ -140,8 +140,15 @@ Any timing bug in this app is a violation of one of these six rules.
 Data-level check (fast, no render):
 
 ```bash
-python3 scripts/check_caption_segments.py         # scans clip_edits for I1–I4 violations
+python3 scripts/check_caption_segments.py         # I1–I4 violations + boundary QA results
 ```
+
+Automated boundary QA (`clipBoundaryQaService`) runs in the background after every
+pipeline run: it re-transcribes each clip's first/last ~2s from the source and fails
+the clip if the expected boundary word is missing (chopped) or other speech intrudes.
+Results land in the `clip_boundary_qa` table and in the checker output above.
+Detection floor: onset clips under ~100ms still transcribe recognizably and pass —
+those are masked by the export fades.
 
 Render-level check (the ground truth — inspect what was actually rendered):
 

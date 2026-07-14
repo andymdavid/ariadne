@@ -8,6 +8,7 @@ import { mediaWorkerSupervisor } from './mediaWorkerSupervisor'
 import { pipelineWorkerSupervisor } from './pipelineWorkerSupervisor'
 import { workflowReadModel } from './workflowReadModel'
 import { canonicalTimelineService } from './canonicalTimelineService'
+import { clipBoundaryQaService } from './clipBoundaryQaService'
 import { clipProjectionService } from './clipProjectionService'
 import type {
   ProcessingErrorPayload,
@@ -477,6 +478,12 @@ class ProcessingPipeline {
     )
     await this.storeGeneratedContentPackages(storedClips, namespacedWorkerResult.contentPackages)
     this.completePipelineSelectionRun(workflowJobId, selectionRunId, episodeId, namespacedWorkerResult)
+
+    // Boundary QA runs in the background after completion — it re-transcribes each
+    // clip's head/tail, so it must not delay the pipeline finishing.
+    void clipBoundaryQaService
+      .runForEpisodeClips(episodeId, storedClips.map((clip) => clip.id))
+      .catch((error) => console.error('[ProcessingPipeline] Boundary QA failed:', error))
 
     database.updateEpisodeStatus(episodeId, 'completed')
     this.completeWorkflowJob(workflowJobId, projectId, episodeId, namespacedWorkerResult.analysis.potentialClips.length)

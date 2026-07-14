@@ -151,6 +151,21 @@ for clip in clips:
                 f"last caption ends {last_cue:.2f}s but speech runs to {last_speech:.2f}s",
             )
 
+# Boundary QA results (written by clipBoundaryQaService after each pipeline run)
+try:
+    qa_rows = db.execute(
+        "SELECT clip_id, status, checked_at FROM clip_boundary_qa ORDER BY checked_at DESC"
+    ).fetchall()
+    if qa_rows:
+        print("\nBoundary QA (latest first):")
+        for row in qa_rows[:20]:
+            marker = "" if row["status"] == "pass" else "  <-- review"
+            print(f'  {row["checked_at"][:19]}  {row["clip_id"][:8]}  {row["status"]}{marker}')
+            if row["status"] in ("warn", "fail"):
+                violations += 1
+except sqlite3.OperationalError:
+    pass  # table not created yet
+
 if violations == 0:
     print("\nOK: no timing invariant violations found.")
 else:

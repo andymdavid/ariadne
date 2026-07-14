@@ -145,6 +145,32 @@ class FFmpegService {
   }
 
   /**
+   * Extract a short audio segment (16kHz mono WAV) — used by boundary QA to
+   * re-transcribe clip heads/tails.
+   */
+  async extractAudioSegment(
+    inputPath: string,
+    startTime: number,
+    duration: number,
+    outputPath: string
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      ffmpeg(inputPath)
+        .seekInput(Math.max(0, startTime))
+        .duration(duration)
+        .noVideo()
+        .audioCodec('pcm_s16le')
+        .audioChannels(1)
+        .audioFrequency(16000)
+        .format('wav')
+        .output(outputPath)
+        .on('end', () => resolve(outputPath))
+        .on('error', (error) => reject(new Error(`Audio segment extraction failed: ${error.message}`)))
+        .run()
+    })
+  }
+
+  /**
    * Extract audio from video file
    */
   async extractAudio(
