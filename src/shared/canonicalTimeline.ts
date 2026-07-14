@@ -73,11 +73,22 @@ export type TranscriptQualityReport = {
   issues: string[]
 }
 
+/**
+ * Acoustically detected silence in the source media (ffmpeg silencedetect).
+ * Whisper word timestamps are contiguous and absorb real pauses into word spans,
+ * so cut placement must consult these, not word gaps.
+ */
+export type CanonicalSilence = {
+  start: number
+  end: number
+}
+
 export type CanonicalConversationalTimeline = {
   mediaDuration: number
   segments: CanonicalTranscriptSegment[]
   lines: CanonicalTranscriptLine[]
   words: CanonicalTimedWord[]
+  silences: CanonicalSilence[]
   sourceMetadata: TranscriptSourceMetadata
   quality: TranscriptQualityReport
 }

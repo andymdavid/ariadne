@@ -10,6 +10,7 @@ import { canonicalTimelineService } from '../services/canonicalTimelineService'
 import { coherentRoughCutService } from '../services/coherentRoughCutService'
 import { finalClipValidationService } from '../services/finalClipValidationService'
 import type { FinalClipValidationResult } from '../services/finalClipValidationService'
+import { ffmpegService } from '../services/ffmpegService'
 import { llmThreadSelectorService } from '../services/llmThreadSelectorService'
 import LocalWhisperService from '../services/localWhisperService'
 import type { AudioChunk } from '../services/clipSelectionTypes'
@@ -755,19 +756,37 @@ function extractRecentLines(fullText: string): string[] {
   return lines.slice(-2)
 }
 
-async function splitAudioFile(audioPath: string, durationInSeconds: number): Promise<AudioChunk[]> {
+async function splitAudioFile(
+  audioPath: string,
+  durationInSeconds: number,
+  silences: Array<{ start: number; end: number }> = []
+): Promise<AudioChunk[]> {
   const chunkDurationMinutes = 10
   const chunkDurationSeconds = chunkDurationMinutes * 60
   const numChunks = Math.ceil(durationInSeconds / chunkDurationSeconds)
-  const chunks: AudioChunk[] = []
   const tempDir = join(tmpdir(), `ariadne-chunks-${Date.now()}`)
 
   await fs.mkdir(tempDir, { recursive: true })
 
-  for (let i = 0; i < numChunks; i++) {
-    const startTime = i * chunkDurationSeconds
+  // Split at real pauses near each 10-minute mark instead of exactly on it — a hard
+  // split lands mid-word and corrupts transcription around every seam.
+  const cutPoints: number[] = [0]
+  for (let i = 1; i < numChunks; i++) {
+    const target = i * chunkDurationSeconds
+    const nearby = silences
+      .filter((silence) => Math.abs((silence.start + silence.end) / 2 - target) <= 30)
+      .sort((left, right) =>
+        Math.abs((left.start + left.end) / 2 - target) - Math.abs((right.start + right.end) / 2 - target)
+      )[0]
+    cutPoints.push(nearby ? (nearby.start + nearby.end) / 2 : target)
+  }
+  cutPoints.push(durationInSeconds)
+
+  const chunks: AudioChunk[] = []
+  for (let i = 0; i < cutPoints.length - 1; i++) {
+    const startTime = cutPoints[i]
     const chunkPath = join(tempDir, `chunk_${i}.wav`)
-    const chunkDuration = Math.min(chunkDurationSeconds, durationInSeconds - startTime)
+    const chunkDuration = cutPoints[i + 1] - startTime
 
     await new Promise<void>((resolve, reject) => {
       const ffmpeg = require('fluent-ffmpeg')
@@ -1481,6 +1500,19 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
     ? generateCandidateArcs(editorialUnits)
     : []
   let llmThreadTimeline: CanonicalConversationalTimeline | null = null
+  // Acoustic silence map for cut placement — detected once per run from the source
+  // audio. Whisper word gaps cannot stand in for this (they absorb real pauses).
+  let detectedSilences: Array<{ start: number; end: number }> = []
+  const ensureSilences = async () => {
+    if (detectedSilences.length === 0) {
+      try {
+        detectedSilences = await ffmpegService.detectSilences(command.audioPath)
+      } catch (error) {
+        console.warn('Silence detection failed; cut placement falls back to word-snap + fades', error)
+      }
+    }
+    return detectedSilences
+  }
   let conversationStructuringMetadata: Record<string, unknown> | null = null
   let boundaryViableCandidateArcs: CandidateArc[] = candidateArcs
   let boundaryPreflightRejectedArcIds: string[] = []
@@ -1520,7 +1552,7 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         { timeRemaining: estimateTranscriptionTime(command.mediaDuration) }
       )
 
-      const chunks = await splitAudioFile(command.audioPath, command.mediaDuration)
+      const chunks = await splitAudioFile(command.audioPath, command.mediaDuration, await ensureSilences())
       try {
         transcription = await whisperService.transcribeInChunks(
           chunks,
@@ -1578,6 +1610,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
     transcriptTimingQuality = assessTranscriptTimingQuality(transcription)
 
+    await ensureSilences()
+
     postStageCompleted(command.workflowJobId, currentStage, {
       segmentCount: transcription.segments.length,
       transcriptLength: transcription.text.length,
@@ -1588,7 +1622,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         model: command.runConfigSnapshot.localWhisperModel,
         wordTimestamps: true,
         chunked: audioStats.size > maxSize,
-        transcriptTimingQuality
+        transcriptTimingQuality,
+        detectedSilenceCount: detectedSilences.length
       },
       transcription
     })
@@ -1651,7 +1686,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
           llmThreadTimeline = canonicalTimelineService.buildFromStructuredConversation({
             transcription,
             mediaDuration: command.mediaDuration,
-            structuredLines
+            structuredLines,
+            silences: await ensureSilences()
           })
           conversationStructuringMetadata = {
             executor: 'ai_conversation_structuring',
@@ -1727,7 +1763,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         postProgress(command.workflowJobId, currentStage, 5, 'Discovering conversational threads...')
         const timeline = llmThreadTimeline ?? canonicalTimelineService.buildFromWhisperTranscription({
           transcription,
-          mediaDuration: command.mediaDuration
+          mediaDuration: command.mediaDuration,
+          silences: await ensureSilences()
         })
         const threadSelection = await llmThreadSelectorService.selectThreads({
           timeline,

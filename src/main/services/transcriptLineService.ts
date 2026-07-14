@@ -3,8 +3,13 @@ import { canonicalTimelineService } from './canonicalTimelineService'
 
 class TranscriptLineService {
   ensureEpisodeTranscriptLines(episodeId: string) {
-    const existingLines = database.getTranscriptLines(episodeId) as Array<unknown>
-    if (existingLines.length > 0) {
+    const existingLines = database.getTranscriptLines(episodeId) as Array<{ source_strategy?: string }>
+    // Rebuild lines stored under the retired segment-shaped strategy so existing
+    // episodes migrate to thought-lines on next access.
+    const hasStaleStrategy = existingLines.some(
+      (line) => line.source_strategy === 'whisper_segment_lines_v1'
+    )
+    if (existingLines.length > 0 && !hasStaleStrategy) {
       return existingLines
     }
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { CanonicalConversationalTimeline, CanonicalTimedWord, CanonicalTranscriptLine } from '../../shared/canonicalTimeline'
+import type { CanonicalConversationalTimeline, CanonicalSilence, CanonicalTimedWord, CanonicalTranscriptLine } from '../../shared/canonicalTimeline'
 import {
   getEndLookaheadIssue,
   getStartLookbackIssue,
@@ -119,9 +119,8 @@ export type LlmThreadSelectorResult = {
 
 const MIN_CLIP_SECONDS = 25
 const MAX_CLIP_SECONDS = 150
-// A boundary with less silence than this around it is a "hard handoff": there is no
+// A boundary with no adjacent detected silence is a "hard handoff": there is no
 // clean place to cut, so we try to move the cut to a nearby pause instead.
-const HARD_HANDOFF_GAP_SECONDS = 0.25
 const BOUNDARY_POLISH_MAX_LINE_SHIFT = 2
 const BOUNDARY_HEAD_PAD_SECONDS = 0.15
 const BOUNDARY_TAIL_PAD_SECONDS = 0.22
@@ -848,11 +847,14 @@ class LlmThreadSelectorService {
     transcription: PipelineWorkerTranscription,
     candidate: ThreadCandidateSelection
   ): { candidate: ThreadCandidateSelection; verification: VerificationResult } | null {
+    // Hardness is acoustic: a boundary is a hard handoff when no detected silence
+    // sits adjacent to the boundary word. Whisper word gaps cannot answer this.
+    if (timeline.silences.length === 0) return null
     const gaps = this.getLineRangeBoundaryGaps(timeline, candidate.startLineIndex, candidate.endLineIndex)
     if (!gaps) return null
 
-    const startIsHard = gaps.leadingGap < HARD_HANDOFF_GAP_SECONDS
-    const endIsHard = gaps.trailingGap < HARD_HANDOFF_GAP_SECONDS
+    const startIsHard = !this.findAdjacentSilence(timeline.silences, 'start', gaps.firstWord.startTime)
+    const endIsHard = !this.findAdjacentSilence(timeline.silences, 'end', gaps.lastWord.endTime)
     if (!startIsHard && !endIsHard) return null
 
     const sortedLines = [...timeline.lines].sort((left, right) => left.index - right.index)
@@ -888,8 +890,8 @@ class LlmThreadSelectorService {
       const attemptGaps = this.getLineRangeBoundaryGaps(timeline, startLineIndex, endLineIndex)
       if (!attemptGaps) continue
       if (
-        attemptGaps.leadingGap < HARD_HANDOFF_GAP_SECONDS ||
-        attemptGaps.trailingGap < HARD_HANDOFF_GAP_SECONDS
+        !this.findAdjacentSilence(timeline.silences, 'start', attemptGaps.firstWord.startTime) ||
+        !this.findAdjacentSilence(timeline.silences, 'end', attemptGaps.lastWord.endTime)
       ) {
         continue
       }
@@ -906,6 +908,29 @@ class LlmThreadSelectorService {
     }
 
     return null
+  }
+
+  /**
+   * Find a detected silence adjacent to a boundary word edge. Adjacency is strict:
+   * the silence must begin (end boundary) or end (start boundary) within a small
+   * window of the word edge, so extending into it can never cross other speech.
+   */
+  private findAdjacentSilence(
+    silences: CanonicalSilence[],
+    boundary: 'start' | 'end',
+    wordEdge: number
+  ): CanonicalSilence | null {
+    let best: CanonicalSilence | null = null
+    for (const silence of silences) {
+      if (boundary === 'start') {
+        if (silence.end < wordEdge - 0.35 || silence.end > wordEdge + 0.15) continue
+        if (!best || Math.abs(silence.end - wordEdge) < Math.abs(best.end - wordEdge)) best = silence
+      } else {
+        if (silence.start < wordEdge - 0.15 || silence.start > wordEdge + 0.35) continue
+        if (!best || Math.abs(silence.start - wordEdge) < Math.abs(best.start - wordEdge)) best = silence
+      }
+    }
+    return best
   }
 
   private getLineRangeBoundaryGaps(
@@ -1160,6 +1185,11 @@ class LlmThreadSelectorService {
         salvageAttempted
       })
 
+    const finalizerByEvaluation = new Map<CandidateEvaluation, Record<string, unknown>>([
+      ...finalAccepted.map((item) => [item.evaluation, item.finalizer] as const),
+      ...finalRejected.map((item) => [item.evaluation, item.finalizer] as const)
+    ])
+
     return {
       clips: finalAccepted.map((item) => item.clip),
       decisions: evaluations.map((evaluation, index) => ({
@@ -1199,7 +1229,8 @@ class LlmThreadSelectorService {
           coherenceReviewError: evaluation.coherenceReviewError,
           boundaryWarningStatus: evaluation.boundaryWarningStatus,
           reviewableWithWarnings: Boolean(evaluation.reviewableWithWarningsClip),
-          selectedViaSalvage: salvageAcceptedEvaluations.has(evaluation)
+          selectedViaSalvage: salvageAcceptedEvaluations.has(evaluation),
+          mechanicalFinalizer: finalizerByEvaluation.get(evaluation) ?? null
         })
       })),
       metadata: {
@@ -1396,11 +1427,11 @@ class LlmThreadSelectorService {
         continue
       }
 
-      // Pad both boundaries: Whisper word timestamps regularly land slightly inside
-      // the spoken word, so cutting exactly at firstWord.startTime clips its onset.
-      // Pads may only extend into silence — they breathe into whatever gap exists and
-      // never cross the neighbouring word (guarded), so a clip neither carries the
-      // next speaker's onset nor gets padded past the previous sentence's tail.
+      // Cut placement authority: the acoustic silence map. Whisper word timestamps
+      // absorb real pauses into word spans, so when a detected silence sits adjacent
+      // to the boundary word we cut inside the silence. Only when no adjacent silence
+      // exists (genuine crosstalk) do we fall back to guarded word-snap pads — those
+      // cuts rely on the export micro-fades to read as deliberate.
       const firstWordIndex = timeline.words.indexOf(firstWord)
       const lastWordIndex = timeline.words.indexOf(lastWord)
       const previousWord = firstWordIndex > 0 ? timeline.words[firstWordIndex - 1] : undefined
@@ -1411,22 +1442,46 @@ class LlmThreadSelectorService {
       const leadingGap = previousWord ? firstWord.startTime - previousWord.endTime : Number.POSITIVE_INFINITY
       const trailingGap = nextWord ? nextWord.startTime - lastWord.endTime : Number.POSITIVE_INFINITY
 
-      const headPad = Math.min(BOUNDARY_HEAD_PAD_SECONDS, Math.max(0, leadingGap - BOUNDARY_WORD_GUARD_SECONDS))
-      const startTime = Math.max(0, firstWord.startTime - headPad)
-      const endTime = Math.min(
-        timeline.mediaDuration,
-        resolveClipEndWithTrailingPad({
-          words: [
-            { word: lastWord.word, start: lastWord.startTime, end: lastWord.endTime },
-            ...(nextWord ? [{ word: nextWord.word, start: nextWord.startTime, end: nextWord.endTime }] : [])
-          ],
-          wordIndex: 0,
-          mediaDuration: timeline.mediaDuration,
-          trailingPadSeconds: BOUNDARY_TAIL_PAD_SECONDS,
-          maxTrailingPadSeconds: BOUNDARY_MAX_TAIL_PAD_SECONDS,
-          guardSeconds: BOUNDARY_WORD_GUARD_SECONDS
-        })
-      )
+      const startSilence = this.findAdjacentSilence(timeline.silences, 'start', firstWord.startTime)
+      const endSilence = this.findAdjacentSilence(timeline.silences, 'end', lastWord.endTime)
+
+      let startTime: number
+      if (startSilence) {
+        const silenceDuration = startSilence.end - startSilence.start
+        startTime = Math.max(
+          0,
+          startSilence.start,
+          startSilence.end - Math.min(0.3, Math.max(0.1, silenceDuration * 0.5))
+        )
+      } else {
+        const headPad = Math.min(BOUNDARY_HEAD_PAD_SECONDS, Math.max(0, leadingGap - BOUNDARY_WORD_GUARD_SECONDS))
+        startTime = Math.max(0, firstWord.startTime - headPad)
+      }
+
+      let endTime: number
+      if (endSilence) {
+        const silenceDuration = endSilence.end - endSilence.start
+        endTime = Math.min(
+          timeline.mediaDuration,
+          endSilence.end,
+          endSilence.start + Math.min(BOUNDARY_MAX_TAIL_PAD_SECONDS, Math.max(0.12, silenceDuration * 0.5))
+        )
+      } else {
+        endTime = Math.min(
+          timeline.mediaDuration,
+          resolveClipEndWithTrailingPad({
+            words: [
+              { word: lastWord.word, start: lastWord.startTime, end: lastWord.endTime },
+              ...(nextWord ? [{ word: nextWord.word, start: nextWord.startTime, end: nextWord.endTime }] : [])
+            ],
+            wordIndex: 0,
+            mediaDuration: timeline.mediaDuration,
+            trailingPadSeconds: BOUNDARY_TAIL_PAD_SECONDS,
+            maxTrailingPadSeconds: BOUNDARY_MAX_TAIL_PAD_SECONDS,
+            guardSeconds: BOUNDARY_WORD_GUARD_SECONDS
+          })
+        )
+      }
       const duration = Number((endTime - startTime).toFixed(3))
       if (duration < MIN_CLIP_SECONDS || duration > MAX_CLIP_SECONDS || endTime <= startTime) {
         rejected.push({
@@ -1455,8 +1510,14 @@ class LlmThreadSelectorService {
           duration,
           leadingGapSeconds: Number.isFinite(leadingGap) ? Number(leadingGap.toFixed(3)) : null,
           trailingGapSeconds: Number.isFinite(trailingGap) ? Number(trailingGap.toFixed(3)) : null,
-          hardHandoffStart: leadingGap < HARD_HANDOFF_GAP_SECONDS,
-          hardHandoffEnd: trailingGap < HARD_HANDOFF_GAP_SECONDS
+          startCutMode: startSilence ? 'pause_cut' : 'hard_handoff_faded',
+          endCutMode: endSilence ? 'pause_cut' : 'hard_handoff_faded',
+          startCutSilence: startSilence
+            ? { start: Number(startSilence.start.toFixed(3)), end: Number(startSilence.end.toFixed(3)) }
+            : null,
+          endCutSilence: endSilence
+            ? { start: Number(endSilence.start.toFixed(3)), end: Number(endSilence.end.toFixed(3)) }
+            : null
         }
       })
     }

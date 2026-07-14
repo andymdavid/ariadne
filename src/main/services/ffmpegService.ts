@@ -106,6 +106,45 @@ class FFmpegService {
   }
   
   /**
+   * Detect silences in the source audio with ffmpeg's silencedetect filter.
+   * Whisper word timestamps are contiguous by construction and absorb real pauses
+   * into word spans, so cut placement must read the waveform, not the transcript.
+   */
+  async detectSilences(
+    inputPath: string,
+    options: { noiseDb?: number; minDurationSeconds?: number } = {}
+  ): Promise<Array<{ start: number; end: number }>> {
+    const noiseDb = options.noiseDb ?? -26
+    const minDuration = options.minDurationSeconds ?? 0.12
+
+    return new Promise((resolve, reject) => {
+      const silences: Array<{ start: number; end: number }> = []
+      let pendingStart: number | null = null
+
+      ffmpeg(inputPath)
+        .noVideo()
+        .audioFilters(`silencedetect=noise=${noiseDb}dB:d=${minDuration}`)
+        .format('null')
+        .output('-')
+        .on('stderr', (line: string) => {
+          const startMatch = line.match(/silence_start:\s*([\d.]+)/)
+          if (startMatch) {
+            pendingStart = Number(startMatch[1])
+            return
+          }
+          const endMatch = line.match(/silence_end:\s*([\d.]+)/)
+          if (endMatch && pendingStart !== null) {
+            silences.push({ start: pendingStart, end: Number(endMatch[1]) })
+            pendingStart = null
+          }
+        })
+        .on('end', () => resolve(silences.sort((left, right) => left.start - right.start)))
+        .on('error', (error) => reject(new Error(`Silence detection failed: ${error.message}`)))
+        .run()
+    })
+  }
+
+  /**
    * Extract audio from video file
    */
   async extractAudio(

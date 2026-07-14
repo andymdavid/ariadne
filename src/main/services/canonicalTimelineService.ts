@@ -1,5 +1,6 @@
 import type {
   CanonicalConversationalTimeline,
+  CanonicalSilence,
   CanonicalTranscriptSegment,
   CanonicalTimedWord,
   CanonicalTranscriptLine
@@ -9,22 +10,27 @@ import { buildTranscriptLinesFromSegments } from '../../shared/transcriptLines'
 import type { PipelineWorkerTranscriptSegment, PipelineWorkerTranscription } from '@shared/types/pipelineWorker'
 
 class CanonicalTimelineService {
-  buildFromTranscription(transcription: PipelineWorkerTranscription): CanonicalConversationalTimeline {
+  buildFromTranscription(
+    transcription: PipelineWorkerTranscription,
+    silences?: CanonicalSilence[]
+  ): CanonicalConversationalTimeline {
     const mediaDuration = transcription.segments.reduce(
       (duration, segment) => Math.max(duration, Number(segment.end ?? 0)),
       0
     )
-    return this.buildFromWhisperTranscription({ transcription, mediaDuration })
+    return this.buildFromWhisperTranscription({ transcription, mediaDuration, silences })
   }
 
   buildFromWhisperTranscription(input: {
     transcription: PipelineWorkerTranscription
     mediaDuration: number
+    silences?: CanonicalSilence[]
   }): CanonicalConversationalTimeline {
     const segments = this.normalizeSegments(input.transcription.segments)
-    const transcriptLines = buildTranscriptLinesFromSegments(input.transcription.segments, {
-      preserveSegmentBoundaries: true
-    })
+    // Thought-aware lines (sentence/pause-shaped) — NOT raw Whisper segments. Whisper
+    // segments are ~5s acoustic chunks that split sentences mid-phrase, and any clip
+    // boundary chosen from them inherits that. See docs/clip-boundary-redesign-plan.md.
+    const transcriptLines = buildTranscriptLinesFromSegments(input.transcription.segments)
     const canonicalWords: CanonicalTimedWord[] = []
     const wordIdByKey = new Map<string, string>()
 
@@ -85,12 +91,13 @@ class CanonicalTimelineService {
       segments,
       lines,
       words: canonicalWords,
+      silences: input.silences ?? [],
       sourceMetadata: {
         transcriptInputMode: 'whisper_generated',
         semanticTextSource: 'whisper',
         timingSource: canonicalWords.length > 0 ? 'whisper' : 'none',
         speakerSource: null,
-        sourceStrategy: 'whisper_segment_lines_v1'
+        sourceStrategy: 'whisper_thought_lines_v1'
       },
       quality: {
         lineCount: lines.length,
@@ -107,6 +114,7 @@ class CanonicalTimelineService {
     transcription: PipelineWorkerTranscription
     mediaDuration: number
     structuredLines: StructuredConversationLine[]
+    silences?: CanonicalSilence[]
   }): CanonicalConversationalTimeline {
     const segments = this.normalizeSegments(input.transcription.segments)
     const canonicalWords: CanonicalTimedWord[] = []
@@ -179,7 +187,8 @@ class CanonicalTimelineService {
     if (lines.length === 0) {
       return this.buildFromWhisperTranscription({
         transcription: input.transcription,
-        mediaDuration: input.mediaDuration
+        mediaDuration: input.mediaDuration,
+        silences: input.silences
       })
     }
 
@@ -190,6 +199,7 @@ class CanonicalTimelineService {
       segments,
       lines,
       words: canonicalWords,
+      silences: input.silences ?? [],
       sourceMetadata: {
         transcriptInputMode: 'whisper_generated',
         semanticTextSource: 'whisper',

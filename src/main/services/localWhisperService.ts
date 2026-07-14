@@ -71,7 +71,11 @@ class LocalWhisperService {
         '--output_format', 'json',
         '--model', options.model || 'turbo',
         '--fp16', 'False', // Better compatibility
-        '--verbose', 'False'
+        '--verbose', 'False',
+        // Audio that opens mid-sentence seeds a lowercase/unpunctuated decoding style
+        // that conditioning propagates through the whole file. Thought-line building
+        // and clip boundary quality depend on punctuation, so keep windows independent.
+        '--condition_on_previous_text', 'False'
       ]
       
       if (options.language) {
@@ -139,8 +143,9 @@ class LocalWhisperService {
           }
         )
         
-        // Adjust timestamps to account for previous chunks
-        const adjustedResult = this.adjustTimestamps(chunkResult, cumulativeOffset)
+        // Adjust timestamps by the chunk's actual source offset (chunks may be
+        // variable-length when split at silences)
+        const adjustedResult = this.adjustTimestamps(chunkResult, chunk.startTime ?? cumulativeOffset)
         results.push(adjustedResult)
         
         // Send partial transcript update with the newly completed chunk

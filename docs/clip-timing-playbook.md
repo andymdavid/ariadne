@@ -19,12 +19,25 @@ There is exactly one authoritative clock: **Whisper word-level timestamps in epi
 source media file
   → extractAudio (ffmpegService.extractAudio): full-length decode, 16kHz mono WAV.
     NO seeking, NO trimming → Whisper timestamps map 1:1 onto source time.
+    Whisper runs with --condition_on_previous_text False plus a punctuated
+    --initial_prompt: audio that opens mid-sentence otherwise seeds a lowercase,
+    punctuation-free style that propagates through the whole file, and punctuation
+    is what thought-line building depends on. Files >20MB split at silences near
+    the 10-minute marks (never exactly on them — hard splits cut words in half).
+  → silence map (ffmpegService.detectSilences, −26dB / 0.12s): the acoustic truth
+    about pauses. Whisper words are contiguous by construction and absorb real
+    pauses into word spans, so cut placement must consult silences, not word gaps.
+    Carried on CanonicalConversationalTimeline.silences.
   → transcript_segments / transcript_lines tables (words stored as JSON in `words` column,
     parsed by database.getTranscriptSegments / getClipTranscriptSegments — note the clip
-    queries filter by OVERLAP: end_time > clipStart AND start_time < clipEnd)
+    queries filter by OVERLAP: end_time > clipStart AND start_time < clipEnd).
+    Lines are THOUGHT lines (sentence/pause-shaped, `whisper_thought_lines_v1`) —
+    never raw Whisper segments, which split sentences mid-phrase.
   → clip boundaries (episode time)
-      - llm_thread_v1: llmThreadSelectorService.finalizeMechanicalClips snaps to
-        firstWord.startTime − 0.15 head pad … lastWord.endTime + 0.22 tail pad
+      - llm_thread_v1: llmThreadSelectorService.finalizeMechanicalClips cuts inside
+        the silence adjacent to the boundary word when one exists (pause_cut);
+        otherwise guarded word-snap pads + export fades (hard_handoff_faded).
+        Per-boundary cut mode and silences land in provenance via validatorResultJson.
       - manual trim: ClipEditModal applyBoundaryWithSnap (word / frame / free snap modes)
   → caption cues (CLIP-RELATIVE time = episode time − clip start_time)
       - cached: clip_edits.caption_segments JSON ({text, start, end, words[]})
