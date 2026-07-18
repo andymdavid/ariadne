@@ -177,6 +177,8 @@ export interface ThreadCoherenceReview {
   confidence: number
   boundaryWarningStatus?: 'none' | 'soft_start_accepted' | 'repaired' | 'accepted_with_override' | 'unresolved_rejected'
   endingJustification?: string | null
+  /** When the ending doesn't land, the latest earlier selected line the clip should end on instead. */
+  suggestedEndLineIndex?: number | null
 }
 
 export interface TranscriptDataWithWords {
@@ -1266,23 +1268,31 @@ ${input.issues.join(', ')}
 TARGET_DURATION: ${input.minDurationSeconds}-${input.maxDurationSeconds}s
 
 TASK:
-Judge whether SELECTED_LINES are coherent enough to show as a rough cut.
-The warnings are heuristics, not a final decision.
+You are the final editor. SELECTED_LINES are the exact words the viewer will hear;
+the last selected line is the clip's final spoken words. Read the ending back the
+way a listener would hear it before you commit to it.
+
+Ending policy (the most important part of this review):
+- If the final sentence is complete and the thought lands, accept.
+- If the final line stops mid-sentence or mid-thought, do NOT reject the clip for
+  that alone: set suggested_end_line_index to the latest earlier line (choose from
+  SELECTED_LINES only) whose final words land as an ending, so the clip ends there.
+- If no selected line can serve as an ending, reject.
+- ending_justification MUST quote the clip's final words (after any suggested
+  contraction) and say why they land.
 
 Accept when:
 - the selected lines include enough context for a listener
 - one conversational thread is preserved
-- the ending lands well enough for a rough cut
+- the ending lands (possibly after your suggested contraction)
 - filler, padding, or imperfect pacing is acceptable
 
 Reject when:
 - the opening depends on a previous sentence or prompt not included
-- the ending clearly needs the next line to make sense
-- the range is only the middle of a larger thought
+- the range is only the middle of a larger thought and no earlier ending works
 
 Boundary policy:
 - Treat start warnings as soft when the listener can orient within the first few seconds.
-- Treat ending warnings more strictly. If following lines materially complete the same point, reject or explain why the current ending is still enough for a rough cut.
 - Do not reject only because the opening is not a polished hook.
 
 OUTPUT JSON:
@@ -1292,7 +1302,8 @@ OUTPUT JSON:
   "fatal_issues": [],
   "confidence": 0.82,
   "boundary_warning_status": "soft_start_accepted",
-  "ending_justification": "The final selected line completes the claim; the next line starts a new example."
+  "suggested_end_line_index": null,
+  "ending_justification": "Ends on \\"...and that's why we own the process.\\" — the claim resolves; the next line starts a new example."
 }
 
 SELECTED_LINES:
@@ -1638,7 +1649,12 @@ Return one JSON object only. The first character must be "{" and the last charac
         : undefined,
       endingJustification: parsed.ending_justification == null && parsed.endingJustification == null
         ? null
-        : String(parsed.ending_justification ?? parsed.endingJustification).trim()
+        : String(parsed.ending_justification ?? parsed.endingJustification).trim(),
+      suggestedEndLineIndex: (() => {
+        const raw = parsed.suggested_end_line_index ?? parsed.suggestedEndLineIndex
+        const value = Number(raw)
+        return raw == null || !Number.isFinite(value) ? null : value
+      })()
     }
   }
 

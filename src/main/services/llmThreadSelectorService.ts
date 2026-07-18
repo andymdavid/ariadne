@@ -370,6 +370,14 @@ class LlmThreadSelectorService {
         }
       }
 
+      // Media-edge contraction happens BEFORE any read-back so the ending the
+      // reviewer reads is the ending that ships.
+      const edgeTrim = this.applyCandidateMediaEdgeTrim(input.timeline, input.transcription, currentCandidate)
+      if (edgeTrim) {
+        currentCandidate = edgeTrim.candidate
+        verification = edgeTrim.verification
+      }
+
       if (this.canAskModelToConfirmCoherence(verification)) {
         coherenceReviewsAttempted += 1
         try {
@@ -381,7 +389,16 @@ class LlmThreadSelectorService {
             minDurationSeconds: MIN_CLIP_SECONDS,
             maxDurationSeconds: MAX_CLIP_SECONDS
           })
-          if (coherenceReview.status === 'accepted') {
+          const contraction = this.applySuggestedEndContraction(
+            input.timeline,
+            input.transcription,
+            currentCandidate,
+            coherenceReview
+          )
+          if (contraction) {
+            currentCandidate = contraction.candidate
+            verification = contraction.verification
+          } else if (coherenceReview.status === 'accepted') {
             verification = this.verification(
               'accepted',
               verification.startTime,
@@ -408,6 +425,39 @@ class LlmThreadSelectorService {
         if (polish) {
           currentCandidate = polish.candidate
           verification = polish.verification
+        }
+      }
+
+      // Unconditional ending read-back: candidates that sailed through with no
+      // heuristic warnings have never had their final words read by anyone —
+      // exactly where mid-thought endings have been shipping. The reviewer may
+      // accept, suggest a contraction, or (rarely) reject; a rejection without a
+      // usable contraction ships the clip flagged rather than dropping it.
+      if (verification.status === 'accepted' && !coherenceReview && !coherenceReviewError) {
+        coherenceReviewsAttempted += 1
+        try {
+          coherenceReview = await input.aiService.reviewThreadCandidateCoherence({
+            candidate: currentCandidate,
+            issues: verification.issues,
+            selectedLines: this.getSelectedLines(input.timeline.lines, currentCandidate).map((line) => this.toDiscoveryLine(line)),
+            surroundingLines: this.getSurroundingLines(input.timeline.lines, currentCandidate).map((line) => this.toDiscoveryLine(line)),
+            minDurationSeconds: MIN_CLIP_SECONDS,
+            maxDurationSeconds: MAX_CLIP_SECONDS
+          })
+          const contraction = this.applySuggestedEndContraction(
+            input.timeline,
+            input.transcription,
+            currentCandidate,
+            coherenceReview
+          )
+          if (contraction) {
+            currentCandidate = contraction.candidate
+            verification = contraction.verification
+          }
+        } catch (error) {
+          coherenceReviewError = error instanceof Error ? error.message : 'Unknown LLM coherence review error'
+          llmCoherenceReviewError = coherenceReviewError
+          llmCoherenceReviewFailureCategory = this.resolveAiFailureCategory(error)
         }
       }
 
@@ -916,6 +966,80 @@ class LlmThreadSelectorService {
   }
 
   /**
+   * Apply the ending read-back's suggested contraction: end the clip at the
+   * reviewer-chosen earlier line. The reviewer is the authority on where the quote
+   * lands, so a contracted candidate is adopted unless it is mechanically invalid
+   * (duration/timing); residual semantic heuristic warnings are overridden, matching
+   * how a plain coherence acceptance already overrides them.
+   */
+  private applySuggestedEndContraction(
+    timeline: CanonicalConversationalTimeline,
+    transcription: PipelineWorkerTranscription,
+    candidate: ThreadCandidateSelection,
+    review: ThreadCoherenceReview
+  ): { candidate: ThreadCandidateSelection; verification: VerificationResult } | null {
+    const suggested = review.suggestedEndLineIndex
+    if (suggested == null || !Number.isFinite(suggested)) return null
+    if (suggested >= candidate.endLineIndex || suggested < candidate.startLineIndex) return null
+
+    const contracted: ThreadCandidateSelection = {
+      ...candidate,
+      endLineIndex: suggested,
+      reason: `${candidate.reason} Ending read-back contracted the clip to line ${suggested}.`
+    }
+    let verification = this.verifyCandidate(timeline, transcription, contracted)
+    if (verification.issueClasses.hardMechanicalInvalid.length > 0) return null
+    if (verification.status !== 'accepted') {
+      verification = this.verification(
+        'accepted',
+        verification.startTime,
+        verification.endTime,
+        verification.duration,
+        verification.issues,
+        verification.issueClasses.hardMechanicalInvalid,
+        verification.issueClasses.semanticRepairNeeded
+      )
+    }
+    return { candidate: contracted, verification }
+  }
+
+  /**
+   * Candidate-level media-edge contraction, applied before any read-back so the
+   * ending the reviewer reads is the ending that ships. The word-level trim in the
+   * finalizer remains as a safety net for salvage paths that bypass review.
+   */
+  private applyCandidateMediaEdgeTrim(
+    timeline: CanonicalConversationalTimeline,
+    transcription: PipelineWorkerTranscription,
+    candidate: ThreadCandidateSelection
+  ): { candidate: ThreadCandidateSelection; verification: VerificationResult } | null {
+    const selectedLines = this.getSelectedLines(timeline.lines, candidate)
+    if (selectedLines.length === 0) return null
+
+    const wordByLineId = new Map<string, CanonicalTimedWord[]>(timeline.lines.map((line) => [line.id, []]))
+    for (const word of timeline.words) {
+      if (word.lineId) wordByLineId.get(word.lineId)?.push(word)
+    }
+    const wordsForLines = (lines: CanonicalTranscriptLine[]) =>
+      lines.flatMap((line) => wordByLineId.get(line.id) ?? [])
+
+    const trim = this.trimDanglingMediaEdgeEnding(timeline, selectedLines, wordsForLines)
+    if (trim.droppedLineCount === 0) return null
+
+    const endLineIndex = trim.lines[trim.lines.length - 1]?.index
+    if (endLineIndex == null || endLineIndex < candidate.startLineIndex) return null
+
+    const contracted: ThreadCandidateSelection = {
+      ...candidate,
+      endLineIndex,
+      reason: `${candidate.reason} Media-edge trim dropped ${trim.droppedLineCount} trailing line(s) truncated by the recording.`
+    }
+    const verification = this.verifyCandidate(timeline, transcription, contracted)
+    if (verification.issueClasses.hardMechanicalInvalid.length > 0) return null
+    return { candidate: contracted, verification }
+  }
+
+  /**
    * When a clip's selected content runs to the end of the media and the recording
    * itself stops mid-sentence, the ending-quality lookahead has no words to inspect
    * and the dangling ending sails through unexamined. Contract the selection to the
@@ -1094,6 +1218,10 @@ class LlmThreadSelectorService {
       return 'reviewable_with_warnings'
     }
     if (acceptedClip) {
+      if (coherenceReview?.status === 'rejected') {
+        // The ending read-back rejected without a usable contraction; ship flagged.
+        return 'accepted_with_override'
+      }
       if (verification.issues.length === 0) {
         return 'none'
       }

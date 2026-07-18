@@ -34,10 +34,17 @@ source media file
     Lines are THOUGHT lines (sentence/pause-shaped, `whisper_thought_lines_v1`) —
     never raw Whisper segments, which split sentences mid-phrase.
   → clip boundaries (episode time)
-      - llm_thread_v1: llmThreadSelectorService.finalizeMechanicalClips cuts inside
-        the silence adjacent to the boundary word when one exists (pause_cut);
-        otherwise guarded word-snap pads + export fades (hard_handoff_faded).
-        Per-boundary cut mode and silences land in provenance via validatorResultJson.
+      - llm_thread_v1: WHERE a quote ends is a language judgment, not an acoustic
+        one — in conversation there is rarely silence to cut in. Every shipping
+        candidate gets an ending read-back: an LLM reads the selected lines as the
+        clip's literal final words and either accepts, contracts the end to the
+        latest line that lands (suggested_end_line_index), or ships it flagged.
+        Media-edge trims run BEFORE the read-back so the reviewed ending is the
+        shipped ending. Silence then only micro-places the cut:
+        finalizeMechanicalClips cuts inside the silence adjacent to the boundary
+        word when one exists (pause_cut); otherwise guarded word-snap pads + export
+        fades (hard_handoff_faded). Per-boundary cut mode and silences land in
+        provenance via validatorResultJson.
       - manual trim: ClipEditModal applyBoundaryWithSnap (word / frame / free snap modes)
   → caption cues (CLIP-RELATIVE time = episode time − clip start_time)
       - cached: clip_edits.caption_segments JSON ({text, start, end, words[]})
