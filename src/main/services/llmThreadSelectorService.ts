@@ -5,6 +5,11 @@ import {
   getStartLookbackIssue,
   resolveClipEndWithTrailingPad
 } from './boundaryRepairPrimitives'
+import {
+  endsWithDanglingPhrase,
+  endsWithTerminalPunctuation,
+  looksLikeCompleteThought
+} from '../../shared/clipBoundaryQuality'
 import AIService, { AIServiceError } from './aiService'
 import type {
   ThreadCoherenceReview,
@@ -911,6 +916,59 @@ class LlmThreadSelectorService {
   }
 
   /**
+   * When a clip's selected content runs to the end of the media and the recording
+   * itself stops mid-sentence, the ending-quality lookahead has no words to inspect
+   * and the dangling ending sails through unexamined. Contract the selection to the
+   * latest earlier line that completes a thought — a human editor drops a trailing
+   * fragment the file itself truncated. Strictly improving: if no clean earlier
+   * ending exists within reach (or the clip would fall under minimum duration),
+   * the original selection stands and boundary QA flags it.
+   */
+  private trimDanglingMediaEdgeEnding(
+    timeline: CanonicalConversationalTimeline,
+    selectedLines: CanonicalTranscriptLine[],
+    wordsForLines: (lines: CanonicalTranscriptLine[]) => CanonicalTimedWord[]
+  ): { lines: CanonicalTranscriptLine[]; droppedLineCount: number } {
+    const MAX_DROPPED_LINES = 3
+    const original = { lines: selectedLines, droppedLineCount: 0 }
+
+    const allWords = wordsForLines(selectedLines)
+    const lastWord = allWords[allWords.length - 1]
+    if (!lastWord) return original
+    if (timeline.mediaDuration - lastWord.endTime > 2) return original
+
+    // Only intervene when the file-truncated ending is actually dangling.
+    const lastLineText = selectedLines[selectedLines.length - 1]?.text ?? ''
+    if (!endsWithDanglingPhrase(lastLineText)) return original
+
+    // Prefer an ending we can prove is a complete thought; in unpunctuated
+    // stretches that bar is often unreachable, so fall back to the nearest
+    // ending that at least isn't dangling.
+    const endingTiers: Array<(text: string) => boolean> = [
+      (text) =>
+        endsWithTerminalPunctuation(text) ||
+        (looksLikeCompleteThought(text) && !endsWithDanglingPhrase(text)),
+      (text) => !endsWithDanglingPhrase(text)
+    ]
+
+    for (const endsAcceptably of endingTiers) {
+      for (let drop = 1; drop <= MAX_DROPPED_LINES && drop < selectedLines.length; drop += 1) {
+        const trimmedLines = selectedLines.slice(0, selectedLines.length - drop)
+        const words = wordsForLines(trimmedLines)
+        const firstWord = words[0]
+        const lastTrimmedWord = words[words.length - 1]
+        if (!firstWord || !lastTrimmedWord) break
+        if (lastTrimmedWord.endTime - firstWord.startTime < MIN_CLIP_SECONDS) break
+        if (endsAcceptably(trimmedLines[trimmedLines.length - 1].text)) {
+          return { lines: trimmedLines, droppedLineCount: drop }
+        }
+      }
+    }
+
+    return original
+  }
+
+  /**
    * Find a detected silence adjacent to a boundary word edge. Adjacency is strict:
    * the silence must begin (end boundary) or end (start boundary) within a small
    * window of the word edge, so extending into it can never cross other speech.
@@ -1413,8 +1471,12 @@ class LlmThreadSelectorService {
     }> = []
 
     for (const item of items) {
-      const selectedLines = this.getSelectedLines(timeline.lines, item.evaluation.candidate)
-      const selectedWords = selectedLines.flatMap((line) => wordByLineId.get(line.id) ?? [])
+      const candidateLines = this.getSelectedLines(timeline.lines, item.evaluation.candidate)
+      const wordsForLines = (lines: CanonicalTranscriptLine[]) =>
+        lines.flatMap((line) => wordByLineId.get(line.id) ?? [])
+      const mediaEdgeTrim = this.trimDanglingMediaEdgeEnding(timeline, candidateLines, wordsForLines)
+      const selectedLines = mediaEdgeTrim.lines
+      const selectedWords = wordsForLines(selectedLines)
       const firstWord = selectedWords[0]
       const lastWord = selectedWords[selectedWords.length - 1]
 
@@ -1517,7 +1579,8 @@ class LlmThreadSelectorService {
             : null,
           endCutSilence: endSilence
             ? { start: Number(endSilence.start.toFixed(3)), end: Number(endSilence.end.toFixed(3)) }
-            : null
+            : null,
+          mediaEdgeTrimmedLineCount: mediaEdgeTrim.droppedLineCount
         }
       })
     }
