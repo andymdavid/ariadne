@@ -26,6 +26,25 @@ export interface TranscriptionOptions {
   wordTimestamps?: boolean
 }
 
+// Static whisper decoding arguments. Audio that opens mid-sentence seeds a
+// lowercase/unpunctuated style that conditioning propagates through the whole file,
+// and thought-line building + clip boundary quality depend on punctuation — so keep
+// windows independent and seed the first window with punctuated conversational text.
+const BASE_WHISPER_ARGS = [
+  '--output_format', 'json',
+  '--fp16', 'False', // Better compatibility
+  '--verbose', 'False',
+  '--condition_on_previous_text', 'False',
+  '--initial_prompt', "Okay, welcome back. Let's keep going with the conversation. So, where were we?"
+]
+
+/**
+ * Changes whenever the static whisper invocation changes. Included in the media
+ * transcript cache fingerprint so cached transcripts produced under different
+ * decoding settings are never reused.
+ */
+export const WHISPER_INVOCATION_SIGNATURE = BASE_WHISPER_ARGS.join(' ')
+
 class LocalWhisperService {
   private whisperPath: string = 'whisper'
   
@@ -68,14 +87,8 @@ class LocalWhisperService {
       const args = [
         audioFilePath,
         '--output_dir', tempDir,
-        '--output_format', 'json',
         '--model', options.model || 'turbo',
-        '--fp16', 'False', // Better compatibility
-        '--verbose', 'False',
-        // Audio that opens mid-sentence seeds a lowercase/unpunctuated decoding style
-        // that conditioning propagates through the whole file. Thought-line building
-        // and clip boundary quality depend on punctuation, so keep windows independent.
-        '--condition_on_previous_text', 'False'
+        ...BASE_WHISPER_ARGS
       ]
       
       if (options.language) {
