@@ -1529,7 +1529,7 @@ class LlmThreadSelectorService {
     const selected: CandidateEvaluation[] = []
     for (const evaluation of evaluations) {
       if (!evaluation.clip || selected.length >= limit) continue
-      if (selected.some((accepted) => accepted.clip && this.overlapRatio(accepted.clip, evaluation.clip!) > 0.55)) {
+      if (selected.some((accepted) => accepted.clip && this.clipsDuplicate(accepted.clip, evaluation.clip!))) {
         continue
       }
       selected.push(evaluation)
@@ -1544,7 +1544,7 @@ class LlmThreadSelectorService {
       if (!clip || selected.length >= limit) continue
       if (selected.some((accepted) => (
         accepted.reviewableWithWarningsClip &&
-        this.overlapRatio(accepted.reviewableWithWarningsClip, clip) > 0.55
+        this.clipsDuplicate(accepted.reviewableWithWarningsClip, clip)
       ))) {
         continue
       }
@@ -1553,12 +1553,15 @@ class LlmThreadSelectorService {
     return selected
   }
 
-  private overlapRatio(left: PipelineWorkerPotentialClip, right: PipelineWorkerPotentialClip) {
+  // Two clips duplicate content when they overlap substantially by ratio, or share
+  // more than a few absolute seconds — a shared sentence across two published reels
+  // reads as duplication even when the ratio is small against a long clip.
+  private clipsDuplicate(left: PipelineWorkerPotentialClip, right: PipelineWorkerPotentialClip) {
     const overlapStart = Math.max(left.startTime, right.startTime)
     const overlapEnd = Math.min(left.endTime, right.endTime)
     const overlap = Math.max(0, overlapEnd - overlapStart)
-    if (overlap <= 0) return 0
-    return overlap / Math.min(left.duration, right.duration)
+    if (overlap <= 0) return false
+    return overlap / Math.min(left.duration, right.duration) > 0.55 || overlap > 3
   }
 }
 

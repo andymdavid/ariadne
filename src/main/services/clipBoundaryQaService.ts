@@ -104,8 +104,11 @@ class ClipBoundaryQaService {
       return { clipId, status: 'skipped', head: null, tail: null }
     }
 
-    const expectedFirst = normalizeToken(words[0].word)
-    const expectedLast = normalizeToken(words[words.length - 1].word)
+    // Compare against the two boundary words: the fast QA model regularly mishears
+    // a single word (e.g. "own that" → "own her"), so requiring the exact edge word
+    // alone produces false failures on clean boundaries.
+    const expectedFirst = words.slice(0, 2).map((word) => normalizeToken(word.word))
+    const expectedLast = words.slice(-2).map((word) => normalizeToken(word.word))
 
     const head = await this.checkBoundary(
       mediaPath,
@@ -133,8 +136,9 @@ class ClipBoundaryQaService {
     mediaPath: string,
     windowStart: number,
     boundary: 'head' | 'tail',
-    expectedWord: string
+    expectedWords: string[]
   ): Promise<BoundaryCheck> {
+    const expectedWord = expectedWords[boundary === 'head' ? 0 : expectedWords.length - 1] ?? null
     const tempPath = join(tmpdir(), `ariadne-qa-${randomUUID()}.wav`)
     try {
       await ffmpegService.extractAudioSegment(mediaPath, windowStart, BOUNDARY_WINDOW_SECONDS, tempPath)
@@ -149,35 +153,43 @@ class ClipBoundaryQaService {
           : { status: 'warn', expectedWord, heardWords, reason: 'expected final word but window is silent' }
       }
 
-      if (boundary === 'head') {
-        const matchIndex = heardWords.findIndex((word) => tokensMatch(expectedWord, word))
-        if (matchIndex === -1) {
-          return { status: 'fail', expectedWord, heardWords, reason: 'first expected word not heard — onset likely clipped' }
-        }
-        if (matchIndex > 0) {
-          return {
-            status: 'warn',
-            expectedWord,
-            heardWords,
-            reason: `${matchIndex} word(s) heard before the expected first word — intruding speech at clip start`
-          }
-        }
-        return { status: 'pass', expectedWord, heardWords, reason: 'clip starts on the expected word' }
+      // Count intruding words before/after the expected boundary pair. The edge word
+      // may be misheard as a single other token, so a match on the inner word alone
+      // still anchors the boundary (tolerating one substituted token at the edge).
+      const ordered = boundary === 'head' ? heardWords : [...heardWords].reverse()
+      const edgeWord = boundary === 'head' ? expectedWords[0] : expectedWords[expectedWords.length - 1]
+      const innerWord = expectedWords.length > 1
+        ? (boundary === 'head' ? expectedWords[1] : expectedWords[expectedWords.length - 2])
+        : undefined
+
+      const edgeIndex = ordered.findIndex((word) => tokensMatch(edgeWord, word))
+      const innerIndex = innerWord ? ordered.findIndex((word) => tokensMatch(innerWord, word)) : -1
+
+      let intruders: number | null = null
+      if (edgeIndex >= 0) {
+        intruders = edgeIndex
+      } else if (innerIndex >= 0) {
+        intruders = Math.max(0, innerIndex - 1)
       }
 
-      const lastIndexFromEnd = [...heardWords].reverse().findIndex((word) => tokensMatch(expectedWord, word))
-      if (lastIndexFromEnd === -1) {
-        return { status: 'fail', expectedWord, heardWords, reason: 'last expected word not heard — tail likely clipped' }
+      const side = boundary === 'head' ? 'start' : 'end'
+      if (intruders === null) {
+        return {
+          status: 'fail',
+          expectedWord,
+          heardWords,
+          reason: `boundary words not heard — clip ${side} likely clipped`
+        }
       }
-      if (lastIndexFromEnd > 0) {
+      if (intruders > 0) {
         return {
           status: 'warn',
           expectedWord,
           heardWords,
-          reason: `${lastIndexFromEnd} word(s) heard after the expected last word — intruding speech at clip end`
+          reason: `${intruders} word(s) heard ${boundary === 'head' ? 'before' : 'after'} the expected boundary — intruding speech at clip ${side}`
         }
       }
-      return { status: 'pass', expectedWord, heardWords, reason: 'clip ends on the expected word' }
+      return { status: 'pass', expectedWord, heardWords, reason: `clip ${side}s on the expected words` }
     } finally {
       await fs.unlink(tempPath).catch(() => {})
     }
