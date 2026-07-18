@@ -657,7 +657,9 @@ class AIService {
           content: this.buildThreadDiscoveryPrompt(input)
         }
       ],
-      max_tokens: 5000,
+      // Reasoning models (e.g. Gemini 2.5) spend part of this budget thinking
+      // before the JSON; too tight a cap truncates the candidates array mid-object.
+      max_tokens: 9000,
       temperature: 0.2
     })
 
@@ -1325,6 +1327,19 @@ Return one JSON object only. The first character must be "{" and the last charac
       throw new Error(`Invalid JSON in thread discovery response: ${message}. Preview: ${this.previewResponse(content)}`)
     }
     const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : []
+
+    // A truncated response can parse "successfully" as a fragment (e.g. a single
+    // inner candidate object) that has no candidates array. Zero raw candidates
+    // from a non-trivial response is a parse failure, not an editorial verdict —
+    // fall back to text recovery before concluding the model found nothing.
+    if (rawCandidates.length === 0) {
+      const recovered = this.parseThreadCandidateTextFallback(content, lines)
+      if (recovered && recovered.candidates.length > 0) {
+        recovered.diagnostics.invalidReasons.push('json_missing_candidates_array_text_fallback_used')
+        return recovered
+      }
+    }
+
     const validLineIndexes = new Set(lines.map((line) => line.index))
     const invalidReasons: string[] = []
 
