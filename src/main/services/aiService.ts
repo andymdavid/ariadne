@@ -1459,9 +1459,11 @@ Return one JSON object only. The first character must be "{" and the last charac
   private extractThreadCandidateReasonFromText(block: string) {
     const reason = this.extractLabeledValue(block, /reason|rationale|why/i)
     if (reason) {
-      return reason
+      return reason.replace(/[*_`#]/g, '').trim()
     }
-    return this.previewResponse(block.replace(/\s+/g, ' '), 500)
+    // No labeled reason in the recovered block. The surrounding text is usually
+    // model reasoning prose, which must not become user-visible clip metadata.
+    return 'Recovered from a partially structured model response; original selection rationale unavailable.'
   }
 
   private extractLabeledValue(block: string, labelPattern: RegExp) {
@@ -2740,6 +2742,15 @@ Return JSON only.
     
     console.log('Calling OpenRouter API with model:', payload.model)
 
+    // Every caller parses structured JSON out of message content. Reasoning models
+    // (Gemini 2.5, DeepSeek R1) can interleave thinking prose into the response,
+    // displacing or truncating the JSON — exclude it via OpenRouter's unified
+    // reasoning parameter. Callers may still override with their own reasoning config.
+    const payloadWithDefaults = {
+      reasoning: { exclude: true },
+      ...payload
+    }
+
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 90000)
     let response: Response
@@ -2752,7 +2763,7 @@ Return JSON only.
           'HTTP-Referer': 'https://ariadne.app',
           'X-Title': 'Ariadne'
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payloadWithDefaults),
         signal: controller.signal
       })
     } catch (error) {
