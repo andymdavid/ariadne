@@ -904,13 +904,16 @@ class LlmThreadSelectorService {
   ): { candidate: ThreadCandidateSelection; verification: VerificationResult } | null {
     // Hardness is acoustic: a boundary is a hard handoff when no detected silence
     // sits adjacent to the boundary word. Whisper word gaps cannot answer this.
+    // ENDS ARE NOT POLISH'S JURISDICTION: where a clip ends is the ending
+    // read-back's decision, and polish moving the end after review is exactly how
+    // a reviewed clip shipped with a file-truncated ending. Only the start moves.
     if (timeline.silences.length === 0) return null
     const gaps = this.getLineRangeBoundaryGaps(timeline, candidate.startLineIndex, candidate.endLineIndex)
     if (!gaps) return null
 
     const startIsHard = !this.findAdjacentSilence(timeline.silences, 'start', gaps.firstWord.startTime)
-    const endIsHard = !this.findAdjacentSilence(timeline.silences, 'end', gaps.lastWord.endTime)
-    if (!startIsHard && !endIsHard) return null
+    const endIsHard = false
+    if (!startIsHard) return null
 
     const sortedLines = [...timeline.lines].sort((left, right) => left.index - right.index)
     const startPosition = sortedLines.findIndex((line) => line.index === candidate.startLineIndex)
@@ -944,10 +947,7 @@ class LlmThreadSelectorService {
       const endLineIndex = sortedLines[attempt.endPosition].index
       const attemptGaps = this.getLineRangeBoundaryGaps(timeline, startLineIndex, endLineIndex)
       if (!attemptGaps) continue
-      if (
-        !this.findAdjacentSilence(timeline.silences, 'start', attemptGaps.firstWord.startTime) ||
-        !this.findAdjacentSilence(timeline.silences, 'end', attemptGaps.lastWord.endTime)
-      ) {
+      if (!this.findAdjacentSilence(timeline.silences, 'start', attemptGaps.firstWord.startTime)) {
         continue
       }
 
@@ -988,7 +988,12 @@ class LlmThreadSelectorService {
       reason: `${candidate.reason} Ending read-back contracted the clip to line ${suggested}.`
     }
     let verification = this.verifyCandidate(timeline, transcription, contracted)
-    if (verification.issueClasses.hardMechanicalInvalid.length > 0) return null
+    if (verification.issueClasses.hardMechanicalInvalid.length > 0) {
+      // Leave a trace: a suggested contraction that could not be applied must be
+      // visible in the stored decision, not silently absorbed.
+      candidate.reason = `${candidate.reason} Ending read-back suggested line ${suggested} but the contraction was mechanically invalid (${verification.issueClasses.hardMechanicalInvalid.join(', ')}).`
+      return null
+    }
     if (verification.status !== 'accepted') {
       verification = this.verification(
         'accepted',
@@ -1100,10 +1105,20 @@ class LlmThreadSelectorService {
   private findAdjacentSilence(
     silences: CanonicalSilence[],
     boundary: 'start' | 'end',
-    wordEdge: number
+    wordEdge: number,
+    mediaDuration?: number
   ): CanonicalSilence | null {
     let best: CanonicalSilence | null = null
     for (const silence of silences) {
+      // The fade-out at the end of the recording registers as silence but is not a
+      // pause — treating it as one placed cuts at file-truncated endings.
+      if (
+        boundary === 'end' &&
+        mediaDuration != null &&
+        silence.end > mediaDuration - 0.5
+      ) {
+        continue
+      }
       if (boundary === 'start') {
         if (silence.end < wordEdge - 0.35 || silence.end > wordEdge + 0.15) continue
         if (!best || Math.abs(silence.end - wordEdge) < Math.abs(best.end - wordEdge)) best = silence
@@ -1633,7 +1648,7 @@ class LlmThreadSelectorService {
       const trailingGap = nextWord ? nextWord.startTime - lastWord.endTime : Number.POSITIVE_INFINITY
 
       const startSilence = this.findAdjacentSilence(timeline.silences, 'start', firstWord.startTime)
-      const endSilence = this.findAdjacentSilence(timeline.silences, 'end', lastWord.endTime)
+      const endSilence = this.findAdjacentSilence(timeline.silences, 'end', lastWord.endTime, timeline.mediaDuration)
 
       let startTime: number
       if (startSilence) {
