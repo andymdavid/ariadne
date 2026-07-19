@@ -122,7 +122,12 @@ export type LlmThreadSelectorResult = {
   }
 }
 
+// MIN_CLIP_SECONDS is the editorial TARGET told to the LLM, not a gate: the ending
+// decides, duration guides. A clip a few seconds short with an ending that lands
+// beats a longer one that runs into a broken ending. Only HARD_MIN_CLIP_SECONDS
+// rejects outright — below that a "thought" clip is a fragment.
 const MIN_CLIP_SECONDS = 25
+const HARD_MIN_CLIP_SECONDS = 15
 const MAX_CLIP_SECONDS = 150
 // A boundary with no adjacent detected silence is a "hard handoff": there is no
 // clean place to cut, so we try to move the cut to a nearby pause instead.
@@ -572,7 +577,7 @@ class LlmThreadSelectorService {
     const startTime = startLine.startTime
     const endTime = endLine.endTime
     const duration = Number((endTime - startTime).toFixed(3))
-    if (duration < MIN_CLIP_SECONDS) {
+    if (duration < HARD_MIN_CLIP_SECONDS) {
       issues.push('duration_too_short')
       hardMechanicalInvalid.push('duration_too_short')
     }
@@ -682,7 +687,7 @@ class LlmThreadSelectorService {
     if (verification.status !== 'needs_repair') return false
     if (verification.issueClasses.hardMechanicalInvalid.length > 0) return false
     return verification.duration !== null &&
-      verification.duration >= MIN_CLIP_SECONDS &&
+      verification.duration >= HARD_MIN_CLIP_SECONDS &&
       verification.duration <= MAX_CLIP_SECONDS &&
       verification.issueClasses.semanticRepairNeeded.length > 0
   }
@@ -989,27 +994,10 @@ class LlmThreadSelectorService {
     }
     let verification = this.verifyCandidate(timeline, transcription, contracted)
     if (verification.issueClasses.hardMechanicalInvalid.length > 0) {
-      // A reviewer-chosen ending slightly under the duration floor beats a clip
-      // that runs long into a broken ending — tolerate up to 3s of shortfall.
-      const onlyDurationShort = verification.issueClasses.hardMechanicalInvalid.every(
-        (issue) => issue === 'duration_too_short'
-      )
-      const withinTolerance = (verification.duration ?? 0) >= MIN_CLIP_SECONDS - 3
-      if (!(onlyDurationShort && withinTolerance)) {
-        // Leave a trace: a suggested contraction that could not be applied must be
-        // visible in the stored decision, not silently absorbed.
-        candidate.reason = `${candidate.reason} Ending read-back suggested line ${suggested} but the contraction was mechanically invalid (${verification.issueClasses.hardMechanicalInvalid.join(', ')}).`
-        return null
-      }
-      verification = this.verification(
-        verification.status,
-        verification.startTime,
-        verification.endTime,
-        verification.duration,
-        verification.issues.filter((issue) => issue !== 'duration_too_short'),
-        [],
-        verification.issueClasses.semanticRepairNeeded
-      )
+      // Leave a trace: a suggested contraction that could not be applied must be
+      // visible in the stored decision, not silently absorbed.
+      candidate.reason = `${candidate.reason} Ending read-back suggested line ${suggested} but the contraction was mechanically invalid (${verification.issueClasses.hardMechanicalInvalid.join(', ')}).`
+      return null
     }
     if (verification.status !== 'accepted') {
       verification = this.verification(
@@ -1110,7 +1098,7 @@ class LlmThreadSelectorService {
         const firstWord = words[0]
         const lastTrimmedWord = words[words.length - 1]
         if (!firstWord || !lastTrimmedWord) break
-        if (lastTrimmedWord.endTime - firstWord.startTime < MIN_CLIP_SECONDS) break
+        if (lastTrimmedWord.endTime - firstWord.startTime < HARD_MIN_CLIP_SECONDS) break
         if (endsAcceptably(trimmedLines[trimmedLines.length - 1].text)) {
           return { lines: trimmedLines, droppedLineCount: drop }
         }
@@ -1221,7 +1209,7 @@ class LlmThreadSelectorService {
   ) {
     if (verification.issueClasses.hardMechanicalInvalid.length > 0) return false
     if (verification.startTime === null || verification.endTime === null || verification.duration === null) return false
-    if (verification.duration < MIN_CLIP_SECONDS || verification.duration > MAX_CLIP_SECONDS) return false
+    if (verification.duration < HARD_MIN_CLIP_SECONDS || verification.duration > MAX_CLIP_SECONDS) return false
 
     const hasEndingWarning = verification.issues.includes('lookahead_continues_current_ending')
     const onlySemanticWarnings = verification.issues.every((issue) => (
@@ -1740,12 +1728,10 @@ class LlmThreadSelectorService {
         )
       }
       const duration = Number((endTime - startTime).toFixed(3))
-      // Floor tolerance matches applySuggestedEndContraction: a reviewer-chosen
-      // ending slightly under minimum beats running long into a broken one.
-      if (duration < MIN_CLIP_SECONDS - 3 || duration > MAX_CLIP_SECONDS || endTime <= startTime) {
+      if (duration < HARD_MIN_CLIP_SECONDS || duration > MAX_CLIP_SECONDS || endTime <= startTime) {
         rejected.push({
           evaluation: item.evaluation,
-          reason: duration < MIN_CLIP_SECONDS ? 'mechanical_finalizer_duration_too_short' : 'mechanical_finalizer_duration_too_long',
+          reason: duration < HARD_MIN_CLIP_SECONDS ? 'mechanical_finalizer_duration_too_short' : 'mechanical_finalizer_duration_too_long',
           finalizer: { status: 'rejected', reason: 'duration', startTime, endTime, duration }
         })
         continue
