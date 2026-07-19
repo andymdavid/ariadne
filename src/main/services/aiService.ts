@@ -179,6 +179,8 @@ export interface ThreadCoherenceReview {
   endingJustification?: string | null
   /** When the ending doesn't land, the latest earlier selected line the clip should end on instead. */
   suggestedEndLineIndex?: number | null
+  /** How the response was parsed — 'text_fallback' means the JSON was malformed/truncated and fields may be missing. */
+  parsedVia?: 'json' | 'text_fallback'
 }
 
 export interface TranscriptDataWithWords {
@@ -733,7 +735,8 @@ class AIService {
           content: this.buildThreadRepairPrompt(input)
         }
       ],
-      max_tokens: 1800,
+      // Same truncation class as the coherence review: leave room for hidden thinking.
+      max_tokens: 5000,
       temperature: 0.15
     })
 
@@ -764,7 +767,10 @@ class AIService {
           content: this.buildThreadCoherenceReviewPrompt(input)
         }
       ],
-      max_tokens: 1200,
+      // Reasoning models consume part of this budget thinking (even with reasoning
+      // excluded from the response); 1200 was truncating the JSON mid-field and the
+      // review silently degraded to a keyword-recovery fallback.
+      max_tokens: 6000,
       temperature: 0.1
     })
 
@@ -1295,15 +1301,16 @@ Boundary policy:
 - Treat start warnings as soft when the listener can orient within the first few seconds.
 - Do not reject only because the opening is not a polished hook.
 
-OUTPUT JSON:
+OUTPUT JSON (emit fields in exactly this order — verdict fields first, prose last;
+keep reason to two sentences):
 {
   "status": "accepted",
-  "reason": "Why this is coherent enough or why it is broken.",
-  "fatal_issues": [],
-  "confidence": 0.82,
-  "boundary_warning_status": "soft_start_accepted",
   "suggested_end_line_index": null,
-  "ending_justification": "Ends on \\"...and that's why we own the process.\\" — the claim resolves; the next line starts a new example."
+  "boundary_warning_status": "soft_start_accepted",
+  "confidence": 0.82,
+  "fatal_issues": [],
+  "ending_justification": "Ends on \\"...and that's why we own the process.\\" — the claim resolves; the next line starts a new example.",
+  "reason": "Why this is coherent enough or why it is broken."
 }
 
 SELECTED_LINES:
@@ -1654,7 +1661,8 @@ Return one JSON object only. The first character must be "{" and the last charac
         const raw = parsed.suggested_end_line_index ?? parsed.suggestedEndLineIndex
         const value = Number(raw)
         return raw == null || !Number.isFinite(value) ? null : value
-      })()
+      })(),
+      parsedVia: 'json'
     }
   }
 
@@ -1675,6 +1683,8 @@ Return one JSON object only. The first character must be "{" and the last charac
 
     const reasonMatch = normalized.match(/["']?reason["']?\s*[:=]\s*["']([^"']{1,1200})/i)
     const confidenceMatch = normalized.match(/["']?confidence["']?\s*[:=]\s*([01](?:\.\d+)?|\.\d+)/i)
+    const suggestedEndMatch = normalized.match(/["']?suggested[_\s-]*end[_\s-]*line[_\s-]*index["']?\s*[:=]\s*(\d+)/i)
+    const endingJustificationMatch = normalized.match(/["']?ending[_\s-]*justification["']?\s*[:=]\s*["']([^"']{1,600})/i)
     const fatalIssuesMatch = normalized.match(/["']?fatal[_\s-]*issues["']?\s*[:=]\s*\[([^\]]*)\]/i)
     const fatalIssues = fatalIssuesMatch
       ? fatalIssuesMatch[1]
@@ -1689,7 +1699,9 @@ Return one JSON object only. The first character must be "{" and the last charac
       fatalIssues,
       confidence: confidenceMatch ? Math.max(0, Math.min(1, Number(confidenceMatch[1]))) : 0.5,
       boundaryWarningStatus: undefined,
-      endingJustification: null
+      endingJustification: endingJustificationMatch?.[1]?.trim() ?? null,
+      suggestedEndLineIndex: suggestedEndMatch ? Number(suggestedEndMatch[1]) : null,
+      parsedVia: 'text_fallback'
     }
   }
 
