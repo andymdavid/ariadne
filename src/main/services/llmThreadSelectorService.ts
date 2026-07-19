@@ -989,10 +989,27 @@ class LlmThreadSelectorService {
     }
     let verification = this.verifyCandidate(timeline, transcription, contracted)
     if (verification.issueClasses.hardMechanicalInvalid.length > 0) {
-      // Leave a trace: a suggested contraction that could not be applied must be
-      // visible in the stored decision, not silently absorbed.
-      candidate.reason = `${candidate.reason} Ending read-back suggested line ${suggested} but the contraction was mechanically invalid (${verification.issueClasses.hardMechanicalInvalid.join(', ')}).`
-      return null
+      // A reviewer-chosen ending slightly under the duration floor beats a clip
+      // that runs long into a broken ending — tolerate up to 3s of shortfall.
+      const onlyDurationShort = verification.issueClasses.hardMechanicalInvalid.every(
+        (issue) => issue === 'duration_too_short'
+      )
+      const withinTolerance = (verification.duration ?? 0) >= MIN_CLIP_SECONDS - 3
+      if (!(onlyDurationShort && withinTolerance)) {
+        // Leave a trace: a suggested contraction that could not be applied must be
+        // visible in the stored decision, not silently absorbed.
+        candidate.reason = `${candidate.reason} Ending read-back suggested line ${suggested} but the contraction was mechanically invalid (${verification.issueClasses.hardMechanicalInvalid.join(', ')}).`
+        return null
+      }
+      verification = this.verification(
+        verification.status,
+        verification.startTime,
+        verification.endTime,
+        verification.duration,
+        verification.issues.filter((issue) => issue !== 'duration_too_short'),
+        [],
+        verification.issueClasses.semanticRepairNeeded
+      )
     }
     if (verification.status !== 'accepted') {
       verification = this.verification(
@@ -1625,7 +1642,36 @@ class LlmThreadSelectorService {
         lines.flatMap((line) => wordByLineId.get(line.id) ?? [])
       const mediaEdgeTrim = this.trimDanglingMediaEdgeEnding(timeline, candidateLines, wordsForLines)
       const selectedLines = mediaEdgeTrim.lines
-      const selectedWords = wordsForLines(selectedLines)
+      let selectedWords = wordsForLines(selectedLines)
+
+      // Word-aware ending repair. Lines in unpunctuated stretches split sentences,
+      // so a line-granular ending can dangle ("...the processes that |") while the
+      // sentence completes a few words into the next line. Word tokens carry
+      // punctuation, so: extend the cut to a nearby sentence end when one exists,
+      // else walk back whole lines to a non-dangling ending, else ship faded.
+      let endExtendedWordCount = 0
+      let endWalkBackLineCount = 0
+      const lastSelectedLine = selectedLines[selectedLines.length - 1]
+      if (lastSelectedLine && endsWithDanglingPhrase(lastSelectedLine.text)) {
+        const nextLine = timeline.lines.find((line) => line.index === lastSelectedLine.index + 1)
+        const nextLineWords = nextLine ? wordByLineId.get(nextLine.id) ?? [] : []
+        const completionIndex = nextLineWords
+          .slice(0, 8)
+          .findIndex((word) => /[.!?]["')\]]?$/.test(word.word))
+        if (completionIndex >= 0) {
+          selectedWords = [...selectedWords, ...nextLineWords.slice(0, completionIndex + 1)]
+          endExtendedWordCount = completionIndex + 1
+        } else {
+          const walkBack = this.trimDanglingMediaEdgeEnding(timeline, selectedLines, wordsForLines, {
+            requireMediaEdge: false
+          })
+          if (walkBack.droppedLineCount > 0) {
+            selectedWords = wordsForLines(walkBack.lines)
+            endWalkBackLineCount = walkBack.droppedLineCount
+          }
+        }
+      }
+
       const firstWord = selectedWords[0]
       const lastWord = selectedWords[selectedWords.length - 1]
 
@@ -1694,7 +1740,9 @@ class LlmThreadSelectorService {
         )
       }
       const duration = Number((endTime - startTime).toFixed(3))
-      if (duration < MIN_CLIP_SECONDS || duration > MAX_CLIP_SECONDS || endTime <= startTime) {
+      // Floor tolerance matches applySuggestedEndContraction: a reviewer-chosen
+      // ending slightly under minimum beats running long into a broken one.
+      if (duration < MIN_CLIP_SECONDS - 3 || duration > MAX_CLIP_SECONDS || endTime <= startTime) {
         rejected.push({
           evaluation: item.evaluation,
           reason: duration < MIN_CLIP_SECONDS ? 'mechanical_finalizer_duration_too_short' : 'mechanical_finalizer_duration_too_long',
@@ -1729,7 +1777,9 @@ class LlmThreadSelectorService {
           endCutSilence: endSilence
             ? { start: Number(endSilence.start.toFixed(3)), end: Number(endSilence.end.toFixed(3)) }
             : null,
-          mediaEdgeTrimmedLineCount: mediaEdgeTrim.droppedLineCount
+          mediaEdgeTrimmedLineCount: mediaEdgeTrim.droppedLineCount,
+          endExtendedWordCount,
+          endWalkBackLineCount
         }
       })
     }

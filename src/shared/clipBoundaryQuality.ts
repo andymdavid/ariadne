@@ -79,6 +79,8 @@ export const endsWithDanglingPhrase = (text: string) => {
     /\b(i|we|you|they|he|she|it|that|there|this|who)'(ll|re|ve|d|m)\s*$/.test(normalized) ||
     /\b(i|we|you|they|he|she|it)\s+(just|really|actually|basically|only|always|never|also)\s*$/.test(normalized) ||
     /\b(just|really|basically|actually|literally|even)\s*$/.test(normalized) ||
+    // Trailing filler "like" — but not clause-final "looks/feels/sounds/seems like"
+    /(?<!\b(?:looks?|feels?|sounds?|seems?)\s)\blike\s*$/.test(normalized) ||
     /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/.test(normalized) ||
     /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
     /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized) ||
