@@ -77,6 +77,8 @@ export const endsWithDanglingPhrase = (text: string) => {
     /\b(therefore|and so|so then|which means|that means|this means)\s*$/.test(normalized) ||
     /\b(that'?s|there'?s|it'?s|what'?s|who'?s|where'?s|when'?s|why'?s|how'?s)\s*$/.test(normalized) ||
     /\b(i|we|you|they|he|she|it|that|there|this|who)'(ll|re|ve|d|m)\s*$/.test(normalized) ||
+    /\b(i|we|you|they|he|she|it)\s+(just|really|actually|basically|only|always|never|also)\s*$/.test(normalized) ||
+    /\b(just|really|basically|actually|literally|even)\s*$/.test(normalized) ||
     /\b(a|an|the|my|your|our|their|his|her|its|this|that|these|those|some|any|each|every|no)\s*$/.test(normalized) ||
     /\b(it'?s like|kind of|sort of|you know|i mean|going to|want to|have to|need to|trying to)\s*$/.test(normalized) ||
     /\b(is|are|was|were|been|being|have|has|had|do|does|did|will|would|could|should|might|must|can)\s*$/.test(normalized) ||

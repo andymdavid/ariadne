@@ -39,6 +39,11 @@ source media file
         candidate gets an ending read-back: an LLM reads the selected lines as the
         clip's literal final words and either accepts, contracts the end to the
         latest line that lands (suggested_end_line_index), or ships it flagged.
+        THE REVIEWER IS NOT THE LAST LINE OF DEFENSE: it has approved endings like
+        "...you know and i just" while quoting them verbatim. Objectively dangling
+        endings are vetoed mechanically (endsWithDanglingPhrase) and contracted
+        BEFORE review — the reviewer chooses among defensible endings; it does not
+        get to bless indefensible ones.
         Media-edge trims run BEFORE the read-back so the reviewed ending is the
         shipped ending. Silence then only micro-places the cut:
         finalizeMechanicalClips cuts inside the silence adjacent to the boundary

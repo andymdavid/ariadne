@@ -370,12 +370,12 @@ class LlmThreadSelectorService {
         }
       }
 
-      // Media-edge contraction happens BEFORE any read-back so the ending the
+      // Dangling-ending contraction happens BEFORE any read-back so the ending the
       // reviewer reads is the ending that ships.
-      const edgeTrim = this.applyCandidateMediaEdgeTrim(input.timeline, input.transcription, currentCandidate)
-      if (edgeTrim) {
-        currentCandidate = edgeTrim.candidate
-        verification = edgeTrim.verification
+      const danglingTrim = this.applyCandidateDanglingEndingTrim(input.timeline, input.transcription, currentCandidate)
+      if (danglingTrim) {
+        currentCandidate = danglingTrim.candidate
+        verification = danglingTrim.verification
       }
 
       if (this.canAskModelToConfirmCoherence(verification)) {
@@ -1009,11 +1009,14 @@ class LlmThreadSelectorService {
   }
 
   /**
-   * Candidate-level media-edge contraction, applied before any read-back so the
-   * ending the reviewer reads is the ending that ships. The word-level trim in the
-   * finalizer remains as a safety net for salvage paths that bypass review.
+   * Candidate-level dangling-ending contraction, applied before any read-back so
+   * the ending the reviewer reads is the ending that ships. Applies to ANY
+   * candidate whose final line is objectively dangling ("...and i just"), not only
+   * file-truncated ones — the LLM reviewer has approved such endings, so the
+   * mechanical check holds veto power. The word-level trim in the finalizer
+   * remains as a safety net for salvage paths that bypass review.
    */
-  private applyCandidateMediaEdgeTrim(
+  private applyCandidateDanglingEndingTrim(
     timeline: CanonicalConversationalTimeline,
     transcription: PipelineWorkerTranscription,
     candidate: ThreadCandidateSelection
@@ -1028,7 +1031,9 @@ class LlmThreadSelectorService {
     const wordsForLines = (lines: CanonicalTranscriptLine[]) =>
       lines.flatMap((line) => wordByLineId.get(line.id) ?? [])
 
-    const trim = this.trimDanglingMediaEdgeEnding(timeline, selectedLines, wordsForLines)
+    const trim = this.trimDanglingMediaEdgeEnding(timeline, selectedLines, wordsForLines, {
+      requireMediaEdge: false
+    })
     if (trim.droppedLineCount === 0) return null
 
     const endLineIndex = trim.lines[trim.lines.length - 1]?.index
@@ -1037,7 +1042,7 @@ class LlmThreadSelectorService {
     const contracted: ThreadCandidateSelection = {
       ...candidate,
       endLineIndex,
-      reason: `${candidate.reason} Media-edge trim dropped ${trim.droppedLineCount} trailing line(s) truncated by the recording.`
+      reason: `${candidate.reason} Dangling-ending trim dropped ${trim.droppedLineCount} trailing line(s).`
     }
     const verification = this.verifyCandidate(timeline, transcription, contracted)
     if (verification.issueClasses.hardMechanicalInvalid.length > 0) return null
@@ -1056,7 +1061,8 @@ class LlmThreadSelectorService {
   private trimDanglingMediaEdgeEnding(
     timeline: CanonicalConversationalTimeline,
     selectedLines: CanonicalTranscriptLine[],
-    wordsForLines: (lines: CanonicalTranscriptLine[]) => CanonicalTimedWord[]
+    wordsForLines: (lines: CanonicalTranscriptLine[]) => CanonicalTimedWord[],
+    options: { requireMediaEdge?: boolean } = {}
   ): { lines: CanonicalTranscriptLine[]; droppedLineCount: number } {
     const MAX_DROPPED_LINES = 3
     const original = { lines: selectedLines, droppedLineCount: 0 }
@@ -1064,7 +1070,7 @@ class LlmThreadSelectorService {
     const allWords = wordsForLines(selectedLines)
     const lastWord = allWords[allWords.length - 1]
     if (!lastWord) return original
-    if (timeline.mediaDuration - lastWord.endTime > 2) return original
+    if ((options.requireMediaEdge ?? true) && timeline.mediaDuration - lastWord.endTime > 2) return original
 
     // Only intervene when the file-truncated ending is actually dangling.
     const lastLineText = selectedLines[selectedLines.length - 1]?.text ?? ''
