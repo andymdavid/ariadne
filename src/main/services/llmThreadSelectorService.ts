@@ -8,7 +8,8 @@ import {
 import {
   endsWithDanglingPhrase,
   endsWithTerminalPunctuation,
-  looksLikeCompleteThought
+  looksLikeCompleteThought,
+  startsLikeContinuation
 } from '../../shared/clipBoundaryQuality'
 import AIService, { AIServiceError } from './aiService'
 import type {
@@ -1629,7 +1630,33 @@ class LlmThreadSelectorService {
       const wordsForLines = (lines: CanonicalTranscriptLine[]) =>
         lines.flatMap((line) => wordByLineId.get(line.id) ?? [])
       const mediaEdgeTrim = this.trimDanglingMediaEdgeEnding(timeline, candidateLines, wordsForLines)
-      const selectedLines = mediaEdgeTrim.lines
+      let selectedLines = mediaEdgeTrim.lines
+
+      // Start-side media-edge repair: a clip that begins at the recording's own
+      // truncated opening cannot extend earlier for context, so walk FORWARD to
+      // the first line that opens cleanly. Starts are mechanical jurisdiction
+      // (the read-back owns endings), so this runs without review.
+      let startWalkForwardLineCount = 0
+      {
+        const firstLineWords = selectedLines[0] ? wordByLineId.get(selectedLines[0].id) ?? [] : []
+        const startsAtMediaEdge = firstLineWords[0] ? firstLineWords[0].startTime <= 2 : false
+        while (
+          startsAtMediaEdge &&
+          startWalkForwardLineCount < 3 &&
+          selectedLines.length > 1 &&
+          startsLikeContinuation(selectedLines[0].text)
+        ) {
+          const advanced = selectedLines.slice(1)
+          const words = wordsForLines(advanced)
+          const firstAdvanced = words[0]
+          const lastAdvanced = words[words.length - 1]
+          if (!firstAdvanced || !lastAdvanced) break
+          if (lastAdvanced.endTime - firstAdvanced.startTime < HARD_MIN_CLIP_SECONDS) break
+          selectedLines = advanced
+          startWalkForwardLineCount += 1
+        }
+      }
+
       let selectedWords = wordsForLines(selectedLines)
 
       // Word-aware ending repair. Lines in unpunctuated stretches split sentences,
@@ -1765,7 +1792,8 @@ class LlmThreadSelectorService {
             : null,
           mediaEdgeTrimmedLineCount: mediaEdgeTrim.droppedLineCount,
           endExtendedWordCount,
-          endWalkBackLineCount
+          endWalkBackLineCount,
+          startWalkForwardLineCount
         }
       })
     }
