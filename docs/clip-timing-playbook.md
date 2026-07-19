@@ -24,6 +24,13 @@ source media file
     punctuation-free style that propagates through the whole file, and punctuation
     is what thought-line building depends on. Files >20MB split at silences near
     the 10-minute marks (never exactly on them — hard splits cut words in half).
+  → punctuation restoration (transcriptPunctuationService, LLM pass): decorates the
+    word-token stream with punctuation and case; every restored line is validated
+    token-by-token against the original and kept raw on any word change, so the
+    model can decorate tokens but never alter them. Word timing untouched. Part of
+    the cache fingerprint (TRANSCRIPT_ENRICHMENT_SIGNATURE). Everything downstream
+    — thought lines, dangling veto, ending repairs, read-back quotes, captions —
+    reads the decorated tokens automatically.
   → silence map (ffmpegService.detectSilences, −26dB / 0.12s): the acoustic truth
     about pauses. Whisper words are contiguous by construction and absorb real
     pauses into word spans, so cut placement must consult silences, not word gaps.

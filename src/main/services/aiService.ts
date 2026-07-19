@@ -332,6 +332,54 @@ class AIService {
     throw new Error('Unexpected error in AI analysis retry loop')
   }
 
+  /**
+   * Restore punctuation and capitalization to a batch of transcript lines.
+   * The model must not change, merge, or split any token — callers validate this
+   * mechanically and discard any line where the word stream changed.
+   */
+  async restorePunctuationBatch(
+    lines: Array<{ index: number; text: string }>
+  ): Promise<Record<number, string>> {
+    if (lines.length === 0) return {}
+
+    const numbered = lines.map((line) => `${line.index}: ${line.text}`).join('\n')
+    const response = await this.callOpenRouter({
+      model: this.getModelId(this.config.model),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You restore punctuation and capitalization to raw speech-to-text transcript lines.',
+            'Rules: never change, add, remove, merge, or split any word — only attach punctuation to existing words and adjust letter case.',
+            'Keep every line separate with its original number. Do not move text between lines; a line may end mid-sentence.',
+            'Return one JSON object only: {"lines": {"<number>": "<punctuated text>", ...}}. No Markdown, no prose.'
+          ].join(' ')
+        },
+        {
+          role: 'user',
+          content: `Restore punctuation and capitalization:\n\n${numbered}`
+        }
+      ],
+      max_tokens: 8000,
+      temperature: 0
+    })
+
+    const jsonString = this.extractThreadJSON(response.content)
+    if (!jsonString) {
+      throw new Error(`No JSON in punctuation restoration response. Preview: ${this.previewResponse(response.content)}`)
+    }
+    const parsed = JSON.parse(jsonString)
+    const rawLines = parsed?.lines && typeof parsed.lines === 'object' ? parsed.lines : parsed
+    const result: Record<number, string> = {}
+    for (const [key, value] of Object.entries(rawLines ?? {})) {
+      const index = Number(key)
+      if (Number.isFinite(index) && typeof value === 'string' && value.trim()) {
+        result[index] = value.trim()
+      }
+    }
+    return result
+  }
+
   async structureTranscriptForEditing(
     transcriptData: TranscriptDataWithWords,
     semanticGuide?: ThreadSemanticGuide | null,

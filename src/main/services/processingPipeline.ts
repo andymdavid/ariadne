@@ -9,6 +9,7 @@ import { pipelineWorkerSupervisor } from './pipelineWorkerSupervisor'
 import { workflowReadModel } from './workflowReadModel'
 import { canonicalTimelineService } from './canonicalTimelineService'
 import { WHISPER_INVOCATION_SIGNATURE } from './localWhisperService'
+import { TRANSCRIPT_ENRICHMENT_SIGNATURE } from './transcriptPunctuationService'
 import { clipBoundaryQaService } from './clipBoundaryQaService'
 import { clipProjectionService } from './clipProjectionService'
 import type {
@@ -910,6 +911,9 @@ class ProcessingPipeline {
       // Decoding settings are part of transcript identity — a cached transcript
       // produced under different whisper arguments must never be reused.
       .update(WHISPER_INVOCATION_SIGNATURE)
+      .update('|')
+      // Enrichment (punctuation restoration) is likewise part of transcript identity.
+      .update(TRANSCRIPT_ENRICHMENT_SIGNATURE)
       .digest('hex')
 
     return {

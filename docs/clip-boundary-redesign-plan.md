@@ -85,6 +85,15 @@ words are complete words matching the expected transcript, and no foreign
 and surface it in review UI. Cheap, mechanical, and would have caught every defect in
 this saga automatically.
 
+### 4a. Punctuation restoration (implemented 2026-07-19)
+
+An LLM pass decorates the Whisper word-token stream with punctuation and
+capitalization (`transcriptPunctuationService`), token-validated so words can never
+change. This lifts thought-line quality, the dangling-ending heuristics, read-back
+quotes, and captions without new dependencies — chosen over immediate whisperx
+adoption because the local environment (Python 3.14) makes alignment installation
+non-trivial and punctuation was the binding constraint.
+
 ### 4. Speaker turns (bigger lift, unlocks the real editorial rule)
 
 Local-first diarization options: sherpa-onnx speaker segmentation (CPU, bundleable),

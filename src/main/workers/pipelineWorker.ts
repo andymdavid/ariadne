@@ -13,6 +13,7 @@ import type { FinalClipValidationResult } from '../services/finalClipValidationS
 import { ffmpegService } from '../services/ffmpegService'
 import { llmThreadSelectorService } from '../services/llmThreadSelectorService'
 import LocalWhisperService from '../services/localWhisperService'
+import { transcriptPunctuationService } from '../services/transcriptPunctuationService'
 import type { AudioChunk } from '../services/clipSelectionTypes'
 import type {
   CanonicalConversationalTimeline
@@ -1610,6 +1611,26 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
 
     transcriptTimingQuality = assessTranscriptTimingQuality(transcription)
 
+    // Punctuation restoration: conversational Whisper output is sparsely
+    // punctuated, which starves thought-line building and every ending heuristic.
+    // Failure at any level keeps the raw transcript — never worse than today.
+    let punctuationRestoration: Record<string, unknown> = { attempted: false, reason: 'no_api_key' }
+    if (aiService) {
+      postProgress(command.workflowJobId, currentStage, 97, 'Restoring transcript punctuation...')
+      try {
+        const restored = await transcriptPunctuationService.restorePunctuation(transcription, aiService)
+        transcription = restored.transcription
+        punctuationRestoration = { attempted: true, ...restored.diagnostics }
+      } catch (error) {
+        punctuationRestoration = {
+          attempted: true,
+          failed: true,
+          reason: error instanceof Error ? error.message : 'unknown'
+        }
+        console.warn('Punctuation restoration failed, using raw transcript', error)
+      }
+    }
+
     await ensureSilences()
 
     postStageCompleted(command.workflowJobId, currentStage, {
@@ -1623,7 +1644,8 @@ async function runPipeline(command: StartPipelineWorkerCommand) {
         wordTimestamps: true,
         chunked: audioStats.size > maxSize,
         transcriptTimingQuality,
-        detectedSilenceCount: detectedSilences.length
+        detectedSilenceCount: detectedSilences.length,
+        punctuationRestoration
       },
       transcription
     })
